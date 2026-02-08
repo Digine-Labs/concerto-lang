@@ -75,9 +75,7 @@ impl Parser {
         self.advance(); // consume 'break'
 
         // Optional value expression (for loop expressions)
-        let value = if self.peek() != TokenKind::Semicolon
-            && self.peek() != TokenKind::RightBrace
-        {
+        let value = if self.peek() != TokenKind::Semicolon && self.peek() != TokenKind::RightBrace {
             Some(self.parse_expression()?)
         } else {
             None
@@ -101,10 +99,7 @@ impl Parser {
         self.expect(TokenKind::Semicolon)?;
         let span = start.merge(&self.previous_span());
 
-        Some(Stmt::Continue(ContinueStmt {
-            label: None,
-            span,
-        }))
+        Some(Stmt::Continue(ContinueStmt { label: None, span }))
     }
 
     /// Parse `throw expr;`
@@ -146,8 +141,11 @@ impl Parser {
         while self.peek() != TokenKind::RightBrace && !self.is_at_end() {
             match self.peek() {
                 // Statement keywords
-                TokenKind::Let | TokenKind::Return | TokenKind::Break
-                | TokenKind::Continue | TokenKind::Throw => {
+                TokenKind::Let
+                | TokenKind::Return
+                | TokenKind::Break
+                | TokenKind::Continue
+                | TokenKind::Throw => {
                     if let Some(stmt) = self.parse_statement() {
                         stmts.push(stmt);
                     } else {

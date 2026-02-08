@@ -22,9 +22,9 @@ pub fn call(name: &str, args: Vec<Value>) -> Result<Value> {
 }
 
 fn expect_numeric(args: &[Value], idx: usize, fn_name: &str) -> Result<Value> {
-    args.get(idx)
-        .cloned()
-        .ok_or_else(|| RuntimeError::TypeError(format!("std::math::{} missing argument {}", fn_name, idx)))
+    args.get(idx).cloned().ok_or_else(|| {
+        RuntimeError::TypeError(format!("std::math::{} missing argument {}", fn_name, idx))
+    })
 }
 
 fn to_f64(v: &Value, fn_name: &str) -> Result<f64> {
@@ -191,23 +191,36 @@ mod tests {
 
     #[test]
     fn abs_float() {
-        assert_eq!(call("abs", vec![Value::Float(-3.14)]).unwrap(), Value::Float(3.14));
+        assert_eq!(
+            call("abs", vec![Value::Float(-3.14)]).unwrap(),
+            Value::Float(3.14)
+        );
     }
 
     #[test]
     fn min_int() {
-        assert_eq!(call("min", vec![Value::Int(3), Value::Int(7)]).unwrap(), Value::Int(3));
+        assert_eq!(
+            call("min", vec![Value::Int(3), Value::Int(7)]).unwrap(),
+            Value::Int(3)
+        );
     }
 
     #[test]
     fn max_int() {
-        assert_eq!(call("max", vec![Value::Int(3), Value::Int(7)]).unwrap(), Value::Int(7));
+        assert_eq!(
+            call("max", vec![Value::Int(3), Value::Int(7)]).unwrap(),
+            Value::Int(7)
+        );
     }
 
     #[test]
     fn clamp_in_range() {
         assert_eq!(
-            call("clamp", vec![Value::Int(50), Value::Int(0), Value::Int(100)]).unwrap(),
+            call(
+                "clamp",
+                vec![Value::Int(50), Value::Int(0), Value::Int(100)]
+            )
+            .unwrap(),
             Value::Int(50)
         );
     }
@@ -215,7 +228,11 @@ mod tests {
     #[test]
     fn clamp_below() {
         assert_eq!(
-            call("clamp", vec![Value::Int(-10), Value::Int(0), Value::Int(100)]).unwrap(),
+            call(
+                "clamp",
+                vec![Value::Int(-10), Value::Int(0), Value::Int(100)]
+            )
+            .unwrap(),
             Value::Int(0)
         );
     }
@@ -223,36 +240,61 @@ mod tests {
     #[test]
     fn clamp_above() {
         assert_eq!(
-            call("clamp", vec![Value::Int(150), Value::Int(0), Value::Int(100)]).unwrap(),
+            call(
+                "clamp",
+                vec![Value::Int(150), Value::Int(0), Value::Int(100)]
+            )
+            .unwrap(),
             Value::Int(100)
         );
     }
 
     #[test]
     fn round_value() {
-        assert_eq!(call("round", vec![Value::Float(3.7)]).unwrap(), Value::Int(4));
-        assert_eq!(call("round", vec![Value::Float(3.2)]).unwrap(), Value::Int(3));
+        assert_eq!(
+            call("round", vec![Value::Float(3.7)]).unwrap(),
+            Value::Int(4)
+        );
+        assert_eq!(
+            call("round", vec![Value::Float(3.2)]).unwrap(),
+            Value::Int(3)
+        );
     }
 
     #[test]
     fn floor_value() {
-        assert_eq!(call("floor", vec![Value::Float(3.7)]).unwrap(), Value::Int(3));
+        assert_eq!(
+            call("floor", vec![Value::Float(3.7)]).unwrap(),
+            Value::Int(3)
+        );
     }
 
     #[test]
     fn ceil_value() {
-        assert_eq!(call("ceil", vec![Value::Float(3.2)]).unwrap(), Value::Int(4));
+        assert_eq!(
+            call("ceil", vec![Value::Float(3.2)]).unwrap(),
+            Value::Int(4)
+        );
     }
 
     #[test]
     fn pow_int() {
-        assert_eq!(call("pow", vec![Value::Int(2), Value::Int(10)]).unwrap(), Value::Int(1024));
+        assert_eq!(
+            call("pow", vec![Value::Int(2), Value::Int(10)]).unwrap(),
+            Value::Int(1024)
+        );
     }
 
     #[test]
     fn sqrt_value() {
-        assert_eq!(call("sqrt", vec![Value::Float(16.0)]).unwrap(), Value::Float(4.0));
-        assert_eq!(call("sqrt", vec![Value::Int(9)]).unwrap(), Value::Float(3.0));
+        assert_eq!(
+            call("sqrt", vec![Value::Float(16.0)]).unwrap(),
+            Value::Float(4.0)
+        );
+        assert_eq!(
+            call("sqrt", vec![Value::Int(9)]).unwrap(),
+            Value::Float(3.0)
+        );
     }
 
     #[test]

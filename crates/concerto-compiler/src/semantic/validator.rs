@@ -54,10 +54,7 @@ impl Validator {
         for param in &func.params {
             if param.type_ann.is_none() {
                 self.diagnostics.error(
-                    format!(
-                        "parameter `{}` is missing a type annotation",
-                        param.name
-                    ),
+                    format!("parameter `{}` is missing a type annotation", param.name),
                     param.span.clone(),
                 );
             }
@@ -73,7 +70,9 @@ impl Validator {
                     agent.name
                 ))
                 .with_span(agent.span.clone())
-                .with_suggestion("add a 'provider: <connection>' field referencing a connect block"),
+                .with_suggestion(
+                    "add a 'provider: <connection>' field referencing a connect block",
+                ),
             );
         }
     }
@@ -143,10 +142,7 @@ impl Validator {
         for field in &s.fields {
             if !seen.insert(&field.name) {
                 self.diagnostics.error(
-                    format!(
-                        "duplicate field `{}` in struct `{}`",
-                        field.name, s.name
-                    ),
+                    format!("duplicate field `{}` in struct `{}`", field.name, s.name),
                     field.span.clone(),
                 );
             }
@@ -217,10 +213,7 @@ mod tests {
     #[test]
     fn function_param_missing_type() {
         let errs = val_errors("fn foo(x) { }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("missing a type annotation"))
-        );
+        assert!(errs.iter().any(|e| e.contains("missing a type annotation")));
     }
 
     #[test]
@@ -238,7 +231,9 @@ mod tests {
             }
             "#,
         );
-        assert!(errs.iter().any(|e| e.contains("missing required field `provider`")));
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("missing required field `provider`")));
     }
 
     #[test]
@@ -263,10 +258,9 @@ mod tests {
             }
             "#,
         );
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("missing required field `description`"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("missing required field `description`")));
     }
 
     #[test]
@@ -279,10 +273,9 @@ mod tests {
             }
             "#,
         );
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("requires a @describe decorator"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("requires a @describe decorator")));
     }
 
     #[test]

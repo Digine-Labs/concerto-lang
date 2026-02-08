@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use concerto_common::ir::IrConnection;
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 
 // ============================================================================
 // LLM Provider trait and types
@@ -217,9 +217,7 @@ fn create_provider(conn: &IrConnection) -> Result<Box<dyn LlmProvider>> {
         .map(String::from)
         .unwrap_or_else(|| {
             if conn.name == "anthropic"
-                || base_url
-                    .as_deref()
-                    .is_some_and(|u| u.contains("anthropic"))
+                || base_url.as_deref().is_some_and(|u| u.contains("anthropic"))
             {
                 "anthropic".to_string()
             } else {
@@ -230,12 +228,10 @@ fn create_provider(conn: &IrConnection) -> Result<Box<dyn LlmProvider>> {
     // Ollama and local providers don't need an API key
     if provider_type == "ollama" {
         let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
-        return Ok(Box::new(
-            crate::providers::openai::OpenAiProvider::new(
-                "ollama".to_string(),
-                Some(format!("{}/v1", url)),
-            ),
-        ));
+        return Ok(Box::new(crate::providers::openai::OpenAiProvider::new(
+            "ollama".to_string(),
+            Some(format!("{}/v1", url)),
+        )));
     }
 
     // Try to resolve API key (may be env("VAR"), direct string, or api_key_env)
@@ -250,9 +246,9 @@ fn create_provider(conn: &IrConnection) -> Result<Box<dyn LlmProvider>> {
         )),
         _ => {
             // Default to OpenAI-compatible (covers "openai", "groq", etc.)
-            Ok(Box::new(
-                crate::providers::openai::OpenAiProvider::new(api_key, base_url),
-            ))
+            Ok(Box::new(crate::providers::openai::OpenAiProvider::new(
+                api_key, base_url,
+            )))
         }
     }
 }
@@ -281,12 +277,13 @@ fn resolve_api_key(config: &serde_json::Value) -> Result<String> {
 
     // Try api_key_env field (Concerto.toml format)
     if let Some(env_var) = config.get("api_key_env").and_then(|v| v.as_str()) {
-        return std::env::var(env_var).map_err(|_| {
-            RuntimeError::CallError(format!("env var '{}' not set", env_var))
-        });
+        return std::env::var(env_var)
+            .map_err(|_| RuntimeError::CallError(format!("env var '{}' not set", env_var)));
     }
 
-    Err(RuntimeError::CallError("no api_key in connection config".into()))
+    Err(RuntimeError::CallError(
+        "no api_key in connection config".into(),
+    ))
 }
 
 // ============================================================================

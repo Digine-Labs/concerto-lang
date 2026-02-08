@@ -469,10 +469,7 @@ pub enum PatternKind {
     Or(Vec<Pattern>),
 
     /// Binding with pattern: `n @ 1..=5`
-    Binding {
-        name: String,
-        pattern: Box<Pattern>,
-    },
+    Binding { name: String, pattern: Box<Pattern> },
 
     /// Range pattern: `1..=5` (only in match)
     Range {
@@ -621,16 +618,10 @@ pub enum ExprKind {
     },
 
     /// Unary operation: `-x`, `!flag`
-    Unary {
-        op: UnaryOp,
-        operand: Box<Expr>,
-    },
+    Unary { op: UnaryOp, operand: Box<Expr> },
 
     /// Function or method call: `foo(a, b)`, `emit("ch", val)`
-    Call {
-        callee: Box<Expr>,
-        args: Vec<Expr>,
-    },
+    Call { callee: Box<Expr>, args: Vec<Expr> },
 
     /// `if condition { then } else { else }`
     If {
@@ -650,10 +641,7 @@ pub enum ExprKind {
     },
 
     /// Field access: `obj.field`
-    FieldAccess {
-        object: Box<Expr>,
-        field: String,
-    },
+    FieldAccess { object: Box<Expr>, field: String },
 
     /// Method call: `obj.method(args)` or `obj.method<Type>(args)`
     MethodCall {
@@ -664,10 +652,7 @@ pub enum ExprKind {
     },
 
     /// Index access: `arr[0]`
-    Index {
-        object: Box<Expr>,
-        index: Box<Expr>,
-    },
+    Index { object: Box<Expr>, index: Box<Expr> },
 
     /// Array literal: `[1, 2, 3]`
     Array(Vec<Expr>),
@@ -679,7 +664,6 @@ pub enum ExprKind {
     Grouping(Box<Expr>),
 
     // === New expression variants (Step 9) ===
-
     /// Match expression: `match expr { pattern => body, ... }`
     Match {
         scrutinee: Box<Expr>,
@@ -700,15 +684,10 @@ pub enum ExprKind {
     },
 
     /// While loop: `while condition { body }`
-    While {
-        condition: Box<Expr>,
-        body: Block,
-    },
+    While { condition: Box<Expr>, body: Block },
 
     /// Infinite loop: `loop { body }`
-    Loop {
-        body: Block,
-    },
+    Loop { body: Block },
 
     /// Closure: `|params| expr` or `|params| -> Type { block }`
     Closure {
@@ -718,19 +697,13 @@ pub enum ExprKind {
     },
 
     /// Pipe: `expr |> func(args)`
-    Pipe {
-        left: Box<Expr>,
-        right: Box<Expr>,
-    },
+    Pipe { left: Box<Expr>, right: Box<Expr> },
 
     /// Error propagation: `expr?`
     Propagate(Box<Expr>),
 
     /// Nil coalesce: `expr ?? default`
-    NilCoalesce {
-        left: Box<Expr>,
-        right: Box<Expr>,
-    },
+    NilCoalesce { left: Box<Expr>, right: Box<Expr> },
 
     /// Range: `start..end` or `start..=end`
     Range {
@@ -808,12 +781,12 @@ pub enum UnaryOp {
 /// Assignment operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssignOp {
-    Assign,     // =
-    AddAssign,  // +=
-    SubAssign,  // -=
-    MulAssign,  // *=
-    DivAssign,  // /=
-    ModAssign,  // %=
+    Assign,    // =
+    AddAssign, // +=
+    SubAssign, // -=
+    MulAssign, // *=
+    DivAssign, // /=
+    ModAssign, // %=
 }
 
 // ============================================================================

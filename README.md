@@ -43,6 +43,8 @@ fn main() {
 ## Key Features
 
 - **Agents as first-class constructs** -- Define LLM-powered agents with model, provider, temperature, system prompt, tools, and memory
+- **Agent memory** -- `memory` declarations plus `with_memory(...)` for multi-turn context injection and auto-append chat history
+- **Dynamic tool binding** -- `with_tools([...])` adds tools per-execution, `without_tools()` strips default tools for focused runs
 - **Schema validation** -- Define expected output structures; runtime validates and auto-retries on mismatch
 - **First-class pipelines** -- `pipeline`/`stage` keywords for declarative multi-agent workflows
 - **Bidirectional emit system** -- Runtime outputs that enable programmatic integration with host applications
@@ -143,6 +145,14 @@ concertoc hello.conc
 concerto run hello.conc-ir
 ```
 
+## Example Projects
+
+- `examples/hello_agent` -- minimal single-agent flow
+- `examples/tool_usage` -- local tools + MCP tool interfaces
+- `examples/multi_agent_pipeline` -- multi-stage orchestration
+- `examples/agent_memory_conversation` -- spec 24 memory patterns (`with_memory`, manual mode, message queries)
+- `examples/dynamic_tool_binding` -- spec 25 dynamic tool composition (`with_tools`, `without_tools`)
+
 ## Standard Library
 
 | Module | Functions | Description |
@@ -186,12 +196,17 @@ Language specifications are in the [spec/](spec/) directory:
 - [Standard Library](spec/19-standard-library.md)
 - [Interop and FFI](spec/20-interop-and-ffi.md)
 - [Ledger System](spec/21-ledger.md)
+- [Project Manifest](spec/22-project-manifest.md)
+- [Project Scaffolding](spec/23-project-scaffolding.md)
+- [Agent Memory](spec/24-agent-memory.md)
+- [Dynamic Tool Binding](spec/25-dynamic-tool-binding.md)
+- [Hosts](spec/26-hosts.md)
 
 ## Project Status
 
 See [STATUS.md](STATUS.md) for detailed project tracking.
 
-**Current:** Phase 5 (Integration and Polish) -- 458 tests, clippy clean.
+**Current:** Phase 7 (Agent Memory, Dynamic Tool Binding, Hosts) in progress.
 
 ## License
 

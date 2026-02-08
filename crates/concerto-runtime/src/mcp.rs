@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::value::Value;
 
 /// A JSON-RPC 2.0 request.
@@ -64,7 +64,8 @@ impl McpClient {
 
         if transport != "stdio" {
             return Err(RuntimeError::CallError(format!(
-                "MCP transport '{}' not supported (only stdio)", transport
+                "MCP transport '{}' not supported (only stdio)",
+                transport
             )));
         }
 
@@ -101,9 +102,7 @@ impl McpClient {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| {
-                RuntimeError::CallError(format!(
-                    "failed to start MCP server '{}': {}", name, e
-                ))
+                RuntimeError::CallError(format!("failed to start MCP server '{}': {}", name, e))
             })?;
 
         let mut client = McpClient {
@@ -164,7 +163,8 @@ impl McpClient {
 
         if line.is_empty() {
             return Err(RuntimeError::CallError(format!(
-                "MCP '{}': server closed connection", self.name
+                "MCP '{}': server closed connection",
+                self.name
             )));
         }
 
@@ -179,9 +179,9 @@ impl McpClient {
             )));
         }
 
-        response.result.ok_or_else(|| {
-            RuntimeError::CallError("MCP response missing result".into())
-        })
+        response
+            .result
+            .ok_or_else(|| RuntimeError::CallError("MCP response missing result".into()))
     }
 
     /// MCP initialize handshake.
@@ -235,11 +235,7 @@ impl McpClient {
     }
 
     /// Call a tool on the MCP server.
-    pub fn call_tool(
-        &mut self,
-        tool_name: &str,
-        arguments: serde_json::Value,
-    ) -> Result<Value> {
+    pub fn call_tool(&mut self, tool_name: &str, arguments: serde_json::Value) -> Result<Value> {
         let result = self.send_request(
             "tools/call",
             Some(serde_json::json!({
@@ -461,7 +457,8 @@ mod tests {
 
     #[test]
     fn json_rpc_error_response() {
-        let json = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#;
+        let json =
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#;
         let response: JsonRpcResponse = serde_json::from_str(json).unwrap();
         assert!(response.result.is_none());
         let error = response.error.unwrap();

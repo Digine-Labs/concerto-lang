@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use concerto_common::ir::IrSchema;
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::value::Value;
 
 /// Maximum number of retry attempts for schema validation.
@@ -16,9 +16,8 @@ impl SchemaValidator {
     /// Returns a typed Value::Struct on success, or an error with details.
     pub fn validate(json_str: &str, schema: &IrSchema) -> Result<Value> {
         // Parse the JSON string
-        let json: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
-            RuntimeError::SchemaError(format!("invalid JSON: {}", e))
-        })?;
+        let json: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| RuntimeError::SchemaError(format!("invalid JSON: {}", e)))?;
 
         // Normalize Concerto types to JSON Schema types before validation
         let normalized = Self::normalize_schema(&schema.json_schema);
@@ -41,7 +40,9 @@ impl SchemaValidator {
                     if key == "type" {
                         if let Some(t) = val.as_str() {
                             // Check for compound types like Array<String>
-                            if let Some(inner) = t.strip_prefix("Array<").and_then(|s| s.strip_suffix('>')) {
+                            if let Some(inner) =
+                                t.strip_prefix("Array<").and_then(|s| s.strip_suffix('>'))
+                            {
                                 normalized.insert("type".to_string(), serde_json::json!("array"));
                                 normalized.insert(
                                     "items".to_string(),
@@ -90,13 +91,9 @@ impl SchemaValidator {
     }
 
     /// Validate a serde_json::Value against a JSON Schema.
-    fn validate_json(
-        json: &serde_json::Value,
-        json_schema: &serde_json::Value,
-    ) -> Result<()> {
-        let validator = jsonschema::validator_for(json_schema).map_err(|e| {
-            RuntimeError::SchemaError(format!("invalid schema: {}", e))
-        })?;
+    fn validate_json(json: &serde_json::Value, json_schema: &serde_json::Value) -> Result<()> {
+        let validator = jsonschema::validator_for(json_schema)
+            .map_err(|e| RuntimeError::SchemaError(format!("invalid schema: {}", e)))?;
 
         let errors: Vec<String> = validator
             .iter_errors(json)
@@ -112,11 +109,7 @@ impl SchemaValidator {
 
     /// Build a retry prompt that includes the original prompt, the validation
     /// error, and the schema definition for the LLM to try again.
-    pub fn retry_prompt(
-        original_prompt: &str,
-        error: &str,
-        schema: &IrSchema,
-    ) -> String {
+    pub fn retry_prompt(original_prompt: &str, error: &str, schema: &IrSchema) -> String {
         format!(
             "Your previous response did not match the required JSON schema.\n\
              Error: {}\n\
@@ -298,11 +291,7 @@ mod tests {
     #[test]
     fn retry_prompt_includes_context() {
         let schema = test_schema();
-        let prompt = SchemaValidator::retry_prompt(
-            "Say hello",
-            "missing field 'count'",
-            &schema,
-        );
+        let prompt = SchemaValidator::retry_prompt("Say hello", "missing field 'count'", &schema);
         assert!(prompt.contains("missing field 'count'"));
         assert!(prompt.contains("Say hello"));
         assert!(prompt.contains("message"));

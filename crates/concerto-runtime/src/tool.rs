@@ -27,18 +27,12 @@ impl ToolRegistry {
 
     /// Register a tool with empty initial state.
     pub fn register_tool(&mut self, name: &str) {
-        self.tool_state
-            .entry(name.to_string())
-            .or_default();
+        self.tool_state.entry(name.to_string()).or_default();
     }
 
     /// Get a tool's state as a Value::Struct (used as `self` in method calls).
     pub fn get_self_value(&self, tool_name: &str) -> Value {
-        let fields = self
-            .tool_state
-            .get(tool_name)
-            .cloned()
-            .unwrap_or_default();
+        let fields = self.tool_state.get(tool_name).cloned().unwrap_or_default();
         Value::Struct {
             type_name: tool_name.to_string(),
             fields,

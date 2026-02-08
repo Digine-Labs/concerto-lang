@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ToolCallRequest};
 
 /// OpenAI-compatible LLM provider.
@@ -158,7 +158,10 @@ impl OpenAiProvider {
 
 impl LlmProvider for OpenAiProvider {
     fn chat_completion(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
         let body = Self::build_request_body(&request);
 
         let response = self
@@ -247,7 +250,8 @@ mod tests {
 
     #[test]
     fn build_request_with_json_schema() {
-        let schema = serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}});
+        let schema =
+            serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}});
         let request = ChatRequest {
             model: "gpt-4".to_string(),
             messages: vec![],

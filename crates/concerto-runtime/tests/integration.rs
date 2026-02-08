@@ -398,6 +398,109 @@ fn e2e_memory_sliding_window() {
 }
 
 #[test]
+fn e2e_agent_with_memory_builder_auto_and_manual_modes() {
+    let (_, emits) = run_program(
+        r#"
+        const openai: Int = 0;
+        memory conv: Memory = Memory::new(3);
+
+        agent Assistant {
+            provider: openai,
+            model: "gpt-4o-mini",
+            system_prompt: "You are a concise assistant.",
+        }
+
+        fn main() {
+            let _r1 = Assistant.with_memory(conv).execute("prompt-1");
+            let _r2 = Assistant.with_memory(conv).execute("prompt-2");
+
+            emit("len_after_auto", conv.len());
+            let msgs = conv.messages();
+            emit("oldest_role", msgs[0].role);
+            emit("latest_role", msgs[2].role);
+
+            let r3 = Assistant.with_memory(conv, false).execute("prompt-3");
+            emit("manual_ok", r3.is_ok());
+            emit("len_after_manual", conv.len());
+        }
+        "#,
+    );
+    // Two auto-appending calls (4 messages) with max=3 keeps only the latest 3.
+    assert_eq!(emits[0].0, "len_after_auto");
+    assert_eq!(emits[0].1, "3");
+    assert_eq!(emits[1].0, "oldest_role");
+    assert_eq!(emits[1].1, "assistant");
+    assert_eq!(emits[2].0, "latest_role");
+    assert_eq!(emits[2].1, "assistant");
+    assert_eq!(emits[3].0, "manual_ok");
+    assert_eq!(emits[3].1, "true");
+    assert_eq!(emits[4].0, "len_after_manual");
+    assert_eq!(emits[4].1, "3");
+}
+
+#[test]
+fn e2e_dynamic_tool_binding_builder_paths() {
+    let (_, emits) = run_program(
+        r#"
+        const openai: Int = 0;
+        memory conv: Memory = Memory::new();
+
+        tool Calculator {
+            description: "Simple arithmetic operations",
+
+            @describe("Add two integers")
+            @param("a", "First integer")
+            @param("b", "Second integer")
+            pub fn add(self, a: Int, b: Int) -> Int {
+                a + b
+            }
+        }
+
+        tool Formatter {
+            description: "String formatting helper",
+
+            @describe("Uppercase the input text")
+            @param("text", "Input text")
+            pub fn up(self, text: String) -> String {
+                std::string::to_upper(text)
+            }
+        }
+
+        agent Worker {
+            provider: openai,
+            model: "gpt-4o-mini",
+            system_prompt: "Use tools if needed.",
+            tools: [Calculator],
+        }
+
+        fn main() {
+            let base = Worker.execute("base");
+            let plus_dynamic = Worker.with_tools([Formatter]).execute("plus");
+            let stripped = Worker.without_tools().execute("stripped");
+            let chained = Worker.without_tools().with_tools([Calculator, Formatter]).execute("chained");
+            let combo = Worker.with_memory(conv).with_tools([Formatter]).execute("combo");
+
+            emit("base_ok", base.is_ok());
+            emit("plus_dynamic_ok", plus_dynamic.is_ok());
+            emit("stripped_ok", stripped.is_ok());
+            emit("chained_ok", chained.is_ok());
+            emit("combo_ok", combo.is_ok());
+            emit("combo_mem_len", conv.len());
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("base_ok".to_string(), "true".to_string()));
+    assert_eq!(
+        emits[1],
+        ("plus_dynamic_ok".to_string(), "true".to_string())
+    );
+    assert_eq!(emits[2], ("stripped_ok".to_string(), "true".to_string()));
+    assert_eq!(emits[3], ("chained_ok".to_string(), "true".to_string()));
+    assert_eq!(emits[4], ("combo_ok".to_string(), "true".to_string()));
+    assert_eq!(emits[5], ("combo_mem_len".to_string(), "2".to_string()));
+}
+
+#[test]
 fn e2e_host_declaration() {
     // Host declarations compile and load successfully.
     // We can't execute without a real subprocess, but verify the pipeline works.
@@ -415,13 +518,25 @@ fn e2e_host_declaration() {
     "#;
 
     let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
-    assert!(!lex_diags.has_errors(), "lexer errors: {:?}", lex_diags.diagnostics());
+    assert!(
+        !lex_diags.has_errors(),
+        "lexer errors: {:?}",
+        lex_diags.diagnostics()
+    );
 
     let (program, parse_diags) = parser::Parser::new(tokens).parse();
-    assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+    assert!(
+        !parse_diags.has_errors(),
+        "parse errors: {:?}",
+        parse_diags.diagnostics()
+    );
 
     let sem_diags = concerto_compiler::semantic::analyze(&program);
-    assert!(!sem_diags.has_errors(), "semantic errors: {:?}", sem_diags.diagnostics());
+    assert!(
+        !sem_diags.has_errors(),
+        "semantic errors: {:?}",
+        sem_diags.diagnostics()
+    );
 
     let ir = CodeGenerator::new("test", "test.conc").generate(&program);
 

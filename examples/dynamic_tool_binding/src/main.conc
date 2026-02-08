@@ -1,0 +1,50 @@
+// dynamic_tool_binding
+// Spec 25: with_tools()/without_tools() and builder composition.
+
+memory run_log: Memory = Memory::new();
+
+tool Calculator {
+    description: "Simple integer arithmetic",
+
+    @describe("Add two integers")
+    @param("a", "First integer")
+    @param("b", "Second integer")
+    pub fn add(self, a: Int, b: Int) -> Int {
+        a + b
+    }
+}
+
+tool Formatter {
+    description: "String normalization helper",
+
+    @describe("Uppercase text")
+    @param("text", "Input text")
+    pub fn to_upper(self, text: String) -> String {
+        std::string::to_upper(text)
+    }
+}
+
+agent Analyst {
+    provider: openai,
+    model: "gpt-4o-mini",
+    system_prompt: "Use tools when they are available and relevant.",
+    tools: [Calculator],
+}
+
+fn main() {
+    let base = Analyst.execute("What is 2 + 2?");
+    let plus_formatter = Analyst.with_tools([Formatter]).execute("Normalize this to uppercase: concerto");
+    let no_defaults = Analyst.without_tools().execute("Answer directly without tool access.");
+
+    let chained = Analyst
+        .without_tools()
+        .with_tools([Calculator, Formatter])
+        .with_memory(run_log)
+        .execute("Use whichever tools are useful, then summarize.");
+
+    emit("base_ok", base.is_ok());
+    emit("plus_formatter_ok", plus_formatter.is_ok());
+    emit("no_defaults_ok", no_defaults.is_ok());
+    emit("chained_ok", chained.is_ok());
+    emit("run_log_len", run_log.len());
+}

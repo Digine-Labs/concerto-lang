@@ -48,10 +48,9 @@ fn stdlib_parse(args: Vec<Value>) -> Result<Value> {
 }
 
 fn stdlib_stringify(args: Vec<Value>) -> Result<Value> {
-    let val = args
-        .into_iter()
-        .next()
-        .ok_or_else(|| RuntimeError::TypeError("std::json::stringify missing argument".to_string()))?;
+    let val = args.into_iter().next().ok_or_else(|| {
+        RuntimeError::TypeError("std::json::stringify missing argument".to_string())
+    })?;
     let json = val.to_json();
     match serde_json::to_string(&json) {
         Ok(s) => Ok(Value::String(s)),
@@ -63,12 +62,9 @@ fn stdlib_stringify(args: Vec<Value>) -> Result<Value> {
 }
 
 fn stdlib_stringify_pretty(args: Vec<Value>) -> Result<Value> {
-    let val = args
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            RuntimeError::TypeError("std::json::stringify_pretty missing argument".to_string())
-        })?;
+    let val = args.into_iter().next().ok_or_else(|| {
+        RuntimeError::TypeError("std::json::stringify_pretty missing argument".to_string())
+    })?;
     let json = val.to_json();
     match serde_json::to_string_pretty(&json) {
         Ok(s) => Ok(Value::String(s)),
@@ -92,7 +88,11 @@ mod tests {
 
     #[test]
     fn parse_object() {
-        let result = call("parse", vec![Value::String(r#"{"a": 1, "b": "hello"}"#.into())]).unwrap();
+        let result = call(
+            "parse",
+            vec![Value::String(r#"{"a": 1, "b": "hello"}"#.into())],
+        )
+        .unwrap();
         match result {
             Value::Result { is_ok: true, value } => match *value {
                 Value::Map(pairs) => {

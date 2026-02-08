@@ -20,7 +20,9 @@ fn expect_string(args: &[Value], idx: usize, fn_name: &str) -> Result<String> {
         Some(Value::String(s)) => Ok(s.clone()),
         Some(other) => Err(RuntimeError::TypeError(format!(
             "std::fmt::{} expected String at arg {}, got {}",
-            fn_name, idx, other.type_name()
+            fn_name,
+            idx,
+            other.type_name()
         ))),
         None => Err(RuntimeError::TypeError(format!(
             "std::fmt::{} missing argument {}",
@@ -34,7 +36,9 @@ fn expect_int(args: &[Value], idx: usize, fn_name: &str) -> Result<i64> {
         Some(Value::Int(n)) => Ok(*n),
         Some(other) => Err(RuntimeError::TypeError(format!(
             "std::fmt::{} expected Int at arg {}, got {}",
-            fn_name, idx, other.type_name()
+            fn_name,
+            idx,
+            other.type_name()
         ))),
         None => Err(RuntimeError::TypeError(format!(
             "std::fmt::{} missing argument {}",
@@ -160,7 +164,11 @@ mod tests {
     fn pad_left_basic() {
         let result = call(
             "pad_left",
-            vec![Value::String("42".into()), Value::Int(6), Value::String("0".into())],
+            vec![
+                Value::String("42".into()),
+                Value::Int(6),
+                Value::String("0".into()),
+            ],
         )
         .unwrap();
         assert_eq!(result, Value::String("000042".into()));
@@ -170,7 +178,11 @@ mod tests {
     fn pad_right_basic() {
         let result = call(
             "pad_right",
-            vec![Value::String("hi".into()), Value::Int(5), Value::String(".".into())],
+            vec![
+                Value::String("hi".into()),
+                Value::Int(5),
+                Value::String(".".into()),
+            ],
         )
         .unwrap();
         assert_eq!(result, Value::String("hi...".into()));

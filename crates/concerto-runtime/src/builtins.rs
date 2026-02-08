@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::value::Value;
 
 /// Dispatch a built-in function call.
@@ -142,17 +142,21 @@ mod tests {
 
     #[test]
     fn builtin_env_missing() {
-        let result =
-            call_builtin("$builtin_env", vec![Value::String("__NONEXISTENT_VAR__".to_string())])
-                .unwrap();
+        let result = call_builtin(
+            "$builtin_env",
+            vec![Value::String("__NONEXISTENT_VAR__".to_string())],
+        )
+        .unwrap();
         assert_eq!(result, Value::Nil);
     }
 
     #[test]
     fn builtin_len() {
-        let result =
-            call_builtin("$builtin_len", vec![Value::Array(vec![Value::Int(1), Value::Int(2)])])
-                .unwrap();
+        let result = call_builtin(
+            "$builtin_len",
+            vec![Value::Array(vec![Value::Int(1), Value::Int(2)])],
+        )
+        .unwrap();
         assert_eq!(result, Value::Int(2));
     }
 

@@ -1,5 +1,5 @@
-pub mod token;
 pub mod cursor;
+pub mod token;
 
 mod scanner;
 

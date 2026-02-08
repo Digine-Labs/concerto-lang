@@ -87,7 +87,9 @@ mod tests {
         let result = call("sha256", vec![Value::String("hello".into())]).unwrap();
         assert_eq!(
             result,
-            Value::String("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into())
+            Value::String(
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into()
+            )
         );
     }
 

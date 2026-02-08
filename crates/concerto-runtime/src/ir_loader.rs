@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use concerto_common::ir::*;
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::value::Value;
 
 /// A pre-processed IR module ready for VM execution.
@@ -180,39 +180,39 @@ impl LoadedModule {
 fn convert_constant(constant: &IrConstant) -> Result<Value> {
     match constant.const_type.as_str() {
         "int" => {
-            let n = constant
-                .value
-                .as_i64()
-                .ok_or_else(|| RuntimeError::LoadError(
-                    format!("constant {} has type 'int' but non-integer value", constant.index),
-                ))?;
+            let n = constant.value.as_i64().ok_or_else(|| {
+                RuntimeError::LoadError(format!(
+                    "constant {} has type 'int' but non-integer value",
+                    constant.index
+                ))
+            })?;
             Ok(Value::Int(n))
         }
         "float" => {
-            let f = constant
-                .value
-                .as_f64()
-                .ok_or_else(|| RuntimeError::LoadError(
-                    format!("constant {} has type 'float' but non-float value", constant.index),
-                ))?;
+            let f = constant.value.as_f64().ok_or_else(|| {
+                RuntimeError::LoadError(format!(
+                    "constant {} has type 'float' but non-float value",
+                    constant.index
+                ))
+            })?;
             Ok(Value::Float(f))
         }
         "string" => {
-            let s = constant
-                .value
-                .as_str()
-                .ok_or_else(|| RuntimeError::LoadError(
-                    format!("constant {} has type 'string' but non-string value", constant.index),
-                ))?;
+            let s = constant.value.as_str().ok_or_else(|| {
+                RuntimeError::LoadError(format!(
+                    "constant {} has type 'string' but non-string value",
+                    constant.index
+                ))
+            })?;
             Ok(Value::String(s.to_string()))
         }
         "bool" => {
-            let b = constant
-                .value
-                .as_bool()
-                .ok_or_else(|| RuntimeError::LoadError(
-                    format!("constant {} has type 'bool' but non-bool value", constant.index),
-                ))?;
+            let b = constant.value.as_bool().ok_or_else(|| {
+                RuntimeError::LoadError(format!(
+                    "constant {} has type 'bool' but non-bool value",
+                    constant.index
+                ))
+            })?;
             Ok(Value::Bool(b))
         }
         "nil" => Ok(Value::Nil),

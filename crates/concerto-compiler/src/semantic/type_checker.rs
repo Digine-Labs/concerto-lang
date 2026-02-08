@@ -15,9 +15,9 @@ pub fn check_binary_op(left: &Type, op: BinaryOp, right: &Type) -> Result<Type, 
     match op {
         BinaryOp::Add => match (left, right) {
             (Type::Int, Type::Int) => Ok(Type::Int),
-            (Type::Float, Type::Float)
-            | (Type::Int, Type::Float)
-            | (Type::Float, Type::Int) => Ok(Type::Float),
+            (Type::Float, Type::Float) | (Type::Int, Type::Float) | (Type::Float, Type::Int) => {
+                Ok(Type::Float)
+            }
             (Type::String, Type::String) => Ok(Type::String),
             _ => Err(format!(
                 "operator '+' cannot be applied to {} and {}",
@@ -27,9 +27,9 @@ pub fn check_binary_op(left: &Type, op: BinaryOp, right: &Type) -> Result<Type, 
         },
         BinaryOp::Sub | BinaryOp::Mul => match (left, right) {
             (Type::Int, Type::Int) => Ok(Type::Int),
-            (Type::Float, Type::Float)
-            | (Type::Int, Type::Float)
-            | (Type::Float, Type::Int) => Ok(Type::Float),
+            (Type::Float, Type::Float) | (Type::Int, Type::Float) | (Type::Float, Type::Int) => {
+                Ok(Type::Float)
+            }
             _ => Err(format!(
                 "operator '{}' cannot be applied to {} and {}",
                 binary_op_symbol(op),
@@ -39,9 +39,9 @@ pub fn check_binary_op(left: &Type, op: BinaryOp, right: &Type) -> Result<Type, 
         },
         BinaryOp::Div | BinaryOp::Mod => match (left, right) {
             (Type::Int, Type::Int) => Ok(Type::Int),
-            (Type::Float, Type::Float)
-            | (Type::Int, Type::Float)
-            | (Type::Float, Type::Int) => Ok(Type::Float),
+            (Type::Float, Type::Float) | (Type::Int, Type::Float) | (Type::Float, Type::Int) => {
+                Ok(Type::Float)
+            }
             _ => Err(format!(
                 "operator '{}' cannot be applied to {} and {}",
                 binary_op_symbol(op),

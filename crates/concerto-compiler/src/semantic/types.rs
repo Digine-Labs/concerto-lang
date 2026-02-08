@@ -65,20 +65,14 @@ impl Type {
                     }
                     "Map" if type_args.len() == 2 => {
                         let mut it = type_args.into_iter();
-                        Type::Map(
-                            Box::new(it.next().unwrap()),
-                            Box::new(it.next().unwrap()),
-                        )
+                        Type::Map(Box::new(it.next().unwrap()), Box::new(it.next().unwrap()))
                     }
                     "Option" if type_args.len() == 1 => {
                         Type::Option(Box::new(type_args.into_iter().next().unwrap()))
                     }
                     "Result" if type_args.len() == 2 => {
                         let mut it = type_args.into_iter();
-                        Type::Result(
-                            Box::new(it.next().unwrap()),
-                            Box::new(it.next().unwrap()),
-                        )
+                        Type::Result(Box::new(it.next().unwrap()), Box::new(it.next().unwrap()))
                     }
                     _ => Type::Named(name.clone()),
                 }

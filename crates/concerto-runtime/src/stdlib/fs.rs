@@ -24,7 +24,9 @@ fn expect_string(args: &[Value], idx: usize, fn_name: &str) -> Result<String> {
         Some(Value::String(s)) => Ok(s.clone()),
         Some(other) => Err(RuntimeError::TypeError(format!(
             "std::fs::{} expected String at arg {}, got {}",
-            fn_name, idx, other.type_name()
+            fn_name,
+            idx,
+            other.type_name()
         ))),
         None => Err(RuntimeError::TypeError(format!(
             "std::fs::{} missing argument {}",
@@ -91,9 +93,7 @@ fn stdlib_list_dir(args: Vec<Value>) -> Result<Value> {
             for entry in entries {
                 match entry {
                     Ok(e) => {
-                        files.push(Value::String(
-                            e.file_name().to_string_lossy().to_string(),
-                        ));
+                        files.push(Value::String(e.file_name().to_string_lossy().to_string()));
                     }
                     Err(e) => return Ok(wrap_io_err(e)),
                 }
@@ -132,10 +132,16 @@ mod tests {
     #[test]
     fn write_and_read_file() {
         let path = temp_path("write_read");
-        call("write_file", vec![Value::String(path.clone()), Value::String("hello".into())]).unwrap();
+        call(
+            "write_file",
+            vec![Value::String(path.clone()), Value::String("hello".into())],
+        )
+        .unwrap();
         let result = call("read_file", vec![Value::String(path.clone())]).unwrap();
         match result {
-            Value::Result { is_ok: true, value } => assert_eq!(*value, Value::String("hello".into())),
+            Value::Result { is_ok: true, value } => {
+                assert_eq!(*value, Value::String("hello".into()))
+            }
             _ => panic!("expected Ok"),
         }
         std::fs::remove_file(&path).ok();
@@ -143,7 +149,11 @@ mod tests {
 
     #[test]
     fn read_file_not_found() {
-        let result = call("read_file", vec![Value::String("/tmp/concerto_nonexistent_12345".into())]).unwrap();
+        let result = call(
+            "read_file",
+            vec![Value::String("/tmp/concerto_nonexistent_12345".into())],
+        )
+        .unwrap();
         match result {
             Value::Result { is_ok: false, .. } => {}
             _ => panic!("expected Err"),
@@ -153,11 +163,21 @@ mod tests {
     #[test]
     fn append_file_test() {
         let path = temp_path("append");
-        call("write_file", vec![Value::String(path.clone()), Value::String("hello".into())]).unwrap();
-        call("append_file", vec![Value::String(path.clone()), Value::String(" world".into())]).unwrap();
+        call(
+            "write_file",
+            vec![Value::String(path.clone()), Value::String("hello".into())],
+        )
+        .unwrap();
+        call(
+            "append_file",
+            vec![Value::String(path.clone()), Value::String(" world".into())],
+        )
+        .unwrap();
         let result = call("read_file", vec![Value::String(path.clone())]).unwrap();
         match result {
-            Value::Result { is_ok: true, value } => assert_eq!(*value, Value::String("hello world".into())),
+            Value::Result { is_ok: true, value } => {
+                assert_eq!(*value, Value::String("hello world".into()))
+            }
             _ => panic!("expected Ok"),
         }
         std::fs::remove_file(&path).ok();
@@ -169,10 +189,17 @@ mod tests {
         // Create file
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(b"test").unwrap();
-        assert_eq!(call("exists", vec![Value::String(path.clone())]).unwrap(), Value::Bool(true));
+        assert_eq!(
+            call("exists", vec![Value::String(path.clone())]).unwrap(),
+            Value::Bool(true)
+        );
         std::fs::remove_file(&path).ok();
         assert_eq!(
-            call("exists", vec![Value::String("/tmp/concerto_nonexistent_12345".into())]).unwrap(),
+            call(
+                "exists",
+                vec![Value::String("/tmp/concerto_nonexistent_12345".into())]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }

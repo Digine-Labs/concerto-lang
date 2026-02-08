@@ -30,6 +30,13 @@
 | New idea: checkpoints and human approval gates | Done | `ideas/checkpoints_and_human_approval_gates.md` |
 | Add language positioning/features document | Done | `FEATURES.md` with full feature map + Concerto vs LangChain-style comparison |
 | Expand FEATURES examples with colorful snippets | Done | Added multi-feature code examples in `FEATURES.md` using `rust` fences for rendering |
+| Add spec-24 example project (`agent_memory_conversation`) | Done | New project: `examples/agent_memory_conversation/` (`Concerto.toml` + `src/main.conc`) |
+| Add spec-25 example project (`dynamic_tool_binding`) | Done | New project: `examples/dynamic_tool_binding/` (`Concerto.toml` + `src/main.conc`) |
+| Strengthen integration coverage for memory/tool builder flows | Done | Added `e2e_agent_with_memory_builder_auto_and_manual_modes` and `e2e_dynamic_tool_binding_builder_paths` |
+| Strengthen VM request composition tests for spec 24/25 | Done | Added unit tests for memory message injection ordering, static+dynamic tool schema merge/dedup, and `without_tools()` semantics |
+| Fix runtime tool refs for `with_tools([ToolName])` | Done | `VM::new` now registers tool references in globals so identifier arrays resolve correctly |
+| Fix compiler host IR emission after `IrHost` expansion | Done | `generate_host()` now initializes manifest-embedded host fields (`command`, `args`, `env`, `working_dir`) |
+| Fix tool schema requiredness for `Option<T>` params | Done | Codegen now excludes `Option<T>` tool parameters from JSON Schema `required`; compiler test added |
 
 ---
 

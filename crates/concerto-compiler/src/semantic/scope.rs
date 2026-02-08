@@ -101,9 +101,7 @@ impl ScopeStack {
     /// Pop the current scope, returning its index (for later inspection).
     pub fn pop(&mut self) -> usize {
         let old = self.current;
-        self.current = self.scopes[old]
-            .parent
-            .expect("cannot pop global scope");
+        self.current = self.scopes[old].parent.expect("cannot pop global scope");
         old
     }
 

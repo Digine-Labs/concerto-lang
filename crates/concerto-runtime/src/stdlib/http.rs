@@ -22,7 +22,9 @@ fn expect_string(args: &[Value], idx: usize, fn_name: &str) -> Result<String> {
         Some(Value::String(s)) => Ok(s.clone()),
         Some(other) => Err(RuntimeError::TypeError(format!(
             "std::http::{} expected String at arg {}, got {}",
-            fn_name, idx, other.type_name()
+            fn_name,
+            idx,
+            other.type_name()
         ))),
         None => Err(RuntimeError::TypeError(format!(
             "std::http::{} missing argument {}",
@@ -174,7 +176,10 @@ mod tests {
     fn extract_headers_from_map() {
         let headers = extract_headers(
             &[Value::Map(vec![
-                ("Content-Type".into(), Value::String("application/json".into())),
+                (
+                    "Content-Type".into(),
+                    Value::String("application/json".into()),
+                ),
                 ("Authorization".into(), Value::String("Bearer token".into())),
             ])],
             0,
@@ -214,7 +219,10 @@ mod tests {
     fn unsupported_method() {
         let result = call(
             "request",
-            vec![Value::String("CONNECT".into()), Value::String("http://example.com".into())],
+            vec![
+                Value::String("CONNECT".into()),
+                Value::String("http://example.com".into()),
+            ],
         );
         assert!(result.is_err());
     }

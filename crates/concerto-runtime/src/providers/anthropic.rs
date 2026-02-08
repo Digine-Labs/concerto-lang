@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ToolCallRequest};
 
 /// Anthropic LLM provider (Claude API).
@@ -111,10 +111,7 @@ impl AnthropicProvider {
                         .and_then(|n| n.as_str())
                         .unwrap_or("")
                         .to_string();
-                    let input = block
-                        .get("input")
-                        .cloned()
-                        .unwrap_or(serde_json::json!({}));
+                    let input = block.get("input").cloned().unwrap_or(serde_json::json!({}));
                     tool_calls.push(ToolCallRequest {
                         id,
                         function_name: name,

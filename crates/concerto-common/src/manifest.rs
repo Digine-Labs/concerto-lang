@@ -130,13 +130,17 @@ pub enum ManifestError {
     ParseError(String),
     #[error("invalid Concerto.toml: missing required field 'provider' in [connections.{0}]")]
     MissingProvider(String),
-    #[error("invalid Concerto.toml: connection '{0}' has provider '{1}' which requires 'api_key_env'")]
+    #[error(
+        "invalid Concerto.toml: connection '{0}' has provider '{1}' which requires 'api_key_env'"
+    )]
     MissingApiKeyEnv(String, String),
     #[error("invalid Concerto.toml: [mcp.{0}] transport 'stdio' requires 'command' field")]
     McpMissingCommand(String),
     #[error("invalid Concerto.toml: [mcp.{0}] transport 'sse' requires 'url' field")]
     McpMissingUrl(String),
-    #[error("invalid Concerto.toml: [mcp.{0}] unknown transport '{1}' (expected 'stdio' or 'sse')")]
+    #[error(
+        "invalid Concerto.toml: [mcp.{0}] unknown transport '{1}' (expected 'stdio' or 'sse')"
+    )]
     McpUnknownTransport(String, String),
 }
 
@@ -166,10 +170,7 @@ pub fn load_manifest(path: &Path) -> Result<ConcertoManifest, ManifestError> {
 }
 
 /// Parse and validate a Concerto.toml manifest from a string.
-pub fn parse_manifest(
-    content: &str,
-    root_dir: PathBuf,
-) -> Result<ConcertoManifest, ManifestError> {
+pub fn parse_manifest(content: &str, root_dir: PathBuf) -> Result<ConcertoManifest, ManifestError> {
     let raw: RawManifest =
         toml::from_str(content).map_err(|e| ManifestError::ParseError(e.to_string()))?;
 
@@ -194,9 +195,7 @@ pub fn parse_manifest(
 
 /// Find and load the manifest starting from a source file's directory.
 pub fn find_and_load_manifest(source_file: &Path) -> Result<ConcertoManifest, ManifestError> {
-    let start_dir = source_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let start_dir = source_file.parent().unwrap_or_else(|| Path::new("."));
     let manifest_path = find_manifest(start_dir)
         .ok_or_else(|| ManifestError::NotFound(start_dir.display().to_string()))?;
     load_manifest(&manifest_path)
@@ -273,10 +272,7 @@ impl ConnectionConfig {
                 .iter()
                 .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
                 .collect();
-            config.insert(
-                "models".to_string(),
-                serde_json::Value::Object(models_obj),
-            );
+            config.insert("models".to_string(), serde_json::Value::Object(models_obj));
         }
         if let Some(ref retry) = self.retry {
             let mut retry_obj = serde_json::Map::new();
@@ -288,10 +284,7 @@ impl ConnectionConfig {
                 "backoff".to_string(),
                 serde_json::Value::String(retry.backoff.clone()),
             );
-            config.insert(
-                "retry".to_string(),
-                serde_json::Value::Object(retry_obj),
-            );
+            config.insert("retry".to_string(), serde_json::Value::Object(retry_obj));
         }
         serde_json::Value::Object(config)
     }
@@ -316,10 +309,7 @@ impl McpConfig {
             );
         }
         if let Some(ref url) = self.url {
-            config.insert(
-                "url".to_string(),
-                serde_json::Value::String(url.clone()),
-            );
+            config.insert("url".to_string(), serde_json::Value::String(url.clone()));
         }
         if let Some(timeout) = self.timeout {
             config.insert(
@@ -423,7 +413,10 @@ timeout = 30
         // Check MCP configs
         let github = &manifest.mcp["github"];
         assert_eq!(github.transport, "stdio");
-        assert_eq!(github.command.as_deref(), Some("npx -y @modelcontextprotocol/server-github"));
+        assert_eq!(
+            github.command.as_deref(),
+            Some("npx -y @modelcontextprotocol/server-github")
+        );
         assert!(github.env.is_some());
 
         let web = &manifest.mcp["web_search"];

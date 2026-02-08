@@ -52,10 +52,9 @@ fn infix_binding_power(kind: TokenKind) -> Option<(u8, u8)> {
         TokenKind::EqualEqual | TokenKind::BangEqual => Some((13, 14)),
 
         // Comparison (left-associative)
-        TokenKind::Less
-        | TokenKind::Greater
-        | TokenKind::LessEqual
-        | TokenKind::GreaterEqual => Some((15, 16)),
+        TokenKind::Less | TokenKind::Greater | TokenKind::LessEqual | TokenKind::GreaterEqual => {
+            Some((15, 16))
+        }
 
         // Range
         TokenKind::DotDot | TokenKind::DotDotEqual => Some((17, 18)),
@@ -284,30 +283,41 @@ impl Parser {
                 let clean = token.lexeme.replace('_', "");
                 let value: i64 = if clean.starts_with("0x") || clean.starts_with("0X") {
                     i64::from_str_radix(&clean[2..], 16).unwrap_or_else(|_| {
-                        self.diagnostics
-                            .error(format!("invalid hex literal '{}'", token.lexeme), token.span.clone());
+                        self.diagnostics.error(
+                            format!("invalid hex literal '{}'", token.lexeme),
+                            token.span.clone(),
+                        );
                         0
                     })
                 } else if clean.starts_with("0b") || clean.starts_with("0B") {
                     i64::from_str_radix(&clean[2..], 2).unwrap_or_else(|_| {
-                        self.diagnostics
-                            .error(format!("invalid binary literal '{}'", token.lexeme), token.span.clone());
+                        self.diagnostics.error(
+                            format!("invalid binary literal '{}'", token.lexeme),
+                            token.span.clone(),
+                        );
                         0
                     })
                 } else if clean.starts_with("0o") || clean.starts_with("0O") {
                     i64::from_str_radix(&clean[2..], 8).unwrap_or_else(|_| {
-                        self.diagnostics
-                            .error(format!("invalid octal literal '{}'", token.lexeme), token.span.clone());
+                        self.diagnostics.error(
+                            format!("invalid octal literal '{}'", token.lexeme),
+                            token.span.clone(),
+                        );
                         0
                     })
                 } else {
                     clean.parse().unwrap_or_else(|_| {
-                        self.diagnostics
-                            .error(format!("invalid integer literal '{}'", token.lexeme), token.span.clone());
+                        self.diagnostics.error(
+                            format!("invalid integer literal '{}'", token.lexeme),
+                            token.span.clone(),
+                        );
                         0
                     })
                 };
-                Some(Expr::new(ExprKind::Literal(Literal::Int(value)), token.span))
+                Some(Expr::new(
+                    ExprKind::Literal(Literal::Int(value)),
+                    token.span,
+                ))
             }
 
             // Float literal
@@ -315,11 +325,16 @@ impl Parser {
                 let token = self.advance().clone();
                 let clean = token.lexeme.replace('_', "");
                 let value: f64 = clean.parse().unwrap_or_else(|_| {
-                    self.diagnostics
-                        .error(format!("invalid float literal '{}'", token.lexeme), token.span.clone());
+                    self.diagnostics.error(
+                        format!("invalid float literal '{}'", token.lexeme),
+                        token.span.clone(),
+                    );
                     0.0
                 });
-                Some(Expr::new(ExprKind::Literal(Literal::Float(value)), token.span))
+                Some(Expr::new(
+                    ExprKind::Literal(Literal::Float(value)),
+                    token.span,
+                ))
             }
 
             // String literal
@@ -337,11 +352,17 @@ impl Parser {
             // Boolean literals
             TokenKind::True => {
                 let token = self.advance().clone();
-                Some(Expr::new(ExprKind::Literal(Literal::Bool(true)), token.span))
+                Some(Expr::new(
+                    ExprKind::Literal(Literal::Bool(true)),
+                    token.span,
+                ))
             }
             TokenKind::False => {
                 let token = self.advance().clone();
-                Some(Expr::new(ExprKind::Literal(Literal::Bool(false)), token.span))
+                Some(Expr::new(
+                    ExprKind::Literal(Literal::Bool(false)),
+                    token.span,
+                ))
             }
 
             // Nil
@@ -420,7 +441,7 @@ impl Parser {
             // Return as expression (for match arms, closures, etc.): `return expr`
             TokenKind::Return => {
                 self.advance(); // consume 'return'
-                // Check if there's a value to return
+                                // Check if there's a value to return
                 let value = if can_start_expression(self.peek()) {
                     Some(Box::new(self.parse_expression()?))
                 } else {
@@ -627,7 +648,7 @@ impl Parser {
                 }
                 TokenKind::Greater => {
                     offset += 1; // skip '>'
-                    // Must be followed by '(' to be a method call
+                                 // Must be followed by '(' to be a method call
                     return self.peek_at(offset) == TokenKind::LeftParen;
                 }
                 _ => return false,
@@ -1194,8 +1215,10 @@ impl Parser {
                     PatternKind::Literal(Literal::Int(v)) => *v = -*v,
                     PatternKind::Literal(Literal::Float(v)) => *v = -*v,
                     _ => {
-                        self.diagnostics
-                            .error("expected numeric literal after '-' in pattern", start.clone());
+                        self.diagnostics.error(
+                            "expected numeric literal after '-' in pattern",
+                            start.clone(),
+                        );
                     }
                 }
                 pat.span = start.merge(&pat.span);
@@ -1261,10 +1284,8 @@ impl Parser {
             }
 
             _ => {
-                self.diagnostics.error(
-                    format!("expected pattern, found {:?}", self.peek()),
-                    start,
-                );
+                self.diagnostics
+                    .error(format!("expected pattern, found {:?}", self.peek()), start);
                 None
             }
         }
@@ -1514,15 +1535,23 @@ fn can_start_expression(kind: TokenKind) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::*;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
-    use crate::ast::*;
 
     fn parse(source: &str) -> Program {
         let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
-        assert!(!lex_diags.has_errors(), "lex errors: {:?}", lex_diags.diagnostics());
+        assert!(
+            !lex_diags.has_errors(),
+            "lex errors: {:?}",
+            lex_diags.diagnostics()
+        );
         let (program, parse_diags) = Parser::new(tokens).parse();
-        assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+        assert!(
+            !parse_diags.has_errors(),
+            "parse errors: {:?}",
+            parse_diags.diagnostics()
+        );
         program
     }
 
@@ -1656,7 +1685,10 @@ mod tests {
         match &b.stmts[0] {
             Stmt::Expr(s) => match &s.expr.kind {
                 ExprKind::MethodCall {
-                    method, type_args, args, ..
+                    method,
+                    type_args,
+                    args,
+                    ..
                 } => {
                     assert_eq!(method, "method");
                     assert_eq!(type_args.len(), 1);
@@ -1682,7 +1714,10 @@ mod tests {
         match &b.stmts[0] {
             Stmt::Expr(s) => match &s.expr.kind {
                 ExprKind::MethodCall {
-                    method, type_args, args, ..
+                    method,
+                    type_args,
+                    args,
+                    ..
                 } => {
                     assert_eq!(method, "method");
                     assert_eq!(type_args.len(), 2);
@@ -1767,7 +1802,8 @@ mod tests {
 
     #[test]
     fn parse_nested_if_else_if() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 if x > 0 {
                     1;
@@ -1777,7 +1813,8 @@ mod tests {
                     0;
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert_eq!(b.stmts.len(), 0);
@@ -1792,7 +1829,10 @@ mod tests {
         match &b.stmts[0] {
             Stmt::Let(s) => match &s.initializer.as_ref().unwrap().kind {
                 ExprKind::Map(entries) => assert_eq!(entries.len(), 2),
-                _ => panic!("expected map, got {:?}", s.initializer.as_ref().unwrap().kind),
+                _ => panic!(
+                    "expected map, got {:?}",
+                    s.initializer.as_ref().unwrap().kind
+                ),
             },
             _ => panic!("expected let"),
         }
@@ -1822,7 +1862,8 @@ mod tests {
 
     #[test]
     fn parse_milestone_program() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 let x = 5;
                 let y = x + 3;
@@ -1830,7 +1871,8 @@ mod tests {
                     emit("result", y);
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert_eq!(f.name, "main");
@@ -1844,7 +1886,8 @@ mod tests {
 
     #[test]
     fn parse_match_basic() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match x {
                     1 => "one",
@@ -1852,7 +1895,8 @@ mod tests {
                     _ => "other",
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert!(b.tail_expr.is_some());
@@ -1867,14 +1911,16 @@ mod tests {
 
     #[test]
     fn parse_match_with_guard() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match x {
                     n if n > 0 => "positive",
                     _ => "non-positive",
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -1888,14 +1934,16 @@ mod tests {
 
     #[test]
     fn parse_match_enum_patterns() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match result {
                     Ok(value) => value,
                     Err(e) => 0,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -1915,44 +1963,50 @@ mod tests {
 
     #[test]
     fn parse_match_or_pattern() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match status {
                     "active" | "enabled" => true,
                     _ => false,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
-            ExprKind::Match { arms, .. } => {
-                match &arms[0].pattern.kind {
-                    PatternKind::Or(pats) => assert_eq!(pats.len(), 2),
-                    _ => panic!("expected or pattern"),
-                }
-            }
+            ExprKind::Match { arms, .. } => match &arms[0].pattern.kind {
+                PatternKind::Or(pats) => assert_eq!(pats.len(), 2),
+                _ => panic!("expected or pattern"),
+            },
             _ => panic!("expected match"),
         }
     }
 
     #[test]
     fn parse_match_struct_pattern() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match point {
                     Point { x, y } => x + y,
                     Point { x: a, .. } => a,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
             ExprKind::Match { arms, .. } => {
                 assert_eq!(arms.len(), 2);
                 match &arms[0].pattern.kind {
-                    PatternKind::Struct { path, fields, has_rest } => {
+                    PatternKind::Struct {
+                        path,
+                        fields,
+                        has_rest,
+                    } => {
                         assert_eq!(path, &vec!["Point".to_string()]);
                         assert_eq!(fields.len(), 2);
                         assert!(!has_rest);
@@ -1960,7 +2014,9 @@ mod tests {
                     _ => panic!("expected struct pattern"),
                 }
                 match &arms[1].pattern.kind {
-                    PatternKind::Struct { has_rest, fields, .. } => {
+                    PatternKind::Struct {
+                        has_rest, fields, ..
+                    } => {
                         assert!(*has_rest);
                         assert_eq!(fields.len(), 1);
                         assert!(fields[0].pattern.is_some()); // x: a
@@ -1974,7 +2030,8 @@ mod tests {
 
     #[test]
     fn parse_match_tuple_pattern() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match pair {
                     (0, y) => y,
@@ -1982,7 +2039,8 @@ mod tests {
                     _ => 0,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -1999,26 +2057,29 @@ mod tests {
 
     #[test]
     fn parse_match_binding_pattern() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match x {
                     n @ 42 => n,
                     _ => 0,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
-            ExprKind::Match { arms, .. } => {
-                match &arms[0].pattern.kind {
-                    PatternKind::Binding { name, pattern } => {
-                        assert_eq!(name, "n");
-                        assert!(matches!(pattern.kind, PatternKind::Literal(Literal::Int(42))));
-                    }
-                    _ => panic!("expected binding pattern"),
+            ExprKind::Match { arms, .. } => match &arms[0].pattern.kind {
+                PatternKind::Binding { name, pattern } => {
+                    assert_eq!(name, "n");
+                    assert!(matches!(
+                        pattern.kind,
+                        PatternKind::Literal(Literal::Int(42))
+                    ));
                 }
-            }
+                _ => panic!("expected binding pattern"),
+            },
             _ => panic!("expected match"),
         }
     }
@@ -2029,13 +2090,15 @@ mod tests {
 
     #[test]
     fn parse_for_loop() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 for item in items {
                     emit("item", item);
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert!(b.tail_expr.is_some());
@@ -2049,35 +2112,37 @@ mod tests {
 
     #[test]
     fn parse_for_with_tuple_pattern() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 for (key, value) in pairs {
                     emit("kv", key);
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
-            ExprKind::For { pattern, .. } => {
-                match &pattern.kind {
-                    PatternKind::Tuple(pats) => assert_eq!(pats.len(), 2),
-                    _ => panic!("expected tuple pattern"),
-                }
-            }
+            ExprKind::For { pattern, .. } => match &pattern.kind {
+                PatternKind::Tuple(pats) => assert_eq!(pats.len(), 2),
+                _ => panic!("expected tuple pattern"),
+            },
             _ => panic!("expected for loop"),
         }
     }
 
     #[test]
     fn parse_while_loop() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 while x > 0 {
                     x = x - 1;
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert!(b.tail_expr.is_some());
@@ -2091,17 +2156,22 @@ mod tests {
 
     #[test]
     fn parse_loop() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 loop {
                     emit("tick", 1);
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert!(b.tail_expr.is_some());
-        assert!(matches!(b.tail_expr.as_ref().unwrap().kind, ExprKind::Loop { .. }));
+        assert!(matches!(
+            b.tail_expr.as_ref().unwrap().kind,
+            ExprKind::Loop { .. }
+        ));
     }
 
     // =====================================================================
@@ -2110,13 +2180,15 @@ mod tests {
 
     #[test]
     fn parse_break_continue() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 loop {
                     break;
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         // The loop is a tail expression
@@ -2131,35 +2203,37 @@ mod tests {
 
     #[test]
     fn parse_break_with_value() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 loop {
                     break 42;
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
-            ExprKind::Loop { body } => {
-                match &body.stmts[0] {
-                    Stmt::Break(s) => assert!(s.value.is_some()),
-                    _ => panic!("expected break"),
-                }
-            }
+            ExprKind::Loop { body } => match &body.stmts[0] {
+                Stmt::Break(s) => assert!(s.value.is_some()),
+                _ => panic!("expected break"),
+            },
             _ => panic!("expected loop"),
         }
     }
 
     #[test]
     fn parse_continue_stmt() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 while true {
                     continue;
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -2173,11 +2247,13 @@ mod tests {
 
     #[test]
     fn parse_throw_stmt() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 throw ToolError("something went wrong");
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert_eq!(b.stmts.len(), 1);
@@ -2190,7 +2266,8 @@ mod tests {
 
     #[test]
     fn parse_try_catch() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 try {
                     risky_call();
@@ -2198,7 +2275,8 @@ mod tests {
                     handle_error();
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         assert!(b.tail_expr.is_some());
@@ -2213,7 +2291,8 @@ mod tests {
 
     #[test]
     fn parse_try_catch_typed() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 try {
                     risky_call();
@@ -2223,7 +2302,8 @@ mod tests {
                     fallback();
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -2248,7 +2328,11 @@ mod tests {
         let b = body(f);
         match &b.stmts[0] {
             Stmt::Let(s) => match &s.initializer.as_ref().unwrap().kind {
-                ExprKind::Closure { params, return_type, .. } => {
+                ExprKind::Closure {
+                    params,
+                    return_type,
+                    ..
+                } => {
                     assert_eq!(params.len(), 1);
                     assert_eq!(params[0].name, "x");
                     assert!(return_type.is_none());
@@ -2266,7 +2350,11 @@ mod tests {
         let b = body(f);
         match &b.stmts[0] {
             Stmt::Let(s) => match &s.initializer.as_ref().unwrap().kind {
-                ExprKind::Closure { params, return_type, .. } => {
+                ExprKind::Closure {
+                    params,
+                    return_type,
+                    ..
+                } => {
                     assert_eq!(params.len(), 2);
                     assert!(params[0].type_ann.is_some());
                     assert!(return_type.is_some());
@@ -2324,7 +2412,10 @@ mod tests {
                 ExprKind::Propagate(inner) => {
                     assert!(matches!(inner.kind, ExprKind::Call { .. }));
                 }
-                _ => panic!("expected propagate, got {:?}", s.initializer.as_ref().unwrap().kind),
+                _ => panic!(
+                    "expected propagate, got {:?}",
+                    s.initializer.as_ref().unwrap().kind
+                ),
             },
             _ => panic!("expected let"),
         }
@@ -2358,7 +2449,11 @@ mod tests {
         let b = body(f);
         match &b.stmts[0] {
             Stmt::Let(s) => match &s.initializer.as_ref().unwrap().kind {
-                ExprKind::Range { start, end, inclusive } => {
+                ExprKind::Range {
+                    start,
+                    end,
+                    inclusive,
+                } => {
                     assert!(start.is_some());
                     assert!(end.is_some());
                     assert!(!inclusive);
@@ -2512,13 +2607,15 @@ mod tests {
 
     #[test]
     fn parse_for_with_range() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 for i in 0..10 {
                     emit("i", i);
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -2532,14 +2629,16 @@ mod tests {
     #[test]
     fn parse_block_ending_no_semicolon() {
         // Control flow expressions that end with } don't need ; as statements
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 for x in items {
                     emit("x", x);
                 }
                 let y = 5;
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         // for loop is a statement (ExprStmt), followed by let
@@ -2548,7 +2647,8 @@ mod tests {
 
     #[test]
     fn parse_match_with_block_arms() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match status {
                     "ok" => {
@@ -2558,7 +2658,8 @@ mod tests {
                     _ => 0,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
@@ -2572,26 +2673,26 @@ mod tests {
 
     #[test]
     fn parse_match_path_variant() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match shape {
                     Shape::Circle(r) => r * r,
                     Shape::Rectangle(w, h) => w * h,
                 }
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.tail_expr.as_ref().unwrap().kind {
-            ExprKind::Match { arms, .. } => {
-                match &arms[0].pattern.kind {
-                    PatternKind::Enum { path, fields } => {
-                        assert_eq!(path, &vec!["Shape".to_string(), "Circle".to_string()]);
-                        assert_eq!(fields.len(), 1);
-                    }
-                    _ => panic!("expected enum pattern"),
+            ExprKind::Match { arms, .. } => match &arms[0].pattern.kind {
+                PatternKind::Enum { path, fields } => {
+                    assert_eq!(path, &vec!["Shape".to_string(), "Circle".to_string()]);
+                    assert_eq!(fields.len(), 1);
                 }
-            }
+                _ => panic!("expected enum pattern"),
+            },
             _ => panic!("expected match"),
         }
     }
@@ -2602,11 +2703,13 @@ mod tests {
 
     #[test]
     fn parse_prefix_await() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 let result = await emit("channel", 42);
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.stmts[0] {
@@ -2623,16 +2726,21 @@ mod tests {
     #[test]
     fn parse_prefix_await_chained() {
         // Prefix await with method call and propagation
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 let x = await foo.bar(1, 2);
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.stmts[0] {
             Stmt::Let(s) => {
-                assert!(matches!(s.initializer.as_ref().unwrap().kind, ExprKind::Await(_)));
+                assert!(matches!(
+                    s.initializer.as_ref().unwrap().kind,
+                    ExprKind::Await(_)
+                ));
             }
             _ => panic!("expected let statement"),
         }
@@ -2640,14 +2748,16 @@ mod tests {
 
     #[test]
     fn parse_return_in_match_arm() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 let x = match op {
                     "add" => a + b,
                     _ => return Err("unknown"),
                 };
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.stmts[0] {
@@ -2666,14 +2776,16 @@ mod tests {
 
     #[test]
     fn parse_return_no_value_in_match() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             fn main() {
                 match x {
                     0 => return,
                     _ => 42,
                 };
             }
-        "#);
+        "#,
+        );
         let f = get_fn(&prog);
         let b = body(f);
         match &b.stmts[0] {

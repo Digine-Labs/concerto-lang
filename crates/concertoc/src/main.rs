@@ -15,7 +15,12 @@ use concerto_compiler::parser;
 ///
 /// Compiles .conc source files to .conc-ir (JSON IR) files.
 #[derive(Parser)]
-#[command(name = "concertoc", version, about, long_about = "Concerto language compiler.\n\nCompiles .conc source files into .conc-ir (JSON intermediate representation)\nfor execution by the Concerto runtime (concerto run).\n\nExamples:\n  concertoc hello.conc              Compile to hello.conc-ir\n  concertoc hello.conc -o out.ir    Compile to custom output path\n  concertoc hello.conc --check      Check for errors only\n  concertoc hello.conc --emit-ir    Print IR JSON to stdout")]
+#[command(
+    name = "concertoc",
+    version,
+    about,
+    long_about = "Concerto language compiler.\n\nCompiles .conc source files into .conc-ir (JSON intermediate representation)\nfor execution by the Concerto runtime (concerto run).\n\nExamples:\n  concertoc hello.conc              Compile to hello.conc-ir\n  concertoc hello.conc -o out.ir    Compile to custom output path\n  concertoc hello.conc --check      Check for errors only\n  concertoc hello.conc --emit-ir    Print IR JSON to stdout"
+)]
 struct Cli {
     /// Input .conc source file.
     input: PathBuf,
@@ -52,11 +57,7 @@ fn main() {
     let source = match fs::read_to_string(&cli.input) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
-                "error: could not read '{}': {}",
-                cli.input.display(),
-                e
-            );
+            eprintln!("error: could not read '{}': {}", cli.input.display(), e);
             process::exit(1);
         }
     };
@@ -110,10 +111,7 @@ fn main() {
         for token in &tokens {
             println!(
                 "{:>4}:{:<3} {:?} {:?}",
-                token.span.start.line,
-                token.span.start.column,
-                token.kind,
-                token.lexeme,
+                token.span.start.line, token.span.start.column, token.kind, token.lexeme,
             );
         }
         if cli.check {
@@ -219,21 +217,13 @@ fn main() {
             );
         }
         Err(e) => {
-            eprintln!(
-                "error: could not write '{}': {}",
-                output_path.display(),
-                e
-            );
+            eprintln!("error: could not write '{}': {}", output_path.display(), e);
             process::exit(1);
         }
     }
 }
 
-fn print_diagnostic(
-    diag: &concerto_common::Diagnostic,
-    source: &str,
-    file_name: &str,
-) {
+fn print_diagnostic(diag: &concerto_common::Diagnostic, source: &str, file_name: &str) {
     let kind = if diag.is_error() {
         ReportKind::Error
     } else {

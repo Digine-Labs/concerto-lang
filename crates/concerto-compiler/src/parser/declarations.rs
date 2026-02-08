@@ -10,15 +10,11 @@ impl Parser {
         let decorators = self.parse_decorators();
 
         match self.peek() {
-            TokenKind::Fn | TokenKind::Async => {
-                self.parse_function_decl(false, decorators)
-            }
+            TokenKind::Fn | TokenKind::Async => self.parse_function_decl(false, decorators),
             TokenKind::Pub => {
                 self.advance(); // consume 'pub'
                 match self.peek() {
-                    TokenKind::Fn | TokenKind::Async => {
-                        self.parse_function_decl(true, decorators)
-                    }
+                    TokenKind::Fn | TokenKind::Async => self.parse_function_decl(true, decorators),
                     _ => {
                         let span = self.current_span();
                         self.diagnostics
@@ -47,10 +43,7 @@ impl Parser {
             _ => {
                 let span = self.current_span();
                 self.diagnostics.error(
-                    format!(
-                        "expected declaration, found {:?}",
-                        self.peek()
-                    ),
+                    format!("expected declaration, found {:?}", self.peek()),
                     span,
                 );
                 None
@@ -306,8 +299,7 @@ impl Parser {
         // Check for union type: "literal" | "literal" | ...
         // Only enter union parsing when the first element is a string literal,
         // because `|` is ambiguous with closure param delimiters for named types.
-        if matches!(first.kind, types::TypeKind::StringLiteral(_))
-            && self.peek() == TokenKind::Pipe
+        if matches!(first.kind, types::TypeKind::StringLiteral(_)) && self.peek() == TokenKind::Pipe
         {
             let start = first.span.clone();
             let mut variants = vec![first];
@@ -567,11 +559,7 @@ impl Parser {
         self.expect(TokenKind::RightBrace)?;
         let span = start.merge(&self.previous_span());
 
-        Some(Declaration::Pipeline(PipelineDecl {
-            name,
-            stages,
-            span,
-        }))
+        Some(Declaration::Pipeline(PipelineDecl { name, stages, span }))
     }
 
     /// Parse `[decorators] stage name(params) [-> Type] { body }`
@@ -1081,13 +1069,15 @@ mod tests {
 
     #[test]
     fn parse_agent_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             agent Classifier {
                 provider: openai,
                 model: "gpt-4o",
                 temperature: 0.3,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Agent(a) => {
                 assert_eq!(a.name, "Classifier");
@@ -1100,13 +1090,15 @@ mod tests {
 
     #[test]
     fn parse_agent_with_decorators() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             @timeout(seconds: 60)
             @log(channel: "debug")
             agent MyAgent {
                 provider: openai,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Agent(a) => {
                 assert_eq!(a.name, "MyAgent");
@@ -1122,7 +1114,8 @@ mod tests {
 
     #[test]
     fn parse_tool_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             tool Calculator {
                 description: "A calculator",
 
@@ -1133,7 +1126,8 @@ mod tests {
                     return a + b;
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Tool(t) => {
                 assert_eq!(t.name, "Calculator");
@@ -1154,7 +1148,8 @@ mod tests {
 
     #[test]
     fn parse_tool_mut_self() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             tool Counter {
                 description: "Counts things",
 
@@ -1163,7 +1158,8 @@ mod tests {
                     return 1;
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Tool(t) => {
                 assert_eq!(t.methods[0].self_param, SelfParam::Mutable);
@@ -1176,13 +1172,15 @@ mod tests {
 
     #[test]
     fn parse_schema_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             schema Analysis {
                 file_count: Int,
                 summary: String,
                 tags: Array<String>,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Schema(s) => {
                 assert_eq!(s.name, "Analysis");
@@ -1197,12 +1195,14 @@ mod tests {
 
     #[test]
     fn parse_schema_optional_field() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             schema Config {
                 name: String,
                 debug?: Bool,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Schema(s) => {
                 assert!(!s.fields[0].is_optional);
@@ -1214,12 +1214,14 @@ mod tests {
 
     #[test]
     fn parse_schema_with_defaults() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             schema Settings {
                 retries: Int = 3,
                 verbose: Bool = false,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Schema(s) => {
                 assert!(s.fields[0].default.is_some());
@@ -1233,7 +1235,8 @@ mod tests {
 
     #[test]
     fn parse_pipeline_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             pipeline DataPipeline {
                 stage extract(url: String) -> String {
                     return url;
@@ -1242,7 +1245,8 @@ mod tests {
                     return 42;
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Pipeline(p) => {
                 assert_eq!(p.name, "DataPipeline");
@@ -1260,12 +1264,14 @@ mod tests {
 
     #[test]
     fn parse_struct_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             struct Point {
                 x: Float,
                 y: Float,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Struct(s) => {
                 assert_eq!(s.name, "Point");
@@ -1279,12 +1285,14 @@ mod tests {
 
     #[test]
     fn parse_struct_pub_fields() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             struct Config {
                 pub name: String,
                 secret: String,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Struct(s) => {
                 assert!(s.fields[0].is_public);
@@ -1298,13 +1306,15 @@ mod tests {
 
     #[test]
     fn parse_enum_unit_variants() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             enum Color {
                 Red,
                 Green,
                 Blue,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Enum(e) => {
                 assert_eq!(e.name, "Color");
@@ -1318,12 +1328,14 @@ mod tests {
 
     #[test]
     fn parse_enum_tuple_variants() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             enum Shape {
                 Circle(Float),
                 Rectangle(Float, Float),
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Enum(e) => {
                 assert_eq!(e.variants.len(), 2);
@@ -1342,12 +1354,14 @@ mod tests {
 
     #[test]
     fn parse_enum_struct_variant() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             enum Message {
                 Quit,
                 Text { content: String },
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Enum(e) => {
                 assert!(matches!(e.variants[0].kind, EnumVariantKind::Unit));
@@ -1367,14 +1381,16 @@ mod tests {
 
     #[test]
     fn parse_trait_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             trait Printable {
                 fn to_string(self) -> String;
                 fn print(self) {
                     return;
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Trait(t) => {
                 assert_eq!(t.name, "Printable");
@@ -1395,13 +1411,15 @@ mod tests {
 
     #[test]
     fn parse_impl_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             impl Point {
                 pub fn new(x: Float, y: Float) -> Point {
                     return x;
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Impl(i) => {
                 assert_eq!(i.target, "Point");
@@ -1416,13 +1434,15 @@ mod tests {
 
     #[test]
     fn parse_impl_trait_for_type() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             impl Printable for Point {
                 fn to_string(self) -> String {
                     return "point";
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Impl(i) => {
                 assert_eq!(i.target, "Point");
@@ -1475,11 +1495,13 @@ mod tests {
 
     #[test]
     fn parse_module_decl_inline() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             mod utils {
                 fn helper() {}
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Module(m) => {
                 assert_eq!(m.name, "utils");
@@ -1525,7 +1547,10 @@ mod tests {
                     _ => panic!("expected generic type"),
                 }
             }
-            other => panic!("expected TypeAlias, got {:?}", std::mem::discriminant(other)),
+            other => panic!(
+                "expected TypeAlias, got {:?}",
+                std::mem::discriminant(other)
+            ),
         }
     }
 
@@ -1553,7 +1578,8 @@ mod tests {
 
     #[test]
     fn parse_mcp_decl() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             mcp GitHubServer {
                 transport: "stdio",
                 command: "npx github-mcp",
@@ -1566,7 +1592,8 @@ mod tests {
                 @param("path", "File path")
                 fn get_file(path: String) -> String;
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Mcp(m) => {
                 assert_eq!(m.name, "GitHubServer");
@@ -1590,12 +1617,14 @@ mod tests {
 
     #[test]
     fn parse_decorator_no_args() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             @cache
             agent Cached {
                 provider: openai,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Agent(a) => {
                 assert_eq!(a.decorators.len(), 1);
@@ -1608,7 +1637,8 @@ mod tests {
 
     #[test]
     fn parse_decorator_positional_args() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             tool MyTool {
                 description: "test",
 
@@ -1618,7 +1648,8 @@ mod tests {
                     return x;
                 }
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Tool(t) => {
                 let desc = &t.methods[0].decorators[0];
@@ -1640,12 +1671,14 @@ mod tests {
 
     #[test]
     fn parse_decorator_named_args() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             @timeout(seconds: 30)
             agent TimedAgent {
                 provider: openai,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Agent(a) => {
                 let dec = &a.decorators[0];
@@ -1664,11 +1697,13 @@ mod tests {
 
     #[test]
     fn parse_multiple_declarations() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             use std::json;
             const MAX: Int = 100;
             fn main() {}
-        "#);
+        "#,
+        );
         assert_eq!(prog.declarations.len(), 3);
         assert!(matches!(&prog.declarations[0], Declaration::Use(_)));
         assert!(matches!(&prog.declarations[1], Declaration::Const(_)));
@@ -1679,13 +1714,15 @@ mod tests {
 
     #[test]
     fn parse_agent_with_tools_array() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             agent FileAnalyzer {
                 provider: openai,
                 model: "gpt-4o",
                 tools: [FileManager, Calculator],
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Agent(a) => {
                 assert_eq!(a.name, "FileAnalyzer");
@@ -1732,19 +1769,24 @@ mod tests {
         let (prog, diags) = parse_with_errors("blah blah\nfn main() {}");
         assert!(diags.has_errors());
         // Should recover and parse the function
-        assert!(prog.declarations.iter().any(|d| matches!(d, Declaration::Function(_))));
+        assert!(prog
+            .declarations
+            .iter()
+            .any(|d| matches!(d, Declaration::Function(_))));
     }
 
     // ===== Step 12: Union types =====
 
     #[test]
     fn parse_schema_with_union_type() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             schema Classification {
                 category: "legal" | "technical" | "financial" | "general",
                 confidence: Float,
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
             Declaration::Schema(s) => {
                 assert_eq!(s.name, "Classification");
@@ -1774,20 +1816,20 @@ mod tests {
 
     #[test]
     fn parse_string_literal_type() {
-        let prog = parse(r#"
+        let prog = parse(
+            r#"
             schema Mode {
                 value: "on" | "off",
             }
-        "#);
+        "#,
+        );
         match &prog.declarations[0] {
-            Declaration::Schema(s) => {
-                match &s.fields[0].type_ann.kind {
-                    crate::ast::types::TypeKind::Union(variants) => {
-                        assert_eq!(variants.len(), 2);
-                    }
-                    _ => panic!("expected union type"),
+            Declaration::Schema(s) => match &s.fields[0].type_ann.kind {
+                crate::ast::types::TypeKind::Union(variants) => {
+                    assert_eq!(variants.len(), 2);
                 }
-            }
+                _ => panic!("expected union type"),
+            },
             other => panic!("expected Schema, got {:?}", std::mem::discriminant(other)),
         }
     }

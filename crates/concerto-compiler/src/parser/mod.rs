@@ -42,10 +42,7 @@ impl Parser {
 
         let end = self.current_span();
         let span = start.merge(&end);
-        let program = Program {
-            declarations,
-            span,
-        };
+        let program = Program { declarations, span };
         (program, self.diagnostics)
     }
 

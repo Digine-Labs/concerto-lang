@@ -95,48 +95,48 @@ pub enum TokenKind {
     Mcp,
 
     // === Operators ===
-    Plus,          // +
-    Minus,         // -
-    Star,          // *
-    Slash,         // /
-    Percent,       // %
-    EqualEqual,    // ==
-    BangEqual,     // !=
-    Less,          // <
-    Greater,       // >
-    LessEqual,     // <=
-    GreaterEqual,  // >=
-    AmpAmp,        // &&
-    PipePipe,      // ||
-    Bang,          // !
-    Equal,         // =
-    PlusEqual,     // +=
-    MinusEqual,    // -=
-    StarEqual,     // *=
-    SlashEqual,    // /=
-    PercentEqual,  // %=
-    Arrow,         // ->
-    FatArrow,      // =>
-    ColonColon,    // ::
-    Dot,           // .
-    DotDot,        // ..
-    DotDotEqual,   // ..=
-    Pipe,          // |
-    PipeGreater,   // |>
-    Question,      // ?
+    Plus,             // +
+    Minus,            // -
+    Star,             // *
+    Slash,            // /
+    Percent,          // %
+    EqualEqual,       // ==
+    BangEqual,        // !=
+    Less,             // <
+    Greater,          // >
+    LessEqual,        // <=
+    GreaterEqual,     // >=
+    AmpAmp,           // &&
+    PipePipe,         // ||
+    Bang,             // !
+    Equal,            // =
+    PlusEqual,        // +=
+    MinusEqual,       // -=
+    StarEqual,        // *=
+    SlashEqual,       // /=
+    PercentEqual,     // %=
+    Arrow,            // ->
+    FatArrow,         // =>
+    ColonColon,       // ::
+    Dot,              // .
+    DotDot,           // ..
+    DotDotEqual,      // ..=
+    Pipe,             // |
+    PipeGreater,      // |>
+    Question,         // ?
     QuestionQuestion, // ??
-    At,            // @
+    At,               // @
 
     // === Delimiters ===
-    LeftParen,     // (
-    RightParen,    // )
-    LeftBrace,     // {
-    RightBrace,    // }
-    LeftBracket,   // [
-    RightBracket,  // ]
-    Comma,         // ,
-    Semicolon,     // ;
-    Colon,         // :
+    LeftParen,    // (
+    RightParen,   // )
+    LeftBrace,    // {
+    RightBrace,   // }
+    LeftBracket,  // [
+    RightBracket, // ]
+    Comma,        // ,
+    Semicolon,    // ;
+    Colon,        // :
 
     // === String interpolation ===
     /// Start of an interpolated string: text from `"` up to first `${`.

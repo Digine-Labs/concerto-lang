@@ -146,11 +146,7 @@ impl CodeGenerator {
 
     /// Compile a function declaration into an IrFunction.
     /// Returns None if the function has no body (e.g. trait/mcp signatures).
-    fn compile_function(
-        &mut self,
-        func: &FunctionDecl,
-        name: &str,
-    ) -> Option<IrFunction> {
+    fn compile_function(&mut self, func: &FunctionDecl, name: &str) -> Option<IrFunction> {
         let body = func.body.as_ref()?;
         let mut ctx = FunctionCtx::new();
 
@@ -600,7 +596,6 @@ impl CodeGenerator {
             }
 
             // --- Loops ---
-
             ExprKind::While { condition, body } => {
                 self.generate_while(condition, body, ctx, span);
             }
@@ -618,13 +613,11 @@ impl CodeGenerator {
             }
 
             // --- Match ---
-
             ExprKind::Match { scrutinee, arms } => {
                 self.generate_match(scrutinee, arms, ctx, span);
             }
 
             // --- Error handling ---
-
             ExprKind::TryCatch { body, catches } => {
                 self.generate_try_catch(body, catches, ctx, span);
             }
@@ -639,7 +632,6 @@ impl CodeGenerator {
             }
 
             // --- Closures ---
-
             ExprKind::Closure {
                 params,
                 return_type,
@@ -649,25 +641,21 @@ impl CodeGenerator {
             }
 
             // --- Pipe ---
-
             ExprKind::Pipe { left, right } => {
                 self.generate_pipe(left, right, ctx, span);
             }
 
             // --- Nil coalesce ---
-
             ExprKind::NilCoalesce { left, right } => {
                 self.generate_nil_coalesce(left, right, ctx, span);
             }
 
             // --- String interpolation ---
-
             ExprKind::StringInterpolation(parts) => {
                 self.generate_string_interpolation(parts, ctx, span);
             }
 
             // --- Range ---
-
             ExprKind::Range {
                 start,
                 end,
@@ -713,7 +701,6 @@ impl CodeGenerator {
             }
 
             // --- Cast ---
-
             ExprKind::Cast { expr, target } => {
                 self.generate_expr(expr, ctx);
                 ctx.emit(IrInstruction {
@@ -725,7 +712,6 @@ impl CodeGenerator {
             }
 
             // --- Path ---
-
             ExprKind::Path(segments) => {
                 let full_path = segments.join("::");
                 ctx.emit(IrInstruction {
@@ -737,7 +723,6 @@ impl CodeGenerator {
             }
 
             // --- Await ---
-
             ExprKind::Await(inner) => {
                 self.generate_expr(inner, ctx);
                 ctx.emit(IrInstruction {
@@ -748,7 +733,6 @@ impl CodeGenerator {
             }
 
             // --- Tuple ---
-
             ExprKind::Tuple(elements) => {
                 for elem in elements {
                     self.generate_expr(elem, ctx);
@@ -762,7 +746,6 @@ impl CodeGenerator {
             }
 
             // --- Struct literal ---
-
             ExprKind::StructLiteral { name, fields } => {
                 let type_name = name.join("::");
                 let field_names: Vec<serde_json::Value> = fields
@@ -783,7 +766,6 @@ impl CodeGenerator {
             }
 
             // --- Return expression (in expression position, e.g., match arms) ---
-
             ExprKind::Return(value) => {
                 if let Some(val) = value {
                     self.generate_expr(val, ctx);
@@ -1068,12 +1050,7 @@ impl CodeGenerator {
         });
     }
 
-    fn generate_loop(
-        &mut self,
-        body: &Block,
-        ctx: &mut FunctionCtx,
-        span: Option<[u32; 2]>,
-    ) {
+    fn generate_loop(&mut self, body: &Block, ctx: &mut FunctionCtx, span: Option<[u32; 2]>) {
         let result_var = ctx.fresh_local("$loop");
         let nil_idx = self.pool.add_nil();
 
@@ -1430,8 +1407,7 @@ impl CodeGenerator {
                         ..default_instruction()
                     });
                     self.emit_pattern_check(sub_pat, ctx, span);
-                    let jump_success =
-                        ctx.emit_placeholder(Opcode::JumpIfTrue, span);
+                    let jump_success = ctx.emit_placeholder(Opcode::JumpIfTrue, span);
                     success_patches.push(jump_success);
                 }
 
@@ -1787,10 +1763,7 @@ impl CodeGenerator {
         for catch in catches {
             ctx.emit(IrInstruction {
                 op: Opcode::Catch,
-                type_name: catch
-                    .error_type
-                    .as_ref()
-                    .map(format_type),
+                type_name: catch.error_type.as_ref().map(format_type),
                 span: Some([catch.span.start.line, catch.span.start.column]),
                 ..default_instruction()
             });
@@ -2218,16 +2191,19 @@ impl CodeGenerator {
                             }
                             _ => None,
                         })?;
-                        let desc = args_iter.next().and_then(|a| match a {
-                            DecoratorArg::Positional(expr) => {
-                                if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
-                                    Some(s.clone())
-                                } else {
-                                    None
+                        let desc = args_iter
+                            .next()
+                            .and_then(|a| match a {
+                                DecoratorArg::Positional(expr) => {
+                                    if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
+                                        Some(s.clone())
+                                    } else {
+                                        None
+                                    }
                                 }
-                            }
-                            _ => None,
-                        }).unwrap_or_default();
+                                _ => None,
+                            })
+                            .unwrap_or_default();
                         Some((name, desc))
                     })
                     .collect();
@@ -2258,7 +2234,11 @@ impl CodeGenerator {
                         }
                     }
                     properties.insert(param.name.clone(), prop);
-                    if param.default.is_none() {
+                    let is_optional_type = param
+                        .type_ann
+                        .as_ref()
+                        .is_some_and(is_option_type_annotation);
+                    if param.default.is_none() && !is_optional_type {
                         required.push(serde_json::Value::String(param.name.clone()));
                     }
                 }
@@ -2349,12 +2329,18 @@ impl CodeGenerator {
 
                 IrPipelineStage {
                     name: stage.name.clone(),
-                    params: stage.params.iter().map(|p| IrParam {
-                        name: p.name.clone(),
-                        param_type: p.type_ann.as_ref()
-                            .map(|t| serde_json::Value::String(format_type(t)))
-                            .unwrap_or(serde_json::Value::String("any".to_string())),
-                    }).collect(),
+                    params: stage
+                        .params
+                        .iter()
+                        .map(|p| IrParam {
+                            name: p.name.clone(),
+                            param_type: p
+                                .type_ann
+                                .as_ref()
+                                .map(|t| serde_json::Value::String(format_type(t)))
+                                .unwrap_or(serde_json::Value::String("any".to_string())),
+                        })
+                        .collect(),
                     input_type: stage
                         .params
                         .first()
@@ -2447,8 +2433,7 @@ impl CodeGenerator {
         // Compile default implementations as functions
         for method in &t.methods {
             if method.body.is_some() {
-                let qualified_name =
-                    format!("{}::{}", t.name, method.name);
+                let qualified_name = format!("{}::{}", t.name, method.name);
                 if let Some(ir_func) = self.compile_function(method, &qualified_name) {
                     self.functions.push(ir_func);
                 }
@@ -2497,7 +2482,9 @@ impl CodeGenerator {
     fn generate_hashmap(&mut self, hm: &HashMapDecl) {
         use super::super::ast::types::TypeKind;
         let (key_type, value_type) = match &hm.type_ann.kind {
-            TypeKind::Generic { name, args } if (name == "Map" || name == "HashMap") && args.len() == 2 => {
+            TypeKind::Generic { name, args }
+                if (name == "Map" || name == "HashMap") && args.len() == 2 =>
+            {
                 (format_type(&args[0]), format_type(&args[1]))
             }
             _ => ("any".to_string(), "any".to_string()),
@@ -2567,10 +2554,7 @@ impl CodeGenerator {
                 })
             })
             .collect();
-        config.insert(
-            "tools".to_string(),
-            serde_json::Value::Array(tool_sigs),
-        );
+        config.insert("tools".to_string(), serde_json::Value::Array(tool_sigs));
 
         self.connections.push(IrConnection {
             name: mcp.name.clone(),
@@ -2777,7 +2761,11 @@ fn format_type(ty: &super::super::ast::types::TypeAnnotation) -> String {
             return_type,
         } => {
             let param_strs: Vec<String> = params.iter().map(format_type).collect();
-            format!("fn({}) -> {}", param_strs.join(", "), format_type(return_type))
+            format!(
+                "fn({}) -> {}",
+                param_strs.join(", "),
+                format_type(return_type)
+            )
         }
         TypeKind::Union(variants) => {
             let variant_strs: Vec<String> = variants.iter().map(format_type).collect();
@@ -2837,6 +2825,11 @@ fn concerto_type_to_json_schema(
         }
         _ => serde_json::json!({ "type": "string" }),
     }
+}
+
+fn is_option_type_annotation(ty: &super::super::ast::types::TypeAnnotation) -> bool {
+    use super::super::ast::types::TypeKind;
+    matches!(&ty.kind, TypeKind::Generic { name, .. } if name == "Option")
 }
 
 fn expr_to_json(expr: &Expr) -> serde_json::Value {
@@ -2988,11 +2981,11 @@ mod tests {
         let ir = compile("fn add(a: Int, b: Int) -> Int { return a + b; }");
         let func = &ir.functions[0];
         assert_eq!(func.params.len(), 2);
-        assert_eq!(func.return_type, serde_json::Value::String("Int".to_string()));
-        assert!(func
-            .instructions
-            .iter()
-            .any(|i| i.op == Opcode::Return));
+        assert_eq!(
+            func.return_type,
+            serde_json::Value::String("Int".to_string())
+        );
+        assert!(func.instructions.iter().any(|i| i.op == Opcode::Return));
     }
 
     #[test]
@@ -3230,7 +3223,10 @@ mod tests {
         let ops: Vec<Opcode> = main.instructions.iter().map(|i| i.op).collect();
         assert!(ops.contains(&Opcode::BuildStruct));
         // Verify struct type is registered
-        assert!(ir.types.iter().any(|t| t.name == "Point" && t.kind == "struct"));
+        assert!(ir
+            .types
+            .iter()
+            .any(|t| t.name == "Point" && t.kind == "struct"));
     }
 
     #[test]
@@ -3420,8 +3416,7 @@ mod tests {
         assert!(main
             .instructions
             .iter()
-            .any(|i| i.op == Opcode::LoadGlobal
-                && i.name.as_deref() == Some("std::io::read")));
+            .any(|i| i.op == Opcode::LoadGlobal && i.name.as_deref() == Some("std::io::read")));
     }
 
     #[test]
@@ -3456,6 +3451,41 @@ mod tests {
         assert_eq!(props["a"]["type"], "integer");
         assert_eq!(props["a"]["description"], "First number");
         assert_eq!(props["b"]["type"], "integer");
+    }
+
+    #[test]
+    fn tool_schema_option_param_not_required() {
+        let ir = compile(
+            r#"
+            tool Searcher {
+                description: "Search utility",
+
+                @describe("Search with optional limit")
+                @param("query", "Search query")
+                @param("tags", "Tag filters")
+                @param("limit", "Optional max results")
+                pub fn search(self, query: String, tags: Array<String>, limit: Option<Int>) -> String {
+                    query
+                }
+            }
+            fn main() {}
+        "#,
+        );
+        assert_eq!(ir.tools.len(), 1);
+        let schema = &ir.tools[0].tool_schemas[0];
+        assert_eq!(schema.method_name, "Searcher::search");
+
+        let params = schema.parameters.as_object().unwrap();
+        let props = params["properties"].as_object().unwrap();
+        assert_eq!(props["query"]["type"], "string");
+        assert_eq!(props["tags"]["type"], "array");
+        assert_eq!(props["tags"]["items"]["type"], "string");
+        assert_eq!(props["limit"]["type"], "integer");
+
+        let required = params["required"].as_array().unwrap();
+        assert!(required.contains(&serde_json::Value::String("query".to_string())));
+        assert!(required.contains(&serde_json::Value::String("tags".to_string())));
+        assert!(!required.contains(&serde_json::Value::String("limit".to_string())));
     }
 
     #[test]

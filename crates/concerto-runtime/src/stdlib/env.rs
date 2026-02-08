@@ -46,7 +46,10 @@ fn stdlib_require(args: Vec<Value>) -> Result<Value> {
         }),
         Err(_) => Ok(Value::Result {
             is_ok: false,
-            value: Box::new(Value::String(format!("missing environment variable: {}", name))),
+            value: Box::new(Value::String(format!(
+                "missing environment variable: {}",
+                name
+            ))),
         }),
     }
 }
@@ -80,13 +83,21 @@ mod tests {
 
     #[test]
     fn get_missing() {
-        let result = call("get", vec![Value::String("CONCERTO_NONEXISTENT_12345".into())]).unwrap();
+        let result = call(
+            "get",
+            vec![Value::String("CONCERTO_NONEXISTENT_12345".into())],
+        )
+        .unwrap();
         assert_eq!(result, Value::Option(None));
     }
 
     #[test]
     fn require_missing() {
-        let result = call("require", vec![Value::String("CONCERTO_NONEXISTENT_12345".into())]).unwrap();
+        let result = call(
+            "require",
+            vec![Value::String("CONCERTO_NONEXISTENT_12345".into())],
+        )
+        .unwrap();
         match result {
             Value::Result { is_ok: false, .. } => {}
             _ => panic!("expected Err"),
@@ -101,7 +112,11 @@ mod tests {
             Value::Bool(true)
         );
         assert_eq!(
-            call("has", vec![Value::String("CONCERTO_NONEXISTENT_12345".into())]).unwrap(),
+            call(
+                "has",
+                vec![Value::String("CONCERTO_NONEXISTENT_12345".into())]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
         std::env::remove_var("CONCERTO_TEST_HAS");

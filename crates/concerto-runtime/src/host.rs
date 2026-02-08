@@ -71,8 +71,8 @@ impl HostClient {
     fn ensure_connected(&mut self) -> Result<()> {
         if let Some(ref mut child) = self.child {
             match child.try_wait() {
-                Ok(Some(_)) => self.child = None,   // exited, need respawn
-                Ok(None) => return Ok(()),           // still running
+                Ok(Some(_)) => self.child = None, // exited, need respawn
+                Ok(None) => return Ok(()),        // still running
                 Err(_) => self.child = None,
             }
         }
@@ -217,15 +217,11 @@ impl HostRegistry {
     }
 
     /// Execute a prompt on a named host.
-    pub fn execute(
-        &mut self,
-        name: &str,
-        prompt: &str,
-        context: Option<&Value>,
-    ) -> Result<String> {
-        let client = self.clients.get_mut(name).ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' not registered", name))
-        })?;
+    pub fn execute(&mut self, name: &str, prompt: &str, context: Option<&Value>) -> Result<String> {
+        let client = self
+            .clients
+            .get_mut(name)
+            .ok_or_else(|| RuntimeError::CallError(format!("Host '{}' not registered", name)))?;
         client.execute(prompt, context)
     }
 

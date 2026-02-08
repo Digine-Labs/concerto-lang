@@ -4,7 +4,7 @@ use concerto_common::ir::IrInstruction;
 use concerto_common::ir_opcodes::Opcode;
 
 use crate::builtins;
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::host::HostRegistry;
 use crate::ir_loader::LoadedModule;
 use crate::ledger::LedgerStore;
@@ -117,15 +117,39 @@ impl VM {
 
         // Register built-in functions
         globals.insert("Ok".to_string(), Value::Function("$builtin_ok".to_string()));
-        globals.insert("Err".to_string(), Value::Function("$builtin_err".to_string()));
-        globals.insert("Some".to_string(), Value::Function("$builtin_some".to_string()));
+        globals.insert(
+            "Err".to_string(),
+            Value::Function("$builtin_err".to_string()),
+        );
+        globals.insert(
+            "Some".to_string(),
+            Value::Function("$builtin_some".to_string()),
+        );
         globals.insert("None".to_string(), Value::Option(None));
-        globals.insert("env".to_string(), Value::Function("$builtin_env".to_string()));
-        globals.insert("print".to_string(), Value::Function("$builtin_print".to_string()));
-        globals.insert("println".to_string(), Value::Function("$builtin_println".to_string()));
-        globals.insert("len".to_string(), Value::Function("$builtin_len".to_string()));
-        globals.insert("typeof".to_string(), Value::Function("$builtin_typeof".to_string()));
-        globals.insert("panic".to_string(), Value::Function("$builtin_panic".to_string()));
+        globals.insert(
+            "env".to_string(),
+            Value::Function("$builtin_env".to_string()),
+        );
+        globals.insert(
+            "print".to_string(),
+            Value::Function("$builtin_print".to_string()),
+        );
+        globals.insert(
+            "println".to_string(),
+            Value::Function("$builtin_println".to_string()),
+        );
+        globals.insert(
+            "len".to_string(),
+            Value::Function("$builtin_len".to_string()),
+        );
+        globals.insert(
+            "typeof".to_string(),
+            Value::Function("$builtin_typeof".to_string()),
+        );
+        globals.insert(
+            "panic".to_string(),
+            Value::Function("$builtin_panic".to_string()),
+        );
 
         // Register path-based constructors (e.g., ToolError::new)
         globals.insert(
@@ -219,7 +243,12 @@ impl VM {
             .ok_or_else(|| RuntimeError::NameError(entry.clone()))?
             .clone();
 
-        self.push_frame(func.name.clone(), func.instructions.clone(), vec![], &func.params)?;
+        self.push_frame(
+            func.name.clone(),
+            func.instructions.clone(),
+            vec![],
+            &func.params,
+        )?;
         self.run_loop()
     }
 
@@ -281,7 +310,8 @@ impl VM {
             self.run_loop_until(stop_depth)
         } else {
             Err(RuntimeError::CallError(format!(
-                "thunk references unknown function: {}", function
+                "thunk references unknown function: {}",
+                function
             )))
         }
     }
@@ -450,45 +480,47 @@ impl VM {
                         as usize;
                     self.call_stack
                         .last_mut()
-                        .ok_or_else(|| RuntimeError::CallError("internal: jump with empty call stack".into()))?
+                        .ok_or_else(|| {
+                            RuntimeError::CallError("internal: jump with empty call stack".into())
+                        })?
                         .pc = target;
                 }
                 Opcode::JumpIfTrue => {
-                    let target = inst
-                        .offset
-                        .ok_or_else(|| {
-                            RuntimeError::LoadError("JUMP_IF_TRUE missing offset".into())
-                        })?
-                        as usize;
+                    let target = inst.offset.ok_or_else(|| {
+                        RuntimeError::LoadError("JUMP_IF_TRUE missing offset".into())
+                    })? as usize;
                     let cond = self.pop()?;
                     if cond.is_truthy() {
                         self.call_stack
                             .last_mut()
-                            .ok_or_else(|| RuntimeError::CallError("internal: jump with empty call stack".into()))?
+                            .ok_or_else(|| {
+                                RuntimeError::CallError(
+                                    "internal: jump with empty call stack".into(),
+                                )
+                            })?
                             .pc = target;
                     }
                 }
                 Opcode::JumpIfFalse => {
-                    let target = inst
-                        .offset
-                        .ok_or_else(|| {
-                            RuntimeError::LoadError("JUMP_IF_FALSE missing offset".into())
-                        })?
-                        as usize;
+                    let target = inst.offset.ok_or_else(|| {
+                        RuntimeError::LoadError("JUMP_IF_FALSE missing offset".into())
+                    })? as usize;
                     let cond = self.pop()?;
                     if !cond.is_truthy() {
                         self.call_stack
                             .last_mut()
-                            .ok_or_else(|| RuntimeError::CallError("internal: jump with empty call stack".into()))?
+                            .ok_or_else(|| {
+                                RuntimeError::CallError(
+                                    "internal: jump with empty call stack".into(),
+                                )
+                            })?
                             .pc = target;
                     }
                 }
                 Opcode::Return => {
                     let return_val = self.pop()?;
                     self.call_stack.pop();
-                    if self.call_stack.is_empty()
-                        || self.call_stack.len() <= stop_depth
-                    {
+                    if self.call_stack.is_empty() || self.call_stack.len() <= stop_depth {
                         return Ok(return_val);
                     }
                     self.push(return_val);
@@ -605,7 +637,10 @@ impl VM {
                     let callee = self.pop()?;
                     match callee {
                         Value::Function(name) => {
-                            self.push(Value::Thunk { function: name, args: vec![] });
+                            self.push(Value::Thunk {
+                                function: name,
+                                args: vec![],
+                            });
                         }
                         other => {
                             // Not a function — just pass through
@@ -615,7 +650,10 @@ impl VM {
                 }
 
                 // === Agent operations (dispatched through CALL_METHOD) ===
-                Opcode::CallAgent | Opcode::CallAgentSchema | Opcode::CallAgentStream | Opcode::CallAgentChat => {
+                Opcode::CallAgent
+                | Opcode::CallAgentSchema
+                | Opcode::CallAgentStream
+                | Opcode::CallAgentChat => {
                     // These should be dispatched through CALL_METHOD in our codegen,
                     // but handle them here as a fallback
                     let argc = inst.argc.unwrap_or(0) as usize;
@@ -627,7 +665,8 @@ impl VM {
 
                     let agent_name = inst.agent.as_deref().unwrap_or("unknown");
                     let method = inst.method.as_deref().unwrap_or("execute");
-                    let result = self.call_agent_method(agent_name, method, args, inst.schema.as_deref())?;
+                    let result =
+                        self.call_agent_method(agent_name, method, args, inst.schema.as_deref())?;
                     self.push(result);
                 }
 
@@ -849,48 +888,39 @@ impl VM {
 
         let schema = inst.schema.clone();
         let result = match &object {
-            Value::AgentRef(agent_name) => {
-                match method.as_str() {
-                    "with_memory" | "with_tools" | "without_tools" => {
-                        self.agent_ref_to_builder(agent_name, &method, args)?
-                    }
-                    _ => self.call_agent_method(agent_name, &method, args, schema.as_deref())?
+            Value::AgentRef(agent_name) => match method.as_str() {
+                "with_memory" | "with_tools" | "without_tools" => {
+                    self.agent_ref_to_builder(agent_name, &method, args)?
                 }
-            }
+                _ => self.call_agent_method(agent_name, &method, args, schema.as_deref())?,
+            },
             Value::HashMapRef(hashmap_name) => {
                 self.call_hashmap_method(hashmap_name, &method, args)?
             }
-            Value::LedgerRef(ledger_name) => {
-                self.call_ledger_method(ledger_name, &method, args)?
-            }
-            Value::MemoryRef(memory_name) => {
-                self.call_memory_method(memory_name, &method, args)?
-            }
-            Value::HostRef(host_name) => {
-                match method.as_str() {
-                    "with_memory" | "with_tools" | "without_tools" | "with_context" => {
-                        self.host_ref_to_builder(host_name, &method, args)?
-                    }
-                    "execute" => {
-                        self.call_host_execute(host_name, args, None)?
-                    }
-                    "execute_with_schema" => {
-                        self.call_host_execute(host_name, args, schema.as_deref())?
-                    }
-                    _ => return Err(RuntimeError::TypeError(format!(
-                        "no method '{}' on Host", method
-                    ))),
+            Value::LedgerRef(ledger_name) => self.call_ledger_method(ledger_name, &method, args)?,
+            Value::MemoryRef(memory_name) => self.call_memory_method(memory_name, &method, args)?,
+            Value::HostRef(host_name) => match method.as_str() {
+                "with_memory" | "with_tools" | "without_tools" | "with_context" => {
+                    self.host_ref_to_builder(host_name, &method, args)?
                 }
-            }
+                "execute" => self.call_host_execute(host_name, args, None)?,
+                "execute_with_schema" => {
+                    self.call_host_execute(host_name, args, schema.as_deref())?
+                }
+                _ => {
+                    return Err(RuntimeError::TypeError(format!(
+                        "no method '{}' on Host",
+                        method
+                    )))
+                }
+            },
             Value::AgentBuilder { .. } => {
                 self.call_agent_builder_method(object, &method, args, schema.as_deref())?
             }
             Value::PipelineRef(pipeline_name) => {
                 self.call_pipeline_method(pipeline_name, &method, args)?
             }
-            Value::Result { is_ok, value } => {
-                Self::call_result_method(*is_ok, value, &method)?
-            }
+            Value::Result { is_ok, value } => Self::call_result_method(*is_ok, value, &method)?,
             Value::Option(opt) => Self::call_option_method(opt, &method)?,
             Value::String(s) => Self::call_string_method(s, &method, args)?,
             Value::Array(arr) => Self::call_array_method(arr, &method, args)?,
@@ -941,8 +971,7 @@ impl VM {
 
         // Map to builtin
         let builtin_name = format!("$builtin_{}", name);
-        let result = builtins::call_builtin(&builtin_name, args)
-            .unwrap_or(Value::Nil);
+        let result = builtins::call_builtin(&builtin_name, args).unwrap_or(Value::Nil);
         self.push(result);
         Ok(())
     }
@@ -963,10 +992,7 @@ impl VM {
     fn exec_propagate(&mut self) -> Result<()> {
         let value = self.pop()?;
         match value {
-            Value::Result {
-                is_ok: true,
-                value,
-            } => {
+            Value::Result { is_ok: true, value } => {
                 // Unwrap Ok
                 self.push(*value);
                 Ok(())
@@ -1011,7 +1037,9 @@ impl VM {
     /// Skip past the current catch body to find the next CATCH or exit JUMP.
     /// Called when a typed catch doesn't match the error type.
     fn skip_catch_body(&mut self) -> Result<()> {
-        let frame = self.call_stack.last_mut()
+        let frame = self
+            .call_stack
+            .last_mut()
             .ok_or_else(|| RuntimeError::CallError("no call frame".into()))?;
 
         // Scan forward looking for the next CATCH or JUMP instruction.
@@ -1236,9 +1264,10 @@ impl VM {
     // ========================================================================
 
     fn exec_hashmap_get(&mut self, inst: &IrInstruction) -> Result<()> {
-        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("HASH_MAP_GET missing hashmap_name".into())
-        })?;
+        let hashmap_name = inst
+            .hashmap_name
+            .as_ref()
+            .ok_or_else(|| RuntimeError::LoadError("HASH_MAP_GET missing hashmap_name".into()))?;
         let key = self.pop()?;
         let key_str = key.display_string();
 
@@ -1256,9 +1285,10 @@ impl VM {
     }
 
     fn exec_hashmap_set(&mut self, inst: &IrInstruction) -> Result<()> {
-        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("HASH_MAP_SET missing hashmap_name".into())
-        })?;
+        let hashmap_name = inst
+            .hashmap_name
+            .as_ref()
+            .ok_or_else(|| RuntimeError::LoadError("HASH_MAP_SET missing hashmap_name".into()))?;
         let value = self.pop()?;
         let key = self.pop()?;
         let key_str = key.display_string();
@@ -1286,9 +1316,10 @@ impl VM {
     }
 
     fn exec_hashmap_has(&mut self, inst: &IrInstruction) -> Result<()> {
-        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("HASH_MAP_HAS missing hashmap_name".into())
-        })?;
+        let hashmap_name = inst
+            .hashmap_name
+            .as_ref()
+            .ok_or_else(|| RuntimeError::LoadError("HASH_MAP_HAS missing hashmap_name".into()))?;
         let key = self.pop()?;
         let key_str = key.display_string();
 
@@ -1313,9 +1344,11 @@ impl VM {
         args: Vec<Value>,
         schema_name: Option<&str>,
     ) -> Result<Value> {
-        let agent = self.module.agents.get(agent_name).ok_or_else(|| {
-            RuntimeError::NameError(format!("unknown agent: {}", agent_name))
-        })?;
+        let agent = self
+            .module
+            .agents
+            .get(agent_name)
+            .ok_or_else(|| RuntimeError::NameError(format!("unknown agent: {}", agent_name)))?;
 
         // Parse decorator configs from agent definition
         let retry_config = crate::decorator::find_decorator(&agent.decorators, "retry")
@@ -1343,12 +1376,16 @@ impl VM {
                             if let Some(ref tc) = timeout_config {
                                 let elapsed = start.elapsed();
                                 if elapsed > std::time::Duration::from_secs(tc.seconds) {
-                                    last_error = format!("timeout exceeded ({}s > {}s)",
-                                        elapsed.as_secs(), tc.seconds);
+                                    last_error = format!(
+                                        "timeout exceeded ({}s > {}s)",
+                                        elapsed.as_secs(),
+                                        tc.seconds
+                                    );
                                     if attempt + 1 < max_attempts {
                                         if let Some(ref rc) = retry_config {
                                             std::thread::sleep(crate::decorator::backoff_delay(
-                                                &rc.backoff, attempt,
+                                                &rc.backoff,
+                                                attempt,
                                             ));
                                         }
                                         continue;
@@ -1362,13 +1399,28 @@ impl VM {
 
                             // @log decorator
                             if has_log {
-                                (self.emit_handler)("agent:log", &Value::Map(vec![
-                                    ("agent".to_string(), Value::String(agent_name.to_string())),
-                                    ("method".to_string(), Value::String("execute".to_string())),
-                                    ("attempt".to_string(), Value::Int((attempt + 1) as i64)),
-                                    ("tokens_in".to_string(), Value::Int(chat_response.tokens_in)),
-                                    ("tokens_out".to_string(), Value::Int(chat_response.tokens_out)),
-                                ]));
+                                (self.emit_handler)(
+                                    "agent:log",
+                                    &Value::Map(vec![
+                                        (
+                                            "agent".to_string(),
+                                            Value::String(agent_name.to_string()),
+                                        ),
+                                        (
+                                            "method".to_string(),
+                                            Value::String("execute".to_string()),
+                                        ),
+                                        ("attempt".to_string(), Value::Int((attempt + 1) as i64)),
+                                        (
+                                            "tokens_in".to_string(),
+                                            Value::Int(chat_response.tokens_in),
+                                        ),
+                                        (
+                                            "tokens_out".to_string(),
+                                            Value::Int(chat_response.tokens_out),
+                                        ),
+                                    ]),
+                                );
                             }
 
                             let response = Self::chat_response_to_value(&chat_response);
@@ -1382,7 +1434,8 @@ impl VM {
                             if attempt + 1 < max_attempts {
                                 if let Some(ref rc) = retry_config {
                                     std::thread::sleep(crate::decorator::backoff_delay(
-                                        &rc.backoff, attempt,
+                                        &rc.backoff,
+                                        attempt,
                                     ));
                                 }
                             }
@@ -1426,11 +1479,8 @@ impl VM {
                             let rf = if schema_attempt == 0 {
                                 response_format.clone()
                             } else {
-                                current_prompt = SchemaValidator::retry_prompt(
-                                    &prompt_str,
-                                    &last_error,
-                                    schema,
-                                );
+                                current_prompt =
+                                    SchemaValidator::retry_prompt(&prompt_str, &last_error, schema);
                                 response_format.clone()
                             };
 
@@ -1441,8 +1491,11 @@ impl VM {
                                     if let Some(ref tc) = timeout_config {
                                         let elapsed = start.elapsed();
                                         if elapsed > std::time::Duration::from_secs(tc.seconds) {
-                                            last_error = format!("timeout exceeded ({}s > {}s)",
-                                                elapsed.as_secs(), tc.seconds);
+                                            last_error = format!(
+                                                "timeout exceeded ({}s > {}s)",
+                                                elapsed.as_secs(),
+                                                tc.seconds
+                                            );
                                             break;
                                         }
                                     }
@@ -1450,14 +1503,37 @@ impl VM {
                                     match SchemaValidator::validate(&chat_response.text, schema) {
                                         Ok(validated) => {
                                             if has_log {
-                                                (self.emit_handler)("agent:log", &Value::Map(vec![
-                                                    ("agent".to_string(), Value::String(agent_name.to_string())),
-                                                    ("method".to_string(), Value::String("execute_with_schema".to_string())),
-                                                    ("attempt".to_string(), Value::Int((attempt + 1) as i64)),
-                                                    ("schema_attempt".to_string(), Value::Int((schema_attempt + 1) as i64)),
-                                                    ("tokens_in".to_string(), Value::Int(chat_response.tokens_in)),
-                                                    ("tokens_out".to_string(), Value::Int(chat_response.tokens_out)),
-                                                ]));
+                                                (self.emit_handler)(
+                                                    "agent:log",
+                                                    &Value::Map(vec![
+                                                        (
+                                                            "agent".to_string(),
+                                                            Value::String(agent_name.to_string()),
+                                                        ),
+                                                        (
+                                                            "method".to_string(),
+                                                            Value::String(
+                                                                "execute_with_schema".to_string(),
+                                                            ),
+                                                        ),
+                                                        (
+                                                            "attempt".to_string(),
+                                                            Value::Int((attempt + 1) as i64),
+                                                        ),
+                                                        (
+                                                            "schema_attempt".to_string(),
+                                                            Value::Int((schema_attempt + 1) as i64),
+                                                        ),
+                                                        (
+                                                            "tokens_in".to_string(),
+                                                            Value::Int(chat_response.tokens_in),
+                                                        ),
+                                                        (
+                                                            "tokens_out".to_string(),
+                                                            Value::Int(chat_response.tokens_out),
+                                                        ),
+                                                    ]),
+                                                );
                                             }
                                             schema_result = Some(validated);
                                             break;
@@ -1485,7 +1561,8 @@ impl VM {
                         if attempt + 1 < max_attempts {
                             if let Some(ref rc) = retry_config {
                                 std::thread::sleep(crate::decorator::backoff_delay(
-                                    &rc.backoff, attempt,
+                                    &rc.backoff,
+                                    attempt,
                                 ));
                             }
                         }
@@ -1647,18 +1724,19 @@ impl VM {
         }
     }
 
-
     // ========================================================================
     // Tool method dispatch
     // ========================================================================
 
     fn exec_call_tool(&mut self, inst: &IrInstruction) -> Result<()> {
-        let tool_name = inst.tool.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("CALL_TOOL missing tool name".into())
-        })?;
-        let method_name = inst.name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("CALL_TOOL missing method name".into())
-        })?;
+        let tool_name = inst
+            .tool
+            .as_ref()
+            .ok_or_else(|| RuntimeError::LoadError("CALL_TOOL missing tool name".into()))?;
+        let method_name = inst
+            .name
+            .as_ref()
+            .ok_or_else(|| RuntimeError::LoadError("CALL_TOOL missing method name".into()))?;
         let argc = inst.argc.unwrap_or(0) as usize;
 
         // Pop arguments
@@ -1783,23 +1861,32 @@ impl VM {
                         _ => vec![args[1].display_string()],
                     };
                     let value = args[2].display_string();
-                    self.ledger_store.insert(ledger_name, identifier, keys, value);
+                    self.ledger_store
+                        .insert(ledger_name, identifier, keys, value);
                 }
                 Ok(Value::Nil)
             }
             "delete" => {
                 // delete(identifier: String) -> Bool
-                let identifier = args.into_iter().next()
+                let identifier = args
+                    .into_iter()
+                    .next()
                     .map(|v| v.display_string())
                     .unwrap_or_default();
-                Ok(Value::Bool(self.ledger_store.delete(ledger_name, &identifier)))
+                Ok(Value::Bool(
+                    self.ledger_store.delete(ledger_name, &identifier),
+                ))
             }
             "update" => {
                 // update(identifier: String, value: String) -> Bool
                 if args.len() >= 2 {
                     let identifier = args[0].display_string();
                     let value = args[1].display_string();
-                    Ok(Value::Bool(self.ledger_store.update(ledger_name, &identifier, value)))
+                    Ok(Value::Bool(self.ledger_store.update(
+                        ledger_name,
+                        &identifier,
+                        value,
+                    )))
                 } else {
                     Ok(Value::Bool(false))
                 }
@@ -1812,7 +1899,11 @@ impl VM {
                         Value::Array(arr) => arr.iter().map(|v| v.display_string()).collect(),
                         _ => vec![args[1].display_string()],
                     };
-                    Ok(Value::Bool(self.ledger_store.update_keys(ledger_name, &identifier, keys)))
+                    Ok(Value::Bool(self.ledger_store.update_keys(
+                        ledger_name,
+                        &identifier,
+                        keys,
+                    )))
                 } else {
                     Ok(Value::Bool(false))
                 }
@@ -1823,10 +1914,13 @@ impl VM {
             }
             "from_identifier" => {
                 // from_identifier(text: String) -> Array<LedgerEntry>
-                let text = args.into_iter().next()
+                let text = args
+                    .into_iter()
+                    .next()
                     .map(|v| v.display_string())
                     .unwrap_or_default();
-                let entries: Vec<Value> = self.ledger_store
+                let entries: Vec<Value> = self
+                    .ledger_store
                     .query_from_identifier(ledger_name, &text)
                     .into_iter()
                     .map(|e| e.to_value())
@@ -1835,10 +1929,13 @@ impl VM {
             }
             "from_key" => {
                 // from_key(key: String) -> Array<LedgerEntry>
-                let key = args.into_iter().next()
+                let key = args
+                    .into_iter()
+                    .next()
                     .map(|v| v.display_string())
                     .unwrap_or_default();
-                let entries: Vec<Value> = self.ledger_store
+                let entries: Vec<Value> = self
+                    .ledger_store
                     .query_from_key(ledger_name, &key)
                     .into_iter()
                     .map(|e| e.to_value())
@@ -1852,7 +1949,8 @@ impl VM {
                     Some(v) => vec![v.display_string()],
                     None => vec![],
                 };
-                let entries: Vec<Value> = self.ledger_store
+                let entries: Vec<Value> = self
+                    .ledger_store
                     .query_from_any_keys(ledger_name, &keys)
                     .into_iter()
                     .map(|e| e.to_value())
@@ -1866,25 +1964,23 @@ impl VM {
                     Some(v) => vec![v.display_string()],
                     None => vec![],
                 };
-                let entries: Vec<Value> = self.ledger_store
+                let entries: Vec<Value> = self
+                    .ledger_store
                     .query_from_exact_keys(ledger_name, &keys)
                     .into_iter()
                     .map(|e| e.to_value())
                     .collect();
                 Ok(Value::Array(entries))
             }
-            "len" => {
-                Ok(Value::Int(self.ledger_store.len(ledger_name) as i64))
-            }
-            "is_empty" => {
-                Ok(Value::Bool(self.ledger_store.is_empty(ledger_name)))
-            }
+            "len" => Ok(Value::Int(self.ledger_store.len(ledger_name) as i64)),
+            "is_empty" => Ok(Value::Bool(self.ledger_store.is_empty(ledger_name))),
             "clear" => {
                 self.ledger_store.clear(ledger_name);
                 Ok(Value::Nil)
             }
             "entries" => {
-                let entries: Vec<Value> = self.ledger_store
+                let entries: Vec<Value> = self
+                    .ledger_store
                     .entries(ledger_name)
                     .iter()
                     .map(|e| e.to_value())
@@ -1892,7 +1988,8 @@ impl VM {
                 Ok(Value::Array(entries))
             }
             "identifiers" => {
-                let ids: Vec<Value> = self.ledger_store
+                let ids: Vec<Value> = self
+                    .ledger_store
                     .identifiers(ledger_name)
                     .into_iter()
                     .map(|id| Value::String(id.to_string()))
@@ -1901,7 +1998,9 @@ impl VM {
             }
             "scope" => {
                 // scope(prefix: String) -> LedgerRef("name::prefix")
-                let prefix = args.into_iter().next()
+                let prefix = args
+                    .into_iter()
+                    .next()
                     .map(|v| v.display_string())
                     .unwrap_or_default();
                 let scoped_name = format!("{}::{}", ledger_name, prefix);
@@ -1928,33 +2027,51 @@ impl VM {
     ) -> Result<Value> {
         match method {
             "run" => {
-                let pipeline = self.module.pipelines.get(pipeline_name).ok_or_else(|| {
-                    RuntimeError::NameError(format!("unknown pipeline: {}", pipeline_name))
-                })?.clone();
+                let pipeline = self
+                    .module
+                    .pipelines
+                    .get(pipeline_name)
+                    .ok_or_else(|| {
+                        RuntimeError::NameError(format!("unknown pipeline: {}", pipeline_name))
+                    })?
+                    .clone();
 
                 let mut input = args.into_iter().next().unwrap_or(Value::Nil);
                 let pipeline_start = std::time::Instant::now();
 
                 // Emit pipeline:start
-                (self.emit_handler)("pipeline:start", &Value::Map(vec![
-                    ("name".to_string(), Value::String(pipeline_name.to_string())),
-                    ("stages".to_string(), Value::Int(pipeline.stages.len() as i64)),
-                ]));
+                (self.emit_handler)(
+                    "pipeline:start",
+                    &Value::Map(vec![
+                        ("name".to_string(), Value::String(pipeline_name.to_string())),
+                        (
+                            "stages".to_string(),
+                            Value::Int(pipeline.stages.len() as i64),
+                        ),
+                    ]),
+                );
 
                 for stage in &pipeline.stages {
                     let stage_start = std::time::Instant::now();
 
                     // Emit pipeline:stage_start
-                    (self.emit_handler)("pipeline:stage_start", &Value::Map(vec![
-                        ("pipeline".to_string(), Value::String(pipeline_name.to_string())),
-                        ("stage".to_string(), Value::String(stage.name.clone())),
-                    ]));
+                    (self.emit_handler)(
+                        "pipeline:stage_start",
+                        &Value::Map(vec![
+                            (
+                                "pipeline".to_string(),
+                                Value::String(pipeline_name.to_string()),
+                            ),
+                            ("stage".to_string(), Value::String(stage.name.clone())),
+                        ]),
+                    );
 
                     // Parse stage decorators
                     let retry_config = crate::decorator::find_decorator(&stage.decorators, "retry")
                         .map(crate::decorator::parse_retry);
-                    let timeout_config = crate::decorator::find_decorator(&stage.decorators, "timeout")
-                        .map(crate::decorator::parse_timeout);
+                    let timeout_config =
+                        crate::decorator::find_decorator(&stage.decorators, "timeout")
+                            .map(crate::decorator::parse_timeout);
 
                     let max_attempts = retry_config.as_ref().map(|r| r.max_attempts).unwrap_or(1);
                     let mut last_error = String::new();
@@ -1983,9 +2100,12 @@ impl VM {
                                         );
                                         if attempt + 1 < max_attempts {
                                             if let Some(ref rc) = retry_config {
-                                                std::thread::sleep(crate::decorator::backoff_delay(
-                                                    &rc.backoff, attempt,
-                                                ));
+                                                std::thread::sleep(
+                                                    crate::decorator::backoff_delay(
+                                                        &rc.backoff,
+                                                        attempt,
+                                                    ),
+                                                );
                                             }
                                             continue;
                                         }
@@ -1996,13 +2116,19 @@ impl VM {
                                 // Unwrap Result if stage returned one
                                 let output = match val {
                                     Value::Result { is_ok: true, value } => *value,
-                                    Value::Result { is_ok: false, value } => {
+                                    Value::Result {
+                                        is_ok: false,
+                                        value,
+                                    } => {
                                         last_error = value.display_string();
                                         if attempt + 1 < max_attempts {
                                             if let Some(ref rc) = retry_config {
-                                                std::thread::sleep(crate::decorator::backoff_delay(
-                                                    &rc.backoff, attempt,
-                                                ));
+                                                std::thread::sleep(
+                                                    crate::decorator::backoff_delay(
+                                                        &rc.backoff,
+                                                        attempt,
+                                                    ),
+                                                );
                                             }
                                             continue;
                                         }
@@ -2019,7 +2145,8 @@ impl VM {
                                 if attempt + 1 < max_attempts {
                                     if let Some(ref rc) = retry_config {
                                         std::thread::sleep(crate::decorator::backoff_delay(
-                                            &rc.backoff, attempt,
+                                            &rc.backoff,
+                                            attempt,
                                         ));
                                     }
                                 }
@@ -2031,20 +2158,32 @@ impl VM {
                         Some(output) => {
                             let stage_duration = stage_start.elapsed().as_millis() as i64;
                             // Emit pipeline:stage_complete
-                            (self.emit_handler)("pipeline:stage_complete", &Value::Map(vec![
-                                ("pipeline".to_string(), Value::String(pipeline_name.to_string())),
-                                ("stage".to_string(), Value::String(stage.name.clone())),
-                                ("duration_ms".to_string(), Value::Int(stage_duration)),
-                            ]));
+                            (self.emit_handler)(
+                                "pipeline:stage_complete",
+                                &Value::Map(vec![
+                                    (
+                                        "pipeline".to_string(),
+                                        Value::String(pipeline_name.to_string()),
+                                    ),
+                                    ("stage".to_string(), Value::String(stage.name.clone())),
+                                    ("duration_ms".to_string(), Value::Int(stage_duration)),
+                                ]),
+                            );
                             input = output;
                         }
                         None => {
                             // Emit pipeline:error
-                            (self.emit_handler)("pipeline:error", &Value::Map(vec![
-                                ("pipeline".to_string(), Value::String(pipeline_name.to_string())),
-                                ("stage".to_string(), Value::String(stage.name.clone())),
-                                ("error".to_string(), Value::String(last_error.clone())),
-                            ]));
+                            (self.emit_handler)(
+                                "pipeline:error",
+                                &Value::Map(vec![
+                                    (
+                                        "pipeline".to_string(),
+                                        Value::String(pipeline_name.to_string()),
+                                    ),
+                                    ("stage".to_string(), Value::String(stage.name.clone())),
+                                    ("error".to_string(), Value::String(last_error.clone())),
+                                ]),
+                            );
                             return Ok(Value::Result {
                                 is_ok: false,
                                 value: Box::new(Value::String(format!(
@@ -2058,10 +2197,13 @@ impl VM {
 
                 let total_duration = pipeline_start.elapsed().as_millis() as i64;
                 // Emit pipeline:complete
-                (self.emit_handler)("pipeline:complete", &Value::Map(vec![
-                    ("name".to_string(), Value::String(pipeline_name.to_string())),
-                    ("duration_ms".to_string(), Value::Int(total_duration)),
-                ]));
+                (self.emit_handler)(
+                    "pipeline:complete",
+                    &Value::Map(vec![
+                        ("name".to_string(), Value::String(pipeline_name.to_string())),
+                        ("duration_ms".to_string(), Value::Int(total_duration)),
+                    ]),
+                );
 
                 Ok(Value::Result {
                     is_ok: true,
@@ -2087,24 +2229,20 @@ impl VM {
     ) -> Result<Value> {
         match method {
             "append" => {
-                let role = args.first()
-                    .map(|v| v.display_string())
-                    .unwrap_or_default();
-                let content = args.get(1)
-                    .map(|v| v.display_string())
-                    .unwrap_or_default();
+                let role = args.first().map(|v| v.display_string()).unwrap_or_default();
+                let content = args.get(1).map(|v| v.display_string()).unwrap_or_default();
                 self.memory_store.append(memory_name, &role, &content)?;
                 Ok(Value::Nil)
             }
-            "messages" => {
-                self.memory_store.messages_to_value(memory_name)
-            }
+            "messages" => self.memory_store.messages_to_value(memory_name),
             "last" => {
                 let count = match args.first() {
                     Some(Value::Int(n)) => *n as usize,
-                    _ => return Err(RuntimeError::TypeError(
-                        "memory.last() requires an Int argument".into()
-                    )),
+                    _ => {
+                        return Err(RuntimeError::TypeError(
+                            "memory.last() requires an Int argument".into(),
+                        ))
+                    }
                 };
                 self.memory_store.last_to_value(memory_name, count)
             }
@@ -2117,7 +2255,8 @@ impl VM {
                 Ok(Value::Nil)
             }
             _ => Err(RuntimeError::TypeError(format!(
-                "no method '{}' on MemoryRef", method
+                "no method '{}' on MemoryRef",
+                method
             ))),
         }
     }
@@ -2234,31 +2373,33 @@ impl VM {
                         Some(Value::MemoryRef(name)) => {
                             *memory = Some(name.clone());
                         }
-                        _ => return Err(RuntimeError::TypeError(
-                            "with_memory() requires a MemoryRef argument".into()
-                        )),
+                        _ => {
+                            return Err(RuntimeError::TypeError(
+                                "with_memory() requires a MemoryRef argument".into(),
+                            ))
+                        }
                     }
                     // Check for auto: false named arg (second arg as Bool)
                     if let Some(Value::Bool(false)) = args.get(1) {
                         *memory_auto_append = false;
                     }
                 }
-                "with_tools" => {
-                    match args.first() {
-                        Some(Value::Array(tools)) => {
-                            for tool in tools {
-                                match tool {
-                                    Value::String(name) => extra_tools.push(name.clone()),
-                                    Value::Function(name) => extra_tools.push(name.clone()),
-                                    other => extra_tools.push(other.display_string()),
-                                }
+                "with_tools" => match args.first() {
+                    Some(Value::Array(tools)) => {
+                        for tool in tools {
+                            match tool {
+                                Value::String(name) => extra_tools.push(name.clone()),
+                                Value::Function(name) => extra_tools.push(name.clone()),
+                                other => extra_tools.push(other.display_string()),
                             }
                         }
-                        _ => return Err(RuntimeError::TypeError(
-                            "with_tools() requires an Array argument".into()
-                        )),
                     }
-                }
+                    _ => {
+                        return Err(RuntimeError::TypeError(
+                            "with_tools() requires an Array argument".into(),
+                        ))
+                    }
+                },
                 "without_tools" => {
                     *exclude_default_tools = true;
                 }
@@ -2267,9 +2408,12 @@ impl VM {
                         *context = Some(Box::new(val));
                     }
                 }
-                _ => return Err(RuntimeError::TypeError(format!(
-                    "unknown builder method '{}'", method
-                ))),
+                _ => {
+                    return Err(RuntimeError::TypeError(format!(
+                        "unknown builder method '{}'",
+                        method
+                    )))
+                }
             }
         }
         Ok(())
@@ -2289,14 +2433,11 @@ impl VM {
                 self.apply_builder_method(&mut new_builder, method, args)?;
                 Ok(new_builder)
             }
-            "execute" => {
-                self.execute_agent_builder(builder, args, None)
-            }
-            "execute_with_schema" => {
-                self.execute_agent_builder(builder, args, schema_name)
-            }
+            "execute" => self.execute_agent_builder(builder, args, None),
+            "execute_with_schema" => self.execute_agent_builder(builder, args, schema_name),
             _ => Err(RuntimeError::TypeError(format!(
-                "no method '{}' on AgentBuilder", method
+                "no method '{}' on AgentBuilder",
+                method
             ))),
         }
     }
@@ -2330,14 +2471,22 @@ impl VM {
             let prompt_str = prompt.display_string();
 
             // Dispatch based on source kind
-            let result_text = match source_kind {
+            let (result_text, response_meta) = match source_kind {
                 crate::value::BuilderSourceKind::Agent => {
-                    let agent = self.module.agents.get(&source_name).ok_or_else(|| {
-                        RuntimeError::NameError(format!("unknown agent: {}", source_name))
-                    })?.clone();
+                    let agent = self
+                        .module
+                        .agents
+                        .get(&source_name)
+                        .ok_or_else(|| {
+                            RuntimeError::NameError(format!("unknown agent: {}", source_name))
+                        })?
+                        .clone();
 
                     let response_format = schema_name.map(|schema| {
-                        let json_schema = self.module.schemas.get(schema)
+                        let json_schema = self
+                            .module
+                            .schemas
+                            .get(schema)
                             .map(|s| s.json_schema.clone())
                             .unwrap_or(serde_json::json!({}));
                         crate::provider::ResponseFormat {
@@ -2357,22 +2506,28 @@ impl VM {
 
                     let provider = self.connection_manager.get_provider(&agent.connection);
                     let chat_response = provider.chat_completion(request)?;
-                    chat_response.text
+                    (
+                        chat_response.text,
+                        Some((
+                            chat_response.model,
+                            chat_response.tokens_in,
+                            chat_response.tokens_out,
+                        )),
+                    )
                 }
-                crate::value::BuilderSourceKind::Host => {
-                    self.host_registry.execute(
-                        &source_name,
-                        &prompt_str,
-                        context.as_deref(),
-                    )?
-                }
+                crate::value::BuilderSourceKind::Host => (
+                    self.host_registry
+                        .execute(&source_name, &prompt_str, context.as_deref())?,
+                    None,
+                ),
             };
 
             // Auto-append to memory if enabled
             if memory_auto_append {
                 if let Some(ref mem_name) = memory {
                     self.memory_store.append(mem_name, "user", &prompt_str)?;
-                    self.memory_store.append(mem_name, "assistant", &result_text)?;
+                    self.memory_store
+                        .append(mem_name, "assistant", &result_text)?;
                 }
             }
 
@@ -2404,14 +2559,19 @@ impl VM {
                 })
             } else {
                 // Agents return Response struct
+                let (model, tokens_in, tokens_out) =
+                    response_meta.unwrap_or_else(|| (String::new(), 0, 0));
                 let mut fields = std::collections::HashMap::new();
                 fields.insert("text".to_string(), Value::String(result_text));
-                fields.insert("model".to_string(), Value::String(String::new()));
-                fields.insert("tokens_in".to_string(), Value::Int(0));
-                fields.insert("tokens_out".to_string(), Value::Int(0));
-                Ok(Value::Struct {
-                    type_name: "Response".to_string(),
-                    fields,
+                fields.insert("model".to_string(), Value::String(model));
+                fields.insert("tokens_in".to_string(), Value::Int(tokens_in));
+                fields.insert("tokens_out".to_string(), Value::Int(tokens_out));
+                Ok(Value::Result {
+                    is_ok: true,
+                    value: Box::new(Value::Struct {
+                        type_name: "Response".to_string(),
+                        fields,
+                    }),
                 })
             }
         } else {
@@ -2423,11 +2583,7 @@ impl VM {
     // Type method dispatch
     // ========================================================================
 
-    fn call_result_method(
-        is_ok: bool,
-        value: &Value,
-        method: &str,
-    ) -> Result<Value> {
+    fn call_result_method(is_ok: bool, value: &Value, method: &str) -> Result<Value> {
         match method {
             "unwrap" => {
                 if is_ok {
@@ -2448,10 +2604,7 @@ impl VM {
         }
     }
 
-    fn call_option_method(
-        opt: &Option<Box<Value>>,
-        method: &str,
-    ) -> Result<Value> {
+    fn call_option_method(opt: &Option<Box<Value>>, method: &str) -> Result<Value> {
         match method {
             "unwrap" => match opt {
                 Some(v) => Ok(*v.clone()),
@@ -2468,11 +2621,7 @@ impl VM {
         }
     }
 
-    fn call_string_method(
-        s: &str,
-        method: &str,
-        args: Vec<Value>,
-    ) -> Result<Value> {
+    fn call_string_method(s: &str, method: &str, args: Vec<Value>) -> Result<Value> {
         match method {
             "len" => Ok(Value::Int(s.len() as i64)),
             "contains" => {
@@ -2493,11 +2642,7 @@ impl VM {
         }
     }
 
-    fn call_array_method(
-        arr: &[Value],
-        method: &str,
-        _args: Vec<Value>,
-    ) -> Result<Value> {
+    fn call_array_method(arr: &[Value], method: &str, _args: Vec<Value>) -> Result<Value> {
         match method {
             "len" => Ok(Value::Int(arr.len() as i64)),
             "is_empty" => Ok(Value::Bool(arr.is_empty())),
@@ -2785,8 +2930,8 @@ mod tests {
                     is_async: false,
                     locals: vec![],
                     instructions: vec![
-                        inst_const(0), // push 3
-                        inst_const(1), // push 5
+                        inst_const(0),    // push 3
+                        inst_const(1),    // push 5
                         inst_load("add"), // push fn ref
                         IrInstruction {
                             op: Opcode::Call,
@@ -2981,17 +3126,17 @@ mod tests {
         // Simulates: value ?? "default"
         // DUP, LOAD_CONST nil, NEQ, JUMP_IF_TRUE skip, POP, LOAD_CONST default
         let mut module = make_module(vec![
-            inst_const(0),       // 0: push nil (the value)
-            inst(Opcode::Dup),   // 1: dup
-            inst_const(0),       // 2: push nil
-            inst(Opcode::Neq),   // 3: neq -> false (nil != nil is false)
+            inst_const(0),     // 0: push nil (the value)
+            inst(Opcode::Dup), // 1: dup
+            inst_const(0),     // 2: push nil
+            inst(Opcode::Neq), // 3: neq -> false (nil != nil is false)
             IrInstruction {
                 op: Opcode::JumpIfTrue,
                 offset: Some(7), // 4: if true (value != nil), jump to 7 (return)
                 ..inst(Opcode::JumpIfTrue)
             },
-            inst(Opcode::Pop),   // 5: pop the original nil
-            inst_const(1),       // 6: push "default"
+            inst(Opcode::Pop),    // 5: pop the original nil
+            inst_const(1),        // 6: push "default"
             inst(Opcode::Return), // 7: return
         ]);
         module.constants = vec![
@@ -3028,9 +3173,10 @@ mod tests {
                 offset: Some(4),
                 ..inst(Opcode::TryBegin)
             },
-            inst_const(0),          // 1: push 42
-            inst(Opcode::TryEnd),   // 2: pop try frame
-            IrInstruction {         // 3: JUMP past catch to 8
+            inst_const(0),        // 1: push 42
+            inst(Opcode::TryEnd), // 2: pop try frame
+            IrInstruction {
+                // 3: JUMP past catch to 8
                 op: Opcode::Jump,
                 offset: Some(8),
                 ..inst(Opcode::Jump)
@@ -3040,16 +3186,24 @@ mod tests {
                 op: Opcode::Catch,
                 ..inst(Opcode::Catch)
             },
-            inst(Opcode::Pop),      // 5: discard error
-            inst_const(1),          // 6: push 0
+            inst(Opcode::Pop), // 5: discard error
+            inst_const(1),     // 6: push 0
             // (fall through to 7, which doesn't exist, but we jumped past)
             // 7: (this is instruction index 7, but we jump to 8)
-            inst(Opcode::Return),   // 7: return (catch path would return 0)
-            inst(Opcode::Return),   // 8: return (try path returns 42)
+            inst(Opcode::Return), // 7: return (catch path would return 0)
+            inst(Opcode::Return), // 8: return (try path returns 42)
         ]);
         module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(42) },
-            IrConstant { index: 1, const_type: "int".to_string(), value: serde_json::json!(0) },
+            IrConstant {
+                index: 0,
+                const_type: "int".to_string(),
+                value: serde_json::json!(42),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "int".to_string(),
+                value: serde_json::json!(0),
+            },
         ];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
@@ -3069,10 +3223,11 @@ mod tests {
                 offset: Some(5),
                 ..inst(Opcode::TryBegin)
             },
-            inst_const(0),          // 1: push "oops"
-            inst(Opcode::Throw),    // 2: throw
-            inst(Opcode::TryEnd),   // 3: (unreachable)
-            IrInstruction {         // 4: JUMP past catch to 8
+            inst_const(0),        // 1: push "oops"
+            inst(Opcode::Throw),  // 2: throw
+            inst(Opcode::TryEnd), // 3: (unreachable)
+            IrInstruction {
+                // 4: JUMP past catch to 8
                 op: Opcode::Jump,
                 offset: Some(8),
                 ..inst(Opcode::Jump)
@@ -3082,13 +3237,21 @@ mod tests {
                 op: Opcode::Catch,
                 ..inst(Opcode::Catch)
             },
-            inst(Opcode::Pop),      // 6: discard error
-            inst_const(1),          // 7: push 99
-            inst(Opcode::Return),   // 8: return
+            inst(Opcode::Pop),    // 6: discard error
+            inst_const(1),        // 7: push 99
+            inst(Opcode::Return), // 8: return
         ]);
         module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("oops") },
-            IrConstant { index: 1, const_type: "int".to_string(), value: serde_json::json!(99) },
+            IrConstant {
+                index: 0,
+                const_type: "string".to_string(),
+                value: serde_json::json!("oops"),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "int".to_string(),
+                value: serde_json::json!(99),
+            },
         ];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
@@ -3107,10 +3270,11 @@ mod tests {
                 offset: Some(5),
                 ..inst(Opcode::TryBegin)
             },
-            inst_const(0),          // 1: push "error msg"
-            inst(Opcode::Throw),    // 2: throw
-            inst(Opcode::TryEnd),   // 3: (unreachable)
-            IrInstruction {         // 4: JUMP past catch to 8
+            inst_const(0),        // 1: push "error msg"
+            inst(Opcode::Throw),  // 2: throw
+            inst(Opcode::TryEnd), // 3: (unreachable)
+            IrInstruction {
+                // 4: JUMP past catch to 8
                 op: Opcode::Jump,
                 offset: Some(8),
                 ..inst(Opcode::Jump)
@@ -3120,13 +3284,15 @@ mod tests {
                 op: Opcode::Catch,
                 ..inst(Opcode::Catch)
             },
-            inst_store("e"),        // 6: store error in 'e'
-            inst_load("e"),         // 7: load 'e'
-            inst(Opcode::Return),   // 8: return
+            inst_store("e"),      // 6: store error in 'e'
+            inst_load("e"),       // 7: load 'e'
+            inst(Opcode::Return), // 8: return
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("error msg") },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "string".to_string(),
+            value: serde_json::json!("error msg"),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3145,9 +3311,10 @@ mod tests {
                 offset: Some(6),
                 ..inst(Opcode::TryBegin)
             },
-            inst_const(0),           // 1: push "fail"
-            inst_load("Err"),        // 2: load Err builtin
-            IrInstruction {          // 3: call Err("fail")
+            inst_const(0),    // 1: push "fail"
+            inst_load("Err"), // 2: load Err builtin
+            IrInstruction {
+                // 3: call Err("fail")
                 op: Opcode::Call,
                 argc: Some(1),
                 ..inst(Opcode::Call)
@@ -3159,13 +3326,15 @@ mod tests {
                 op: Opcode::Catch,
                 ..inst(Opcode::Catch)
             },
-            inst_store("e"),         // 7: store error
-            inst_load("e"),          // 8: load error
-            inst(Opcode::Return),    // 9: return
+            inst_store("e"),      // 7: store error
+            inst_load("e"),       // 8: load error
+            inst(Opcode::Return), // 9: return
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("fail") },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "string".to_string(),
+            value: serde_json::json!("fail"),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3189,30 +3358,38 @@ mod tests {
                 offset: Some(5),
                 ..inst(Opcode::TryBegin)
             },
-            inst_const(0),          // 2: push "inner"
-            inst(Opcode::Throw),    // 3: throw inner
-            inst(Opcode::TryEnd),   // 4: (unreachable)
+            inst_const(0),        // 2: push "inner"
+            inst(Opcode::Throw),  // 3: throw inner
+            inst(Opcode::TryEnd), // 4: (unreachable)
             // 5: inner CATCH
             IrInstruction {
                 op: Opcode::Catch,
                 ..inst(Opcode::Catch)
             },
-            inst(Opcode::Pop),      // 6: discard inner error
-            inst_const(1),          // 7: push "outer"
-            inst(Opcode::Throw),    // 8: throw outer (from inner catch body)
-            inst(Opcode::TryEnd),   // 9: (unreachable — outer try end)
+            inst(Opcode::Pop),    // 6: discard inner error
+            inst_const(1),        // 7: push "outer"
+            inst(Opcode::Throw),  // 8: throw outer (from inner catch body)
+            inst(Opcode::TryEnd), // 9: (unreachable — outer try end)
             // 10: outer CATCH
             IrInstruction {
                 op: Opcode::Catch,
                 ..inst(Opcode::Catch)
             },
-            inst_store("e"),        // 11: store error in 'e'
-            inst_load("e"),         // 12: load 'e'
-            inst(Opcode::Return),   // 13: return
+            inst_store("e"),      // 11: store error in 'e'
+            inst_load("e"),       // 12: load 'e'
+            inst(Opcode::Return), // 13: return
         ]);
         module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("inner") },
-            IrConstant { index: 1, const_type: "string".to_string(), value: serde_json::json!("outer") },
+            IrConstant {
+                index: 0,
+                const_type: "string".to_string(),
+                value: serde_json::json!("inner"),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "string".to_string(),
+                value: serde_json::json!("outer"),
+            },
         ];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
@@ -3229,9 +3406,11 @@ mod tests {
             inst(Opcode::Throw),
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("oops") },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "string".to_string(),
+            value: serde_json::json!("oops"),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3248,9 +3427,11 @@ mod tests {
             version: "0.1.0".to_string(),
             module: "test".to_string(),
             source_file: "test.conc".to_string(),
-            constants: vec![
-                IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("boom") },
-            ],
+            constants: vec![IrConstant {
+                index: 0,
+                const_type: "string".to_string(),
+                value: serde_json::json!("boom"),
+            }],
             types: vec![],
             functions: vec![
                 IrFunction {
@@ -3268,14 +3449,16 @@ mod tests {
                             offset: Some(5),
                             ..inst(Opcode::TryBegin)
                         },
-                        inst_load("failing_fn"),  // 1: load fn ref
-                        IrInstruction {           // 2: call failing_fn()
+                        inst_load("failing_fn"), // 1: load fn ref
+                        IrInstruction {
+                            // 2: call failing_fn()
                             op: Opcode::Call,
                             argc: Some(0),
                             ..inst(Opcode::Call)
                         },
-                        inst(Opcode::TryEnd),     // 3: (unreachable if fn throws)
-                        IrInstruction {           // 4: JUMP past catch to 8
+                        inst(Opcode::TryEnd), // 3: (unreachable if fn throws)
+                        IrInstruction {
+                            // 4: JUMP past catch to 8
                             op: Opcode::Jump,
                             offset: Some(8),
                             ..inst(Opcode::Jump)
@@ -3285,9 +3468,9 @@ mod tests {
                             op: Opcode::Catch,
                             ..inst(Opcode::Catch)
                         },
-                        inst_store("e"),          // 6: store error
-                        inst_load("e"),           // 7: load error
-                        inst(Opcode::Return),     // 8: return
+                        inst_store("e"),      // 6: store error
+                        inst_load("e"),       // 7: load error
+                        inst(Opcode::Return), // 8: return
                     ],
                 },
                 IrFunction {
@@ -3299,8 +3482,8 @@ mod tests {
                     is_async: false,
                     locals: vec![],
                     instructions: vec![
-                        inst_const(0),            // 0: push "boom"
-                        inst(Opcode::Throw),      // 1: throw "boom"
+                        inst_const(0),       // 0: push "boom"
+                        inst(Opcode::Throw), // 1: throw "boom"
                     ],
                 },
             ],
@@ -3337,7 +3520,9 @@ mod tests {
     fn index_set_array() {
         // arr = [10, 20, 30]; arr[1] = 99; return arr
         let mut module = make_module(vec![
-            inst_const(0), inst_const(1), inst_const(2),
+            inst_const(0),
+            inst_const(1),
+            inst_const(2),
             IrInstruction {
                 op: Opcode::BuildArray,
                 count: Some(3),
@@ -3346,32 +3531,56 @@ mod tests {
             inst_store("arr"),
             // arr[1] = 99
             inst_load("arr"),
-            inst_const(3),      // index: 1
-            inst_const(4),      // value: 99
+            inst_const(3), // index: 1
+            inst_const(4), // value: 99
             inst(Opcode::IndexSet),
-            inst_store("arr"),  // store mutated arr back
+            inst_store("arr"), // store mutated arr back
             inst_load("arr"),
             inst(Opcode::Return),
         ]);
         module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(10) },
-            IrConstant { index: 1, const_type: "int".to_string(), value: serde_json::json!(20) },
-            IrConstant { index: 2, const_type: "int".to_string(), value: serde_json::json!(30) },
-            IrConstant { index: 3, const_type: "int".to_string(), value: serde_json::json!(1) },
-            IrConstant { index: 4, const_type: "int".to_string(), value: serde_json::json!(99) },
+            IrConstant {
+                index: 0,
+                const_type: "int".to_string(),
+                value: serde_json::json!(10),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "int".to_string(),
+                value: serde_json::json!(20),
+            },
+            IrConstant {
+                index: 2,
+                const_type: "int".to_string(),
+                value: serde_json::json!(30),
+            },
+            IrConstant {
+                index: 3,
+                const_type: "int".to_string(),
+                value: serde_json::json!(1),
+            },
+            IrConstant {
+                index: 4,
+                const_type: "int".to_string(),
+                value: serde_json::json!(99),
+            },
         ];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
         let result = vm.execute().unwrap();
-        assert_eq!(result, Value::Array(vec![Value::Int(10), Value::Int(99), Value::Int(30)]));
+        assert_eq!(
+            result,
+            Value::Array(vec![Value::Int(10), Value::Int(99), Value::Int(30)])
+        );
     }
 
     #[test]
     fn index_set_map() {
         // map = {"a": 1}; map["a"] = 99; return map
         let mut module = make_module(vec![
-            inst_const(0), inst_const(1),
+            inst_const(0),
+            inst_const(1),
             IrInstruction {
                 op: Opcode::BuildMap,
                 count: Some(1),
@@ -3380,17 +3589,29 @@ mod tests {
             inst_store("map"),
             // map["a"] = 99
             inst_load("map"),
-            inst_const(0),      // key "a"
-            inst_const(2),      // value 99
+            inst_const(0), // key "a"
+            inst_const(2), // value 99
             inst(Opcode::IndexSet),
             inst_store("map"),
             inst_load("map"),
             inst(Opcode::Return),
         ]);
         module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("a") },
-            IrConstant { index: 1, const_type: "int".to_string(), value: serde_json::json!(1) },
-            IrConstant { index: 2, const_type: "int".to_string(), value: serde_json::json!(99) },
+            IrConstant {
+                index: 0,
+                const_type: "string".to_string(),
+                value: serde_json::json!("a"),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "int".to_string(),
+                value: serde_json::json!(1),
+            },
+            IrConstant {
+                index: 2,
+                const_type: "int".to_string(),
+                value: serde_json::json!(99),
+            },
         ];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
@@ -3412,7 +3633,7 @@ mod tests {
     #[test]
     fn check_type_matching() {
         let mut module = make_module(vec![
-            inst_const(0),  // push 42
+            inst_const(0), // push 42
             IrInstruction {
                 op: Opcode::CheckType,
                 type_name: Some("Int".to_string()),
@@ -3420,9 +3641,11 @@ mod tests {
             },
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(42) },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "int".to_string(),
+            value: serde_json::json!(42),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3433,7 +3656,7 @@ mod tests {
     #[test]
     fn check_type_mismatch() {
         let mut module = make_module(vec![
-            inst_const(0),  // push "hello"
+            inst_const(0), // push "hello"
             IrInstruction {
                 op: Opcode::CheckType,
                 type_name: Some("Int".to_string()),
@@ -3441,9 +3664,11 @@ mod tests {
             },
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("hello") },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "string".to_string(),
+            value: serde_json::json!("hello"),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3458,7 +3683,7 @@ mod tests {
     #[test]
     fn cast_int_to_float() {
         let mut module = make_module(vec![
-            inst_const(0),  // push 42
+            inst_const(0), // push 42
             IrInstruction {
                 op: Opcode::Cast,
                 type_name: Some("Float".to_string()),
@@ -3466,9 +3691,11 @@ mod tests {
             },
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(42) },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "int".to_string(),
+            value: serde_json::json!(42),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3479,7 +3706,7 @@ mod tests {
     #[test]
     fn cast_float_to_int() {
         let mut module = make_module(vec![
-            inst_const(0),  // push 3.7
+            inst_const(0), // push 3.7
             IrInstruction {
                 op: Opcode::Cast,
                 type_name: Some("Int".to_string()),
@@ -3487,9 +3714,11 @@ mod tests {
             },
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "float".to_string(), value: serde_json::json!(3.7) },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "float".to_string(),
+            value: serde_json::json!(3.7),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3500,7 +3729,7 @@ mod tests {
     #[test]
     fn cast_to_string() {
         let mut module = make_module(vec![
-            inst_const(0),  // push 42
+            inst_const(0), // push 42
             IrInstruction {
                 op: Opcode::Cast,
                 type_name: Some("String".to_string()),
@@ -3508,9 +3737,11 @@ mod tests {
             },
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(42) },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "int".to_string(),
+            value: serde_json::json!(42),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3519,10 +3750,210 @@ mod tests {
     }
 
     #[test]
+    fn build_chat_request_includes_memory_between_system_and_user_prompt() {
+        let mut module = make_module(vec![inst(Opcode::Return)]);
+        module.agents = vec![IrAgent {
+            name: "Assistant".to_string(),
+            module: "test".to_string(),
+            connection: "openai".to_string(),
+            config: IrAgentConfig {
+                model: Some("gpt-4o-mini".to_string()),
+                temperature: Some(0.2),
+                max_tokens: Some(256),
+                system_prompt: Some("System prompt".to_string()),
+                timeout: None,
+            },
+            tools: vec![],
+            memory: None,
+            decorators: vec![],
+            methods: vec![],
+        }];
+        module.memories = vec![IrMemory {
+            name: "conv".to_string(),
+            max_messages: None,
+        }];
+
+        let loaded = LoadedModule::from_ir(module).unwrap();
+        let mut vm = VM::new(loaded);
+
+        vm.memory_store
+            .append("conv", "user", "Earlier question")
+            .unwrap();
+        vm.memory_store
+            .append("conv", "assistant", "Earlier answer")
+            .unwrap();
+
+        let agent = vm.module.agents.get("Assistant").unwrap().clone();
+        let request =
+            vm.build_chat_request_full(&agent, "Current question", None, Some("conv"), &[], false);
+
+        assert_eq!(request.messages.len(), 4);
+        assert_eq!(request.messages[0].role, "system");
+        assert_eq!(request.messages[0].content, "System prompt");
+        assert_eq!(request.messages[1].role, "user");
+        assert_eq!(request.messages[1].content, "Earlier question");
+        assert_eq!(request.messages[2].role, "assistant");
+        assert_eq!(request.messages[2].content, "Earlier answer");
+        assert_eq!(request.messages[3].role, "user");
+        assert_eq!(request.messages[3].content, "Current question");
+    }
+
+    #[test]
+    fn build_chat_request_merges_and_deduplicates_static_and_dynamic_tools() {
+        let mut module = make_module(vec![inst(Opcode::Return)]);
+        module.agents = vec![IrAgent {
+            name: "Worker".to_string(),
+            module: "test".to_string(),
+            connection: "openai".to_string(),
+            config: IrAgentConfig {
+                model: Some("gpt-4o-mini".to_string()),
+                temperature: None,
+                max_tokens: None,
+                system_prompt: None,
+                timeout: None,
+            },
+            tools: vec!["Calculator".to_string()],
+            memory: None,
+            decorators: vec![],
+            methods: vec![],
+        }];
+        module.tools = vec![
+            IrTool {
+                name: "Calculator".to_string(),
+                module: "test".to_string(),
+                methods: vec![],
+                tool_schemas: vec![ToolSchemaEntry {
+                    method_name: "Calculator::add".to_string(),
+                    description: "Add integers".to_string(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "a": { "type": "integer" },
+                            "b": { "type": "integer" }
+                        },
+                        "required": ["a", "b"]
+                    }),
+                }],
+            },
+            IrTool {
+                name: "Formatter".to_string(),
+                module: "test".to_string(),
+                methods: vec![],
+                tool_schemas: vec![ToolSchemaEntry {
+                    method_name: "Formatter::up".to_string(),
+                    description: "Uppercase text".to_string(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "text": { "type": "string" }
+                        },
+                        "required": ["text"]
+                    }),
+                }],
+            },
+        ];
+
+        let loaded = LoadedModule::from_ir(module).unwrap();
+        let vm = VM::new(loaded);
+
+        let agent = vm.module.agents.get("Worker").unwrap().clone();
+        let extra_tools = vec!["Calculator".to_string(), "Formatter".to_string()];
+        let request = vm.build_chat_request_full(&agent, "prompt", None, None, &extra_tools, false);
+
+        let mut tool_names: Vec<String> = request
+            .tools
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        tool_names.sort();
+
+        assert_eq!(tool_names, vec!["Calculator::add", "Formatter::up"]);
+    }
+
+    #[test]
+    fn build_chat_request_without_tools_excludes_static_but_keeps_dynamic() {
+        let mut module = make_module(vec![inst(Opcode::Return)]);
+        module.agents = vec![IrAgent {
+            name: "Worker".to_string(),
+            module: "test".to_string(),
+            connection: "openai".to_string(),
+            config: IrAgentConfig {
+                model: Some("gpt-4o-mini".to_string()),
+                temperature: None,
+                max_tokens: None,
+                system_prompt: None,
+                timeout: None,
+            },
+            tools: vec!["Calculator".to_string()],
+            memory: None,
+            decorators: vec![],
+            methods: vec![],
+        }];
+        module.tools = vec![
+            IrTool {
+                name: "Calculator".to_string(),
+                module: "test".to_string(),
+                methods: vec![],
+                tool_schemas: vec![ToolSchemaEntry {
+                    method_name: "Calculator::add".to_string(),
+                    description: "Add integers".to_string(),
+                    parameters: serde_json::json!({"type":"object","properties":{},"required":[]}),
+                }],
+            },
+            IrTool {
+                name: "Formatter".to_string(),
+                module: "test".to_string(),
+                methods: vec![],
+                tool_schemas: vec![ToolSchemaEntry {
+                    method_name: "Formatter::up".to_string(),
+                    description: "Uppercase text".to_string(),
+                    parameters: serde_json::json!({"type":"object","properties":{},"required":[]}),
+                }],
+            },
+        ];
+
+        let loaded = LoadedModule::from_ir(module).unwrap();
+        let vm = VM::new(loaded);
+
+        let agent = vm.module.agents.get("Worker").unwrap().clone();
+        let extra_tools = vec!["Formatter".to_string()];
+        let request = vm.build_chat_request_full(&agent, "prompt", None, None, &extra_tools, true);
+
+        let tool_names: Vec<String> = request
+            .tools
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+
+        assert_eq!(tool_names, vec!["Formatter::up"]);
+    }
+
+    #[test]
+    fn vm_registers_tool_refs_for_with_tools_arrays() {
+        let mut module = make_module(vec![inst(Opcode::Return)]);
+        module.tools = vec![IrTool {
+            name: "Calculator".to_string(),
+            module: "test".to_string(),
+            methods: vec![],
+            tool_schemas: vec![],
+        }];
+
+        let loaded = LoadedModule::from_ir(module).unwrap();
+        let vm = VM::new(loaded);
+
+        match vm.globals.get("Calculator") {
+            Some(Value::Function(name)) => assert_eq!(name, "Calculator"),
+            other => panic!("expected Function(\"Calculator\"), got {:?}", other),
+        }
+    }
+
+    #[test]
     fn spawn_async_creates_thunk() {
         // LOAD_CONST "add_fn" (as function name), SPAWN_ASYNC → Thunk on stack
         let mut module = make_module(vec![
-            inst_const(0),       // push function name string
+            inst_const(0), // push function name string
             inst(Opcode::Return),
         ]);
         // We'll push a Function value via LoadGlobal + SpawnAsync
@@ -3535,14 +3966,19 @@ mod tests {
             return_type: serde_json::json!("Int"),
             is_async: false,
             locals: vec![],
-            instructions: vec![
-                inst_const(1),
-                inst(Opcode::Return),
-            ],
+            instructions: vec![inst_const(1), inst(Opcode::Return)],
         });
         module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("helper") },
-            IrConstant { index: 1, const_type: "int".to_string(), value: serde_json::json!(42) },
+            IrConstant {
+                index: 0,
+                const_type: "string".to_string(),
+                value: serde_json::json!("helper"),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "int".to_string(),
+                value: serde_json::json!(42),
+            },
         ];
         // main: LOAD_LOCAL "helper" (function ref), SPAWN_ASYNC, RETURN
         module.functions[0].instructions = vec![
@@ -3579,14 +4015,13 @@ mod tests {
             return_type: serde_json::json!("Int"),
             is_async: false,
             locals: vec![],
-            instructions: vec![
-                inst_const(0),
-                inst(Opcode::Return),
-            ],
+            instructions: vec![inst_const(0), inst(Opcode::Return)],
         });
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(42) },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "int".to_string(),
+            value: serde_json::json!(42),
+        }];
         // main: LOAD_LOCAL "helper" (fn ref), SPAWN_ASYNC (→ thunk), AWAIT (→ 42), RETURN
         module.functions[0].instructions = vec![
             {
@@ -3613,9 +4048,11 @@ mod tests {
             inst(Opcode::Await),
             inst(Opcode::Return),
         ]);
-        module.constants = vec![
-            IrConstant { index: 0, const_type: "string".to_string(), value: serde_json::json!("hello") },
-        ];
+        module.constants = vec![IrConstant {
+            index: 0,
+            const_type: "string".to_string(),
+            value: serde_json::json!("hello"),
+        }];
 
         let loaded = LoadedModule::from_ir(module).unwrap();
         let mut vm = VM::new(loaded);
@@ -3635,14 +4072,19 @@ mod tests {
             return_type: serde_json::json!("Int"),
             is_async: false,
             locals: vec![],
-            instructions: vec![
-                inst_const(0),
-                inst(Opcode::Return),
-            ],
+            instructions: vec![inst_const(0), inst(Opcode::Return)],
         });
         module.constants = vec![
-            IrConstant { index: 0, const_type: "int".to_string(), value: serde_json::json!(10) },
-            IrConstant { index: 1, const_type: "int".to_string(), value: serde_json::json!(20) },
+            IrConstant {
+                index: 0,
+                const_type: "int".to_string(),
+                value: serde_json::json!(10),
+            },
+            IrConstant {
+                index: 1,
+                const_type: "int".to_string(),
+                value: serde_json::json!(20),
+            },
         ];
         // main: push thunk for get_ten, push literal 20, AWAIT_ALL(2) → [10, 20]
         module.functions[0].instructions = vec![
@@ -3651,8 +4093,8 @@ mod tests {
                 i.name = Some("get_ten".to_string());
                 i
             },
-            inst(Opcode::SpawnAsync),  // Thunk { function: "get_ten", args: [] }
-            inst_const(1),              // 20
+            inst(Opcode::SpawnAsync), // Thunk { function: "get_ten", args: [] }
+            inst_const(1),            // 20
             {
                 let mut i = inst(Opcode::AwaitAll);
                 i.count = Some(2);

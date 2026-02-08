@@ -40,9 +40,10 @@ impl MemoryStore {
 
     /// Append a message to a memory.
     pub fn append(&mut self, name: &str, role: &str, content: &str) -> Result<()> {
-        let mem = self.memories.get_mut(name).ok_or_else(|| {
-            RuntimeError::CallError(format!("memory '{}' not found", name))
-        })?;
+        let mem = self
+            .memories
+            .get_mut(name)
+            .ok_or_else(|| RuntimeError::CallError(format!("memory '{}' not found", name)))?;
         mem.messages.push(ChatMessage {
             role: role.to_string(),
             content: content.to_string(),
@@ -61,34 +62,38 @@ impl MemoryStore {
 
     /// Get all messages from a memory.
     pub fn messages(&self, name: &str) -> Result<Vec<ChatMessage>> {
-        let mem = self.memories.get(name).ok_or_else(|| {
-            RuntimeError::CallError(format!("memory '{}' not found", name))
-        })?;
+        let mem = self
+            .memories
+            .get(name)
+            .ok_or_else(|| RuntimeError::CallError(format!("memory '{}' not found", name)))?;
         Ok(mem.messages.clone())
     }
 
     /// Get the last N messages from a memory.
     pub fn last(&self, name: &str, count: usize) -> Result<Vec<ChatMessage>> {
-        let mem = self.memories.get(name).ok_or_else(|| {
-            RuntimeError::CallError(format!("memory '{}' not found", name))
-        })?;
+        let mem = self
+            .memories
+            .get(name)
+            .ok_or_else(|| RuntimeError::CallError(format!("memory '{}' not found", name)))?;
         let start = mem.messages.len().saturating_sub(count);
         Ok(mem.messages[start..].to_vec())
     }
 
     /// Get message count.
     pub fn len(&self, name: &str) -> Result<usize> {
-        let mem = self.memories.get(name).ok_or_else(|| {
-            RuntimeError::CallError(format!("memory '{}' not found", name))
-        })?;
+        let mem = self
+            .memories
+            .get(name)
+            .ok_or_else(|| RuntimeError::CallError(format!("memory '{}' not found", name)))?;
         Ok(mem.messages.len())
     }
 
     /// Clear all messages from a memory.
     pub fn clear(&mut self, name: &str) -> Result<()> {
-        let mem = self.memories.get_mut(name).ok_or_else(|| {
-            RuntimeError::CallError(format!("memory '{}' not found", name))
-        })?;
+        let mem = self
+            .memories
+            .get_mut(name)
+            .ok_or_else(|| RuntimeError::CallError(format!("memory '{}' not found", name)))?;
         mem.messages.clear();
         Ok(())
     }
@@ -96,13 +101,17 @@ impl MemoryStore {
     /// Convert messages to Value::Array of Message structs.
     pub fn messages_to_value(&self, name: &str) -> Result<Value> {
         let msgs = self.messages(name)?;
-        Ok(Value::Array(msgs.iter().map(chat_message_to_value).collect()))
+        Ok(Value::Array(
+            msgs.iter().map(chat_message_to_value).collect(),
+        ))
     }
 
     /// Convert last N messages to Value::Array.
     pub fn last_to_value(&self, name: &str, count: usize) -> Result<Value> {
         let msgs = self.last(name, count)?;
-        Ok(Value::Array(msgs.iter().map(chat_message_to_value).collect()))
+        Ok(Value::Array(
+            msgs.iter().map(chat_message_to_value).collect(),
+        ))
     }
 }
 
@@ -191,7 +200,10 @@ mod tests {
                     Value::Struct { type_name, fields } => {
                         assert_eq!(type_name, "Message");
                         assert_eq!(fields.get("role"), Some(&Value::String("user".to_string())));
-                        assert_eq!(fields.get("content"), Some(&Value::String("Hello".to_string())));
+                        assert_eq!(
+                            fields.get("content"),
+                            Some(&Value::String("Hello".to_string()))
+                        );
                     }
                     _ => panic!("expected Struct"),
                 }

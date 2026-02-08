@@ -101,16 +101,17 @@ impl Resolver {
                     return_type: Box::new(Type::Option(Box::new(Type::Any))),
                 },
             ),
-            ("None", SymbolKind::Variable, Type::Option(Box::new(Type::Any))),
+            (
+                "None",
+                SymbolKind::Variable,
+                Type::Option(Box::new(Type::Any)),
+            ),
             (
                 "Ok",
                 SymbolKind::Function,
                 Type::Function {
                     params: vec![Type::Any],
-                    return_type: Box::new(Type::Result(
-                        Box::new(Type::Any),
-                        Box::new(Type::Any),
-                    )),
+                    return_type: Box::new(Type::Result(Box::new(Type::Any), Box::new(Type::Any))),
                 },
             ),
             (
@@ -118,10 +119,7 @@ impl Resolver {
                 SymbolKind::Function,
                 Type::Function {
                     params: vec![Type::Any],
-                    return_type: Box::new(Type::Result(
-                        Box::new(Type::Any),
-                        Box::new(Type::Any),
-                    )),
+                    return_type: Box::new(Type::Result(Box::new(Type::Any), Box::new(Type::Any))),
                 },
             ),
             // Runtime built-in functions
@@ -158,10 +156,26 @@ impl Resolver {
                 },
             ),
             // Common type constructors (used as namespaces via path expressions)
-            ("ToolError", SymbolKind::Struct, Type::Named("ToolError".to_string())),
-            ("HashMap", SymbolKind::Struct, Type::Named("HashMap".to_string())),
-            ("Ledger", SymbolKind::Struct, Type::Named("Ledger".to_string())),
-            ("Memory", SymbolKind::Struct, Type::Named("Memory".to_string())),
+            (
+                "ToolError",
+                SymbolKind::Struct,
+                Type::Named("ToolError".to_string()),
+            ),
+            (
+                "HashMap",
+                SymbolKind::Struct,
+                Type::Named("HashMap".to_string()),
+            ),
+            (
+                "Ledger",
+                SymbolKind::Struct,
+                Type::Named("Ledger".to_string()),
+            ),
+            (
+                "Memory",
+                SymbolKind::Struct,
+                Type::Named("Memory".to_string()),
+            ),
             ("std", SymbolKind::Module, Type::Any),
         ];
 
@@ -766,12 +780,12 @@ impl Resolver {
             } => {
                 self.resolve_expr(condition);
                 let cond_ty = self.infer_expr_type(condition);
-                if !matches!(cond_ty, Type::Bool | Type::Unknown | Type::Any | Type::Error) {
+                if !matches!(
+                    cond_ty,
+                    Type::Bool | Type::Unknown | Type::Any | Type::Error
+                ) {
                     self.diagnostics.error(
-                        format!(
-                            "condition must be Bool, got {}",
-                            cond_ty.display_name()
-                        ),
+                        format!("condition must be Bool, got {}", cond_ty.display_name()),
                         condition.span.clone(),
                     );
                 }
@@ -891,7 +905,10 @@ impl Resolver {
             ExprKind::While { condition, body } => {
                 self.resolve_expr(condition);
                 let cond_ty = self.infer_expr_type(condition);
-                if !matches!(cond_ty, Type::Bool | Type::Unknown | Type::Any | Type::Error) {
+                if !matches!(
+                    cond_ty,
+                    Type::Bool | Type::Unknown | Type::Any | Type::Error
+                ) {
                     self.diagnostics.error(
                         format!(
                             "while condition must be Bool, got {}",
@@ -985,10 +1002,8 @@ impl Resolver {
                     if let Some(sym) = self.scopes.lookup_mut(first) {
                         sym.used = true;
                     } else {
-                        self.diagnostics.error(
-                            format!("undefined name `{}`", first),
-                            expr.span.clone(),
-                        );
+                        self.diagnostics
+                            .error(format!("undefined name `{}`", first), expr.span.clone());
                     }
                 }
             }
@@ -1014,10 +1029,8 @@ impl Resolver {
                     if let Some(sym) = self.scopes.lookup_mut(first) {
                         sym.used = true;
                     } else {
-                        self.diagnostics.error(
-                            format!("undefined type `{}`", first),
-                            expr.span.clone(),
-                        );
+                        self.diagnostics
+                            .error(format!("undefined type `{}`", first), expr.span.clone());
                     }
                 }
                 for f in fields {
@@ -1038,10 +1051,8 @@ impl Resolver {
                     self.resolve_expr(val);
                 }
                 if !self.scopes.in_function() {
-                    self.diagnostics.error(
-                        "`return` outside of function",
-                        expr.span.clone(),
-                    );
+                    self.diagnostics
+                        .error("`return` outside of function", expr.span.clone());
                 }
             }
         }
@@ -1077,10 +1088,8 @@ impl Resolver {
                     if let Some(sym) = self.scopes.lookup_mut(first) {
                         sym.used = true;
                     } else {
-                        self.diagnostics.error(
-                            format!("undefined type `{}`", first),
-                            pattern.span.clone(),
-                        );
+                        self.diagnostics
+                            .error(format!("undefined type `{}`", first), pattern.span.clone());
                     }
                 }
                 for f in fields {
@@ -1227,9 +1236,12 @@ impl Resolver {
                 if let Some(sym) = self.scopes.lookup(name) {
                     if !sym.mutable && sym.kind == SymbolKind::Variable {
                         self.diagnostics.report(
-                            Diagnostic::error(format!("cannot assign to immutable variable `{}`", name))
-                                .with_span(target.span.clone())
-                                .with_suggestion("make the binding mutable with 'let mut'"),
+                            Diagnostic::error(format!(
+                                "cannot assign to immutable variable `{}`",
+                                name
+                            ))
+                            .with_span(target.span.clone())
+                            .with_suggestion("make the binding mutable with 'let mut'"),
                         );
                     } else if sym.kind == SymbolKind::Const {
                         self.diagnostics.error(
@@ -1273,12 +1285,9 @@ impl Resolver {
         };
         if let Err(prev_span) = self.scopes.define(symbol) {
             self.diagnostics.report(
-                concerto_common::Diagnostic::error(format!(
-                    "duplicate definition of `{}`",
-                    name
-                ))
-                .with_span(span)
-                .with_related(prev_span, "previously defined here"),
+                concerto_common::Diagnostic::error(format!("duplicate definition of `{}`", name))
+                    .with_span(span)
+                    .with_related(prev_span, "previously defined here"),
             );
         }
     }
@@ -1403,10 +1412,9 @@ mod tests {
     #[test]
     fn continue_outside_loop() {
         let errs = errors("fn main() { continue; }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("`continue` outside of loop"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("`continue` outside of loop")));
     }
 
     #[test]
@@ -1429,37 +1437,33 @@ mod tests {
     #[test]
     fn while_condition_not_bool() {
         let errs = errors("fn main() { while 1 { } }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("while condition must be Bool"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("while condition must be Bool")));
     }
 
     #[test]
     fn binary_type_mismatch() {
         let errs = errors(r#"fn main() { let x = "hello" - 1; }"#);
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("operator '-' cannot be applied"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("operator '-' cannot be applied")));
     }
 
     #[test]
     fn logical_requires_bool() {
         let errs = errors("fn main() { let x = 1 && 2; }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("operator '&&' requires Bool operands"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("operator '&&' requires Bool operands")));
     }
 
     #[test]
     fn unary_not_on_int() {
         let errs = errors("fn main() { let x = !42; }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("operator '!' requires Bool operand"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("operator '!' requires Bool operand")));
     }
 
     // -- Mutability --
@@ -1474,10 +1478,9 @@ mod tests {
             }
             "#,
         );
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("cannot assign to immutable variable"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("cannot assign to immutable variable")));
     }
 
     #[test]
@@ -1498,10 +1501,9 @@ mod tests {
     #[test]
     fn await_outside_async() {
         let errs = errors("fn main() { let x = my_fn().await; }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("`.await` can only be used in async"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("`.await` can only be used in async")));
     }
 
     // -- Propagation --
@@ -1511,10 +1513,9 @@ mod tests {
         // We can't easily test this because ? must be inside fn body in our grammar.
         // Instead test ? in a non-Result function.
         let errs = errors("fn main() { let x = foo()?; }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("`?` operator can only be used in functions returning"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("`?` operator can only be used in functions returning")));
     }
 
     #[test]
@@ -1525,11 +1526,9 @@ mod tests {
             "#,
         );
         // Should not error about ? usage (foo undefined is a separate error).
-        assert!(
-            !errs
-                .iter()
-                .any(|e| e.contains("`?` operator can only be used"))
-        );
+        assert!(!errs
+            .iter()
+            .any(|e| e.contains("`?` operator can only be used")));
     }
 
     // -- Throw --
@@ -1543,10 +1542,9 @@ mod tests {
             }
             "#,
         );
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("`throw` can only be used in functions returning Result"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("`throw` can only be used in functions returning Result")));
     }
 
     #[test]
@@ -1558,11 +1556,7 @@ mod tests {
             }
             "#,
         );
-        assert!(
-            !errs
-                .iter()
-                .any(|e| e.contains("`throw` can only be used"))
-        );
+        assert!(!errs.iter().any(|e| e.contains("`throw` can only be used")));
     }
 
     // -- Unused variables --
@@ -1653,10 +1647,9 @@ mod tests {
             }
             "#,
         );
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("undefined variable `inner`"))
-        );
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("undefined variable `inner`")));
     }
 
     #[test]

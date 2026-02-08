@@ -268,8 +268,7 @@ impl<'src> Lexer<'src> {
                         self.cursor.advance(); // second /
 
                         // Doc comment (///) — skip for now, emit as DocComment later
-                        if self.cursor.peek() == Some('/')
-                            && self.cursor.peek_second() != Some('/')
+                        if self.cursor.peek() == Some('/') && self.cursor.peek_second() != Some('/')
                         {
                             self.cursor.eat_while(|c| c != '\n');
                             continue;
@@ -311,8 +310,7 @@ impl<'src> Lexer<'src> {
                 None => {
                     let pos = self.cursor.position();
                     let span = self.cursor.span_from(pos);
-                    self.diagnostics
-                        .error("unterminated block comment", span);
+                    self.diagnostics.error("unterminated block comment", span);
                     return;
                 }
             }
@@ -378,8 +376,7 @@ impl<'src> Lexer<'src> {
                     }
                     StringDelimiter::TripleDouble => {
                         // Need two more " to close
-                        if self.cursor.peek() == Some('"')
-                            && self.cursor.peek_second() == Some('"')
+                        if self.cursor.peek() == Some('"') && self.cursor.peek_second() == Some('"')
                         {
                             self.cursor.advance(); // second "
                             self.cursor.advance(); // third "
@@ -408,10 +405,8 @@ impl<'src> Lexer<'src> {
                     Some('u') => self.scan_unicode_escape(&mut value, start),
                     Some(c) => {
                         let span = self.cursor.span_from(start);
-                        self.diagnostics.error(
-                            format!("unknown escape sequence '\\{}'", c),
-                            span,
-                        );
+                        self.diagnostics
+                            .error(format!("unknown escape sequence '\\{}'", c), span);
                         value.push(c);
                     }
                     None => {
@@ -451,8 +446,7 @@ impl<'src> Lexer<'src> {
     fn scan_unicode_escape(&mut self, value: &mut String, string_start: Position) {
         if !self.cursor.eat('{') {
             let span = self.cursor.span_from(string_start);
-            self.diagnostics
-                .error("expected '{' after '\\u'", span);
+            self.diagnostics.error("expected '{' after '\\u'", span);
             return;
         }
 
@@ -557,8 +551,7 @@ impl<'src> Lexer<'src> {
                 Some('x') | Some('X') => {
                     self.cursor.advance(); // consume prefix
                     let digit_start = self.cursor.position();
-                    self.cursor
-                        .eat_while(|c| c.is_ascii_hexdigit() || c == '_');
+                    self.cursor.eat_while(|c| c.is_ascii_hexdigit() || c == '_');
                     if self.cursor.position().offset == digit_start.offset {
                         let span = self.cursor.span_from(start);
                         self.diagnostics
@@ -572,8 +565,7 @@ impl<'src> Lexer<'src> {
                 Some('b') | Some('B') => {
                     self.cursor.advance();
                     let digit_start = self.cursor.position();
-                    self.cursor
-                        .eat_while(|c| c == '0' || c == '1' || c == '_');
+                    self.cursor.eat_while(|c| c == '0' || c == '1' || c == '_');
                     if self.cursor.position().offset == digit_start.offset {
                         let span = self.cursor.span_from(start);
                         self.diagnostics
@@ -608,7 +600,8 @@ impl<'src> Lexer<'src> {
 
         // Check for float (decimal point followed by digit)
         let is_float = self.cursor.peek() == Some('.')
-            && self.cursor
+            && self
+                .cursor
                 .peek_second()
                 .is_some_and(|c| c.is_ascii_digit());
 
@@ -1077,10 +1070,10 @@ fn main() {
                 TokenKind::Eof,
             ]
         );
-        assert_eq!(tokens[0].lexeme, "");       // before x
-        assert_eq!(tokens[2].lexeme, " + ");    // between x and y
-        assert_eq!(tokens[4].lexeme, " = ");    // between y and z
-        assert_eq!(tokens[6].lexeme, "");        // after z
+        assert_eq!(tokens[0].lexeme, ""); // before x
+        assert_eq!(tokens[2].lexeme, " + "); // between x and y
+        assert_eq!(tokens[4].lexeme, " = "); // between y and z
+        assert_eq!(tokens[6].lexeme, ""); // after z
     }
 
     #[test]

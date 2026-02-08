@@ -25,11 +25,7 @@ pub fn call(name: &str, args: Vec<Value>) -> Result<Value> {
 
 /// Handle method calls on Set/Queue/Stack struct values.
 /// Called from exec_call_method when type_name matches.
-pub fn call_collection_method(
-    object: Value,
-    method: &str,
-    args: Vec<Value>,
-) -> Result<Value> {
+pub fn call_collection_method(object: Value, method: &str, args: Vec<Value>) -> Result<Value> {
     let (type_name, fields) = match object {
         Value::Struct { type_name, fields } => (type_name, fields),
         _ => {
@@ -73,8 +69,10 @@ fn call_set_method(elements: Vec<Value>, method: &str, args: Vec<Value>) -> Resu
             let val = args.into_iter().next().ok_or_else(|| {
                 RuntimeError::TypeError("Set::remove missing argument".to_string())
             })?;
-            let new_elements: Vec<Value> =
-                elements.into_iter().filter(|e| !values_equal(e, &val)).collect();
+            let new_elements: Vec<Value> = elements
+                .into_iter()
+                .filter(|e| !values_equal(e, &val))
+                .collect();
             Ok(make_set(new_elements))
         }
         "contains" => {
@@ -137,12 +135,10 @@ fn call_queue_method(elements: Vec<Value>, method: &str, args: Vec<Value>) -> Re
                 Ok(Value::Option(Some(Box::new(elements[0].clone()))))
             }
         }
-        "peek" => {
-            Ok(match elements.first() {
-                Some(v) => Value::Option(Some(Box::new(v.clone()))),
-                None => Value::Option(None),
-            })
-        }
+        "peek" => Ok(match elements.first() {
+            Some(v) => Value::Option(Some(Box::new(v.clone()))),
+            None => Value::Option(None),
+        }),
         "len" => Ok(Value::Int(elements.len() as i64)),
         "is_empty" => Ok(Value::Bool(elements.is_empty())),
         "rest" => {
@@ -172,18 +168,14 @@ fn call_stack_method(elements: Vec<Value>, method: &str, args: Vec<Value>) -> Re
             new_elements.push(val);
             Ok(make_stack(new_elements))
         }
-        "pop" => {
-            Ok(match elements.last() {
-                Some(v) => Value::Option(Some(Box::new(v.clone()))),
-                None => Value::Option(None),
-            })
-        }
-        "peek" => {
-            Ok(match elements.last() {
-                Some(v) => Value::Option(Some(Box::new(v.clone()))),
-                None => Value::Option(None),
-            })
-        }
+        "pop" => Ok(match elements.last() {
+            Some(v) => Value::Option(Some(Box::new(v.clone()))),
+            None => Value::Option(None),
+        }),
+        "peek" => Ok(match elements.last() {
+            Some(v) => Value::Option(Some(Box::new(v.clone()))),
+            None => Value::Option(None),
+        }),
         "len" => Ok(Value::Int(elements.len() as i64)),
         "is_empty" => Ok(Value::Bool(elements.is_empty())),
         "rest" => {
@@ -263,9 +255,7 @@ fn extract_set_elements(args: &[Value]) -> Result<Vec<Value>> {
                 _ => Ok(vec![]),
             }
         }
-        _ => Err(RuntimeError::TypeError(
-            "expected Set argument".to_string(),
-        )),
+        _ => Err(RuntimeError::TypeError("expected Set argument".to_string())),
     }
 }
 
@@ -309,7 +299,8 @@ mod tests {
         let set = call("Set::new", vec![]).unwrap();
         let set = call_collection_method(set, "insert", vec![Value::String("x".into())]).unwrap();
         assert_eq!(
-            call_collection_method(set.clone(), "contains", vec![Value::String("x".into())]).unwrap(),
+            call_collection_method(set.clone(), "contains", vec![Value::String("x".into())])
+                .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(

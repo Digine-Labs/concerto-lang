@@ -285,12 +285,15 @@ impl Value {
     /// Access a named field on a struct or map.
     pub fn field_get(&self, name: &str) -> crate::error::Result<Value> {
         match self {
-            Value::Struct { type_name, fields } => fields.get(name).cloned().ok_or_else(|| {
-                RuntimeError::FieldError {
-                    type_name: type_name.clone(),
-                    field: name.to_string(),
-                }
-            }),
+            Value::Struct { type_name, fields } => {
+                fields
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::FieldError {
+                        type_name: type_name.clone(),
+                        field: name.to_string(),
+                    })
+            }
             Value::Map(pairs) => Ok(pairs
                 .iter()
                 .find(|(k, _)| k == name)
@@ -426,7 +429,9 @@ impl Value {
             Value::MemoryRef(name) => serde_json::json!(format!("<memory {}>", name)),
             Value::HostRef(name) => serde_json::json!(format!("<host {}>", name)),
             Value::Thunk { function, .. } => serde_json::json!(format!("<thunk {}>", function)),
-            Value::AgentBuilder { source_name, .. } => serde_json::json!(format!("<builder {}>", source_name)),
+            Value::AgentBuilder { source_name, .. } => {
+                serde_json::json!(format!("<builder {}>", source_name))
+            }
         }
     }
 }
@@ -447,12 +452,26 @@ impl PartialEq for Value {
             (Value::Nil, Value::Nil) => true,
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
-            (Value::Struct { type_name: t1, fields: f1 }, Value::Struct { type_name: t2, fields: f2 }) => {
-                t1 == t2 && f1 == f2
-            }
-            (Value::Result { is_ok: ok1, value: v1 }, Value::Result { is_ok: ok2, value: v2 }) => {
-                ok1 == ok2 && v1 == v2
-            }
+            (
+                Value::Struct {
+                    type_name: t1,
+                    fields: f1,
+                },
+                Value::Struct {
+                    type_name: t2,
+                    fields: f2,
+                },
+            ) => t1 == t2 && f1 == f2,
+            (
+                Value::Result {
+                    is_ok: ok1,
+                    value: v1,
+                },
+                Value::Result {
+                    is_ok: ok2,
+                    value: v2,
+                },
+            ) => ok1 == ok2 && v1 == v2,
             (Value::Option(a), Value::Option(b)) => a == b,
             _ => false,
         }
@@ -502,7 +521,10 @@ impl fmt::Display for Value {
                 write!(f, "}}")
             }
             Value::Result { is_ok: true, value } => write!(f, "Ok({})", value),
-            Value::Result { is_ok: false, value } => write!(f, "Err({})", value),
+            Value::Result {
+                is_ok: false,
+                value,
+            } => write!(f, "Err({})", value),
             Value::Option(Some(v)) => write!(f, "Some({})", v),
             Value::Option(None) => write!(f, "None"),
             Value::Function(name) => write!(f, "<fn {}>", name),
@@ -533,7 +555,10 @@ mod tests {
         assert_eq!(Value::Int(10).sub(&Value::Int(3)).unwrap(), Value::Int(7));
         assert_eq!(Value::Int(3).mul(&Value::Int(4)).unwrap(), Value::Int(12));
         assert_eq!(Value::Int(10).div(&Value::Int(3)).unwrap(), Value::Int(3));
-        assert_eq!(Value::Int(10).modulo(&Value::Int(3)).unwrap(), Value::Int(1));
+        assert_eq!(
+            Value::Int(10).modulo(&Value::Int(3)).unwrap(),
+            Value::Int(1)
+        );
         assert_eq!(Value::Int(5).neg().unwrap(), Value::Int(-5));
     }
 
@@ -603,10 +628,7 @@ mod tests {
     #[test]
     fn equality() {
         assert_eq!(Value::Int(42).eq_val(&Value::Int(42)), Value::Bool(true));
-        assert_eq!(
-            Value::Int(42).neq_val(&Value::Int(43)),
-            Value::Bool(true)
-        );
+        assert_eq!(Value::Int(42).neq_val(&Value::Int(43)), Value::Bool(true));
         assert_eq!(Value::Nil.eq_val(&Value::Nil), Value::Bool(true));
         assert_eq!(Value::Nil.neq_val(&Value::Int(0)), Value::Bool(true));
     }

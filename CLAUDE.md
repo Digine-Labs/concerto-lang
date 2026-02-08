@@ -59,7 +59,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 ```
 
 1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, hashmaps, ledgers, pipelines, memories, hosts). Converts constant types, builds lookup HashMaps, registers qualified tool methods
-2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks). `call_stack_depth()` public API. Unknown functions return `NameError` (not Nil). `HashMapQuery` uses closure-based filtering. `memory_store: MemoryStore` for agent conversation memory. `host_registry: HostRegistry` for external agent system adapters
+2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks). `call_stack_depth()` public API. Unknown functions return `NameError` (not Nil). `HashMapQuery` uses closure-based filtering. `memory_store: MemoryStore` for agent conversation memory. `host_registry: HostRegistry` for external agent system adapters. Tool and MCP refs are registered in globals so `with_tools([ToolName, McpServer])` identifier arrays resolve at runtime
 3. **Value System**: 20 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, HashMapRef, LedgerRef, PipelineRef, Thunk, MemoryRef, HostRef, AgentBuilder). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
 4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
 5. **CALL_METHOD convention**: Object pushed first, then args. VM pops N args, then object. Method name from instruction `name` field, schema from `schema` field
@@ -79,7 +79,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 19. **MCP Client**: mcp.rs — McpClient (stdio JSON-RPC 2.0 transport), McpRegistry (manages connections). Tool discovery via tools/list, tool schemas included in ChatRequest for LLM function calling
 20. **Standard Library**: stdlib/ module with 12 sub-modules. VM dispatches `std::*` calls via `call_stdlib()`. Collections (Set/Queue/Stack) as Value::Struct with immutable method semantics, dispatched via exec_call_method. Modules: math (11 fns), string (17 fns), env (4 fns), time (3 fns), json (4 fns), fmt (5 fns), log (4 fns), fs (7 fns), collections (3 types + 20 methods), http (5 fns), crypto (4 fns), prompt (3 fns)
 21. **Agent Memory**: MemoryStore (HashMap of MemoryInstance per memory name). Sliding window (configurable max_messages). Methods: append/messages/last/clear/len. Memory injected into ChatRequest between system_prompt and user_prompt. Auto-append mode for agent conversations
-22. **AgentBuilder**: Transient builder pattern value (Value::AgentBuilder) for chaining with_memory/with_tools/with_context/execute. BuilderSourceKind (Agent | Host) enables shared builder interface for both agent and host execution
+22. **AgentBuilder**: Transient builder pattern value (Value::AgentBuilder) for chaining with_memory/with_tools/with_context/execute. BuilderSourceKind (Agent | Host) enables shared builder interface for both agent and host execution. Agent builder `execute()` returns `Result<Response, String>` shape for consistency with direct agent calls
 23. **Dynamic Tool Binding**: Compile-time ToolSchemaEntry generation from @describe/@param decorators. with_tools()/without_tools() on AgentBuilder for runtime tool selection. Merged tool schema resolution at execution time
 24. **Hosts**: HostClient (stdio subprocess transport), HostRegistry (manages connections), HostFormat (Text|Json). Stateful long-running processes. execute/with_memory/with_context support via AgentBuilder. IrHost embeds TOML config from Concerto.toml
 
@@ -120,6 +120,8 @@ concerto-lang/
     hello_agent/         # Minimal agent example
     tool_usage/          # Tool definition and usage
     multi_agent_pipeline/  # Multi-stage pipeline with multiple providers
+    agent_memory_conversation/ # Spec 24 memory conversation patterns
+    dynamic_tool_binding/ # Spec 25 with_tools/without_tools composition
   Cargo.toml             # Workspace root
   crates/
     concerto-common/     # Shared types (Span, Diagnostic, IR types, Opcodes, Manifest)

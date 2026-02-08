@@ -7,7 +7,12 @@ use concerto_runtime::{LoadedModule, VM};
 
 /// Concerto language runtime — executes compiled .conc-ir files.
 #[derive(Parser)]
-#[command(name = "concerto", version, about, long_about = "Concerto language runtime.\n\nExecutes compiled .conc-ir files produced by the Concerto compiler (concertoc).\n\nExamples:\n  concerto run hello.conc-ir            Run a compiled program\n  concerto run hello.conc-ir --debug    Run with debug output\n  concerto run hello.conc-ir --quiet    Run without emit output\n  concerto init my-project              Create a new Concerto project")]
+#[command(
+    name = "concerto",
+    version,
+    about,
+    long_about = "Concerto language runtime.\n\nExecutes compiled .conc-ir files produced by the Concerto compiler (concertoc).\n\nExamples:\n  concerto run hello.conc-ir            Run a compiled program\n  concerto run hello.conc-ir --debug    Run with debug output\n  concerto run hello.conc-ir --quiet    Run without emit output\n  concerto init my-project              Create a new Concerto project"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -101,12 +106,7 @@ fn run_init(name: &str, provider: &str) -> Result<(), String> {
             "claude-sonnet-4-20250514",
             None,
         ),
-        "ollama" => (
-            "local",
-            None,
-            "llama3.1",
-            Some("http://localhost:11434/v1"),
-        ),
+        "ollama" => ("local", None, "llama3.1", Some("http://localhost:11434/v1")),
         _ => {
             return Err(format!(
                 "error: unknown provider '{}'. Valid providers: openai, anthropic, ollama",
@@ -147,7 +147,14 @@ fn run_init(name: &str, provider: &str) -> Result<(), String> {
         .map_err(|e| format!("error: failed to create 'src/': {}", e))?;
 
     // Generate and write Concerto.toml
-    let toml_content = generate_toml(&project_name, provider, conn_name, api_key_env, default_model, base_url);
+    let toml_content = generate_toml(
+        &project_name,
+        provider,
+        conn_name,
+        api_key_env,
+        default_model,
+        base_url,
+    );
     write_file(&project_dir.join("Concerto.toml"), &toml_content)?;
 
     // Generate and write src/main.conc

@@ -25,10 +25,7 @@ pub fn analyze(program: &Program) -> DiagnosticBag {
 ///
 /// Connection names are registered as symbols so that `provider: name`
 /// in agent declarations resolves correctly.
-pub fn analyze_with_connections(
-    program: &Program,
-    connection_names: &[String],
-) -> DiagnosticBag {
+pub fn analyze_with_connections(program: &Program, connection_names: &[String]) -> DiagnosticBag {
     let mut all_diagnostics = DiagnosticBag::new();
 
     // Pass 1–3: name resolution + type checking + control-flow validation.

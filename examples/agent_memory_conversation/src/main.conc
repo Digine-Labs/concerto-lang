@@ -1,0 +1,45 @@
+// agent_memory_conversation
+// Spec 24: first-class memory + with_memory() builder usage.
+
+memory chat: Memory = Memory::new(6);
+memory pinned_context: Memory = Memory::new();
+
+agent Assistant {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.3,
+    system_prompt: "You are a concise assistant that maintains context across turns.",
+}
+
+fn seed_context() {
+    pinned_context.append("system", "User is building a Rust compiler.");
+    pinned_context.append("assistant", "I can help with parser design and test strategy.");
+}
+
+fn main() {
+    seed_context();
+
+    let first = Assistant.with_memory(chat).execute("What is Pratt parsing?");
+    let second = Assistant.with_memory(chat).execute("How should I test operator precedence?");
+
+    match first {
+        Ok(response) => emit("turn_1", response.text),
+        Err(e) => emit("error", e.message),
+    }
+    match second {
+        Ok(response) => emit("turn_2", response.text),
+        Err(e) => emit("error", e.message),
+    }
+
+    emit("chat_len_after_auto", chat.len());
+
+    let manual = Assistant.with_memory(pinned_context, false).execute(
+        "Suggest three parser edge cases based on the pinned context."
+    );
+    emit("manual_ok", manual.is_ok());
+    emit("pinned_context_len", pinned_context.len());
+
+    let recent = chat.last(2);
+    emit("recent_count", len(recent));
+    emit("recent_last_role", recent[1].role);
+}

@@ -108,7 +108,10 @@ mod tests {
         };
         let config = parse_retry(&dec);
         assert_eq!(config.max_attempts, 3);
-        assert!(matches!(config.backoff, BackoffStrategy::Exponential { base_ms: 1000 }));
+        assert!(matches!(
+            config.backoff,
+            BackoffStrategy::Exponential { base_ms: 1000 }
+        ));
     }
 
     #[test]
@@ -122,7 +125,10 @@ mod tests {
         };
         let config = parse_retry(&dec);
         assert_eq!(config.max_attempts, 5);
-        assert!(matches!(config.backoff, BackoffStrategy::Linear { base_ms: 1000 }));
+        assert!(matches!(
+            config.backoff,
+            BackoffStrategy::Linear { base_ms: 1000 }
+        ));
     }
 
     #[test]

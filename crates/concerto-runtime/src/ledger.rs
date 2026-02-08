@@ -211,7 +211,10 @@ impl LedgerStore {
 
     /// Get all entries in a ledger.
     pub fn entries(&self, ledger: &str) -> &[LedgerEntry] {
-        self.entries.get(ledger).map(|e| e.as_slice()).unwrap_or(&[])
+        self.entries
+            .get(ledger)
+            .map(|e| e.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get all identifiers in a ledger.
@@ -354,16 +357,12 @@ mod tests {
     #[test]
     fn query_from_any_keys_or() {
         let store = setup_store();
-        let results = store.query_from_any_keys(
-            "knowledge",
-            &["Dex".to_string(), "Lending".to_string()],
-        );
+        let results =
+            store.query_from_any_keys("knowledge", &["Dex".to_string(), "Lending".to_string()]);
         assert_eq!(results.len(), 2); // first has Dex, second has Lending
 
-        let results = store.query_from_any_keys(
-            "knowledge",
-            &["Solana".to_string(), "Polygon".to_string()],
-        );
+        let results =
+            store.query_from_any_keys("knowledge", &["Solana".to_string(), "Polygon".to_string()]);
         assert!(results.is_empty());
     }
 
@@ -378,18 +377,14 @@ mod tests {
         assert_eq!(results.len(), 2);
 
         // Only second has both "AAVE" and "Lending"
-        let results = store.query_from_exact_keys(
-            "knowledge",
-            &["AAVE".to_string(), "Lending".to_string()],
-        );
+        let results =
+            store.query_from_exact_keys("knowledge", &["AAVE".to_string(), "Lending".to_string()]);
         assert_eq!(results.len(), 1);
         assert!(results[0].identifier.contains("AAVE"));
 
         // No entry has both "Dex" AND "Lending"
-        let results = store.query_from_exact_keys(
-            "knowledge",
-            &["Dex".to_string(), "Lending".to_string()],
-        );
+        let results =
+            store.query_from_exact_keys("knowledge", &["Dex".to_string(), "Lending".to_string()]);
         assert!(results.is_empty());
     }
 
@@ -510,8 +505,14 @@ mod tests {
         match &val {
             Value::Struct { type_name, fields } => {
                 assert_eq!(type_name, "LedgerEntry");
-                assert_eq!(fields.get("identifier"), Some(&Value::String("test id".to_string())));
-                assert_eq!(fields.get("value"), Some(&Value::String("test value".to_string())));
+                assert_eq!(
+                    fields.get("identifier"),
+                    Some(&Value::String("test id".to_string()))
+                );
+                assert_eq!(
+                    fields.get("value"),
+                    Some(&Value::String("test value".to_string()))
+                );
                 if let Some(Value::Array(keys)) = fields.get("keys") {
                     assert_eq!(keys.len(), 2);
                 } else {
