@@ -259,6 +259,7 @@ name = "concerto-runtime"
 version = "0.1.0"
 dependencies = [
  "concerto-common",
+ "concerto-compiler",
  "jsonschema",
  "md-5",
  "reqwest",

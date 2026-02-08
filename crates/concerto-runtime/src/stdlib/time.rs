@@ -9,7 +9,9 @@ pub fn call(name: &str, args: Vec<Value>) -> Result<Value> {
         "now_ms" => stdlib_now_ms(),
         "sleep" => stdlib_sleep(args),
         "measure" => Err(RuntimeError::CallError(
-            "std::time::measure is not yet supported. Use now_ms() before and after to measure elapsed time.".to_string(),
+            "std::time::measure requires VM context for closure execution. \
+             Use `let start = std::time::now_ms(); ... let elapsed = std::time::now_ms() - start;` instead."
+                .to_string(),
         )),
         _ => Err(RuntimeError::CallError(format!(
             "unknown function: std::time::{}",

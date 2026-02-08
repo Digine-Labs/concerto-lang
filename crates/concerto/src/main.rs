@@ -6,7 +6,7 @@ use concerto_runtime::{LoadedModule, VM};
 
 /// Concerto language runtime — executes compiled .conc-ir files.
 #[derive(Parser)]
-#[command(name = "concerto", version, about)]
+#[command(name = "concerto", version, about, long_about = "Concerto language runtime.\n\nExecutes compiled .conc-ir files produced by the Concerto compiler (concertoc).\n\nExamples:\n  concerto run hello.conc-ir            Run a compiled program\n  concerto run hello.conc-ir --debug    Run with debug output\n  concerto run hello.conc-ir --quiet    Run without emit output")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -22,6 +22,10 @@ enum Command {
         /// Enable debug output (show stack trace on error)
         #[arg(long)]
         debug: bool,
+
+        /// Suppress emit output
+        #[arg(short, long)]
+        quiet: bool,
     },
 }
 
@@ -30,7 +34,11 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Run { input, debug } => {
+        Command::Run {
+            input,
+            debug,
+            quiet,
+        } => {
             let path = input.to_string_lossy().to_string();
 
             let module = match LoadedModule::load_from_file(&path) {
@@ -42,6 +50,10 @@ async fn main() {
             };
 
             let mut vm = VM::new(module);
+
+            if quiet {
+                vm.set_emit_handler(|_channel, _payload| {});
+            }
 
             match vm.execute() {
                 Ok(_) => {}

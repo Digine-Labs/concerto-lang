@@ -165,8 +165,11 @@ impl ConnectionManager {
                 Ok(provider) => {
                     providers.insert(name.clone(), provider);
                 }
-                Err(_) => {
-                    // No API key or invalid config — will fall back to mock
+                Err(e) => {
+                    eprintln!(
+                        "[warning] connection '{}': using mock provider ({}). Set the API key for real LLM calls.",
+                        name, e
+                    );
                 }
             }
         }

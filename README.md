@@ -108,6 +108,58 @@ fn main() {
 }
 ```
 
+## Installation
+
+```bash
+git clone https://github.com/Digine-Labs/concerto-lang.git
+cd concerto-lang
+cargo build --release
+```
+
+Binaries will be in `target/release/`:
+- `concertoc` -- Compiler (`.conc` -> `.conc-ir`)
+- `concerto` -- Runtime (executes `.conc-ir`)
+
+## Getting Started
+
+1. Write a Concerto program:
+
+```concerto
+// hello.conc
+fn main() {
+    emit("greeting", "Hello from Concerto!");
+}
+```
+
+2. Compile it:
+
+```bash
+concertoc hello.conc
+```
+
+3. Run it:
+
+```bash
+concerto run hello.conc-ir
+```
+
+## Standard Library
+
+| Module | Functions | Description |
+|--------|-----------|-------------|
+| `std::math` | abs, min, max, clamp, round, floor, ceil, pow, sqrt, random, random_int | Numeric operations |
+| `std::string` | split, join, trim, replace, to_upper, to_lower, contains, substring, len, repeat, reverse, parse_int, parse_float | String manipulation |
+| `std::env` | get, require, all, has | Environment variables |
+| `std::time` | now, now_ms, sleep | Time and ISO 8601 |
+| `std::json` | parse, stringify, stringify_pretty, is_valid | JSON serialization |
+| `std::fmt` | format, pad_left, pad_right, truncate, indent | Text formatting |
+| `std::log` | info, warn, error, debug | Structured logging |
+| `std::fs` | read_file, write_file, append_file, exists, list_dir, remove_file, file_size | File system |
+| `std::collections` | Set, Queue, Stack (+ 20 methods) | Data structures |
+| `std::http` | get, post, put, delete, request | HTTP client |
+| `std::crypto` | sha256, md5, uuid, random_bytes | Cryptography |
+| `std::prompt` | template, from_file, count_tokens | Prompt utilities |
+
 ## Documentation
 
 Language specifications are in the [spec/](spec/) directory:
@@ -133,11 +185,14 @@ Language specifications are in the [spec/](spec/) directory:
 - [Compiler Pipeline](spec/18-compiler-pipeline.md)
 - [Standard Library](spec/19-standard-library.md)
 - [Interop and FFI](spec/20-interop-and-ffi.md)
+- [Ledger System](spec/21-ledger.md)
 
 ## Project Status
 
 See [STATUS.md](STATUS.md) for detailed project tracking.
 
+**Current:** Phase 5 (Integration and Polish) -- 458 tests, clippy clean.
+
 ## License
 
-TBD
+MIT

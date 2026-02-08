@@ -16,3 +16,6 @@ jsonschema = { workspace = true }
 sha2 = { workspace = true }
 md-5 = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+concerto-compiler = { workspace = true }

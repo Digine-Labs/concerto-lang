@@ -58,7 +58,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 ```
 
 1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, databases, ledgers, pipelines). Converts constant types, builds lookup HashMaps, registers qualified tool methods
-2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap, stack_base). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks)
+2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks). `call_stack_depth()` public API. Unknown functions return `NameError` (not Nil). `DbQuery` uses closure-based filtering
 3. **Value System**: 17 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, DatabaseRef, LedgerRef, PipelineRef, Thunk). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
 4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
 5. **CALL_METHOD convention**: Object pushed first, then args. VM pops N args, then object. Method name from instruction `name` field, schema from `schema` field
@@ -141,8 +141,11 @@ concerto-lang/
           mod.rs         # Router: call_stdlib() dispatches by module path
           math.rs, string.rs, env.rs, time.rs, json.rs, fmt.rs
           log.rs, fs.rs, collections.rs, http.rs, crypto.rs, prompt.rs
+    concerto-runtime/
+      tests/
+        integration.rs   # 15 end-to-end compile→run tests
     concerto/            # Runtime CLI binary
-      src/main.rs        # `concerto run <file.conc-ir> [--debug]` (#[tokio::main])
+      src/main.rs        # `concerto run <file.conc-ir> [--debug] [--quiet]` (#[tokio::main])
   tests/
     fixtures/            # Test .conc source files
       minimal.conc       # Milestone program for end-to-end testing

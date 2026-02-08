@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
+use ariadne::{Color, Label, Report, ReportKind, Source};
 use clap::Parser;
 
 use concerto_compiler::codegen::CodeGenerator;
@@ -12,7 +13,7 @@ use concerto_compiler::parser;
 ///
 /// Compiles .conc source files to .conc-ir (JSON IR) files.
 #[derive(Parser)]
-#[command(name = "concertoc", version, about)]
+#[command(name = "concertoc", version, about, long_about = "Concerto language compiler.\n\nCompiles .conc source files into .conc-ir (JSON intermediate representation)\nfor execution by the Concerto runtime (concerto run).\n\nExamples:\n  concertoc hello.conc              Compile to hello.conc-ir\n  concertoc hello.conc -o out.ir    Compile to custom output path\n  concertoc hello.conc --check      Check for errors only\n  concertoc hello.conc --emit-ir    Print IR JSON to stdout")]
 struct Cli {
     /// Input .conc source file.
     input: PathBuf,
@@ -24,6 +25,14 @@ struct Cli {
     /// Check for errors without generating IR.
     #[arg(long)]
     check: bool,
+
+    /// Suppress warning output.
+    #[arg(short, long)]
+    quiet: bool,
+
+    /// Emit IR JSON to stdout instead of writing to file.
+    #[arg(long = "emit-ir")]
+    emit_ir: bool,
 
     /// Emit token stream to stdout (debug).
     #[arg(long = "emit-tokens")]
@@ -94,9 +103,11 @@ fn main() {
     }
 
     // Print warnings
-    for diag in parse_diags.diagnostics() {
-        if !diag.is_error() {
-            print_diagnostic(diag, &source, &file_name);
+    if !cli.quiet {
+        for diag in parse_diags.diagnostics() {
+            if !diag.is_error() {
+                print_diagnostic(diag, &source, &file_name);
+            }
         }
     }
 
@@ -116,9 +127,11 @@ fn main() {
     }
 
     // Print semantic warnings
-    for diag in sem_diags.diagnostics() {
-        if !diag.is_error() {
-            print_diagnostic(diag, &source, &file_name);
+    if !cli.quiet {
+        for diag in sem_diags.diagnostics() {
+            if !diag.is_error() {
+                print_diagnostic(diag, &source, &file_name);
+            }
         }
     }
 
@@ -144,6 +157,12 @@ fn main() {
             process::exit(1);
         }
     };
+
+    // --emit-ir: print JSON to stdout
+    if cli.emit_ir {
+        println!("{}", json);
+        return;
+    }
 
     // Determine output path
     let output_path = cli.output.unwrap_or_else(|| {
@@ -177,37 +196,54 @@ fn print_diagnostic(
     source: &str,
     file_name: &str,
 ) {
-    let prefix = if diag.is_error() { "error" } else { "warning" };
+    let kind = if diag.is_error() {
+        ReportKind::Error
+    } else {
+        ReportKind::Warning
+    };
 
     if let Some(ref span) = diag.span {
-        eprintln!(
-            "{}: {}",
-            prefix, diag.message
-        );
-        eprintln!(
-            "  --> {}:{}:{}",
-            file_name, span.start.line, span.start.column
-        );
+        let start = span.start.offset as usize;
+        let end = (span.end.offset as usize).max(start + 1);
 
-        // Show the source line
-        if let Some(line) = source.lines().nth(span.start.line as usize - 1) {
-            eprintln!("   |");
-            eprintln!("{:>3} | {}", span.start.line, line);
-            eprintln!(
-                "   | {}{}",
-                " ".repeat(span.start.column as usize - 1),
-                "^".repeat(
-                    (span.end.column.saturating_sub(span.start.column)).max(1) as usize
-                )
+        let color = if diag.is_error() {
+            Color::Red
+        } else {
+            Color::Yellow
+        };
+
+        let mut report = Report::build(kind, file_name, start)
+            .with_message(&diag.message)
+            .with_label(
+                Label::new((file_name, start..end))
+                    .with_message(&diag.message)
+                    .with_color(color),
+            );
+
+        for related in &diag.related {
+            let rs = related.span.start.offset as usize;
+            let re = (related.span.end.offset as usize).max(rs + 1);
+            report = report.with_label(
+                Label::new((file_name, rs..re))
+                    .with_message(&related.message)
+                    .with_color(Color::Blue),
             );
         }
+
+        if let Some(ref suggestion) = diag.suggestion {
+            report = report.with_help(suggestion);
+        }
+
+        report
+            .finish()
+            .eprint((file_name, Source::from(source)))
+            .unwrap();
     } else {
+        let prefix = if diag.is_error() { "error" } else { "warning" };
         eprintln!("{}: {}", prefix, diag.message);
+        if let Some(ref suggestion) = diag.suggestion {
+            eprintln!("   = help: {}", suggestion);
+        }
+        eprintln!();
     }
-
-    if let Some(ref suggestion) = diag.suggestion {
-        eprintln!("   = help: {}", suggestion);
-    }
-
-    eprintln!();
 }

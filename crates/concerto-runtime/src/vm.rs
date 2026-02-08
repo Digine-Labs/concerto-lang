@@ -24,8 +24,6 @@ struct CallFrame {
     instructions: Vec<IrInstruction>,
     pc: usize,
     locals: HashMap<String, Value>,
-    #[allow(dead_code)]
-    stack_base: usize,
 }
 
 // ============================================================================
@@ -167,6 +165,11 @@ impl VM {
             .unwrap_or("<none>")
     }
 
+    /// Get the current call stack depth (useful for debug output).
+    pub fn call_stack_depth(&self) -> usize {
+        self.call_stack.len()
+    }
+
     /// Execute the module starting from the entry point.
     pub fn execute(&mut self) -> Result<Value> {
         let entry = self.module.entry_point.clone();
@@ -222,7 +225,6 @@ impl VM {
             instructions,
             pc: 0,
             locals,
-            stack_base: self.stack.len(),
         });
         Ok(())
     }
@@ -267,7 +269,9 @@ impl VM {
 
             // Check if we've run past the end of instructions (implicit return nil)
             let at_end = {
-                let frame = self.call_stack.last().unwrap();
+                let frame = self.call_stack.last().ok_or_else(|| {
+                    RuntimeError::CallError("internal: call stack unexpectedly empty".into())
+                })?;
                 frame.pc >= frame.instructions.len()
             };
             if at_end {
@@ -281,7 +285,9 @@ impl VM {
 
             // Fetch and advance
             let inst = {
-                let frame = self.call_stack.last_mut().unwrap();
+                let frame = self.call_stack.last_mut().ok_or_else(|| {
+                    RuntimeError::CallError("internal: call stack unexpectedly empty".into())
+                })?;
                 let inst = frame.instructions[frame.pc].clone();
                 frame.pc += 1;
                 inst
@@ -403,7 +409,10 @@ impl VM {
                         .offset
                         .ok_or_else(|| RuntimeError::LoadError("JUMP missing offset".into()))?
                         as usize;
-                    self.call_stack.last_mut().unwrap().pc = target;
+                    self.call_stack
+                        .last_mut()
+                        .ok_or_else(|| RuntimeError::CallError("internal: jump with empty call stack".into()))?
+                        .pc = target;
                 }
                 Opcode::JumpIfTrue => {
                     let target = inst
@@ -414,7 +423,10 @@ impl VM {
                         as usize;
                     let cond = self.pop()?;
                     if cond.is_truthy() {
-                        self.call_stack.last_mut().unwrap().pc = target;
+                        self.call_stack
+                            .last_mut()
+                            .ok_or_else(|| RuntimeError::CallError("internal: jump with empty call stack".into()))?
+                            .pc = target;
                     }
                 }
                 Opcode::JumpIfFalse => {
@@ -426,7 +438,10 @@ impl VM {
                         as usize;
                     let cond = self.pop()?;
                     if !cond.is_truthy() {
-                        self.call_stack.last_mut().unwrap().pc = target;
+                        self.call_stack
+                            .last_mut()
+                            .ok_or_else(|| RuntimeError::CallError("internal: jump with empty call stack".into()))?
+                            .pc = target;
                     }
                 }
                 Opcode::Return => {
@@ -586,9 +601,43 @@ impl VM {
                 Opcode::DbDelete => self.exec_db_delete(&inst)?,
                 Opcode::DbHas => self.exec_db_has(&inst)?,
                 Opcode::DbQuery => {
-                    // Phase 3a: stub — pop predicate, push empty array
-                    let _predicate = self.pop()?;
-                    self.push(Value::Array(Vec::new()));
+                    let predicate = self.pop()?;
+                    let db_name = inst.db_name.as_ref().ok_or_else(|| {
+                        RuntimeError::LoadError("DB_QUERY missing db_name".into())
+                    })?;
+                    let entries: Vec<(String, Value)> = self
+                        .databases
+                        .get(db_name)
+                        .map(|db| db.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                        .unwrap_or_default();
+
+                    let mut results = Vec::new();
+                    match &predicate {
+                        Value::Function(fn_name) => {
+                            for (key, value) in entries {
+                                if let Some(func) = self.module.functions.get(fn_name).cloned() {
+                                    let args = vec![Value::String(key.clone()), value.clone()];
+                                    let stop_depth = self.call_stack.len();
+                                    self.push_frame(
+                                        func.name.clone(),
+                                        func.instructions.clone(),
+                                        args,
+                                        &func.params,
+                                    )?;
+                                    let result = self.run_loop_until(stop_depth)?;
+                                    if result.is_truthy() {
+                                        results.push((key, value));
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError(
+                                "db.query() predicate must be a function".into(),
+                            ));
+                        }
+                    }
+                    self.push(Value::Map(results));
                 }
             }
         }
@@ -723,8 +772,7 @@ impl VM {
                     let result = crate::stdlib::call_stdlib(&name, args)?;
                     self.push(result);
                 } else {
-                    // Unknown function — try as a no-op returning nil
-                    self.push(Value::Nil);
+                    return Err(RuntimeError::NameError(name));
                 }
             }
             // If someone calls an AgentRef directly, treat as execute

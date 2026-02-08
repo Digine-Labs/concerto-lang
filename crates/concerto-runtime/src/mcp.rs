@@ -18,9 +18,9 @@ struct JsonRpcRequest {
 /// A JSON-RPC 2.0 response.
 #[derive(serde::Deserialize)]
 struct JsonRpcResponse {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // required for JSON-RPC protocol deserialization
     jsonrpc: String,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // required for JSON-RPC protocol deserialization
     id: u64,
     #[serde(default)]
     result: Option<serde_json::Value>,
@@ -33,7 +33,7 @@ struct JsonRpcResponse {
 struct JsonRpcError {
     code: i64,
     message: String,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // part of JSON-RPC error spec
     #[serde(default)]
     data: Option<serde_json::Value>,
 }
@@ -48,7 +48,6 @@ pub struct McpToolDef {
 
 /// An active MCP client connected to a server process (stdio transport).
 pub struct McpClient {
-    #[allow(dead_code)]
     name: String,
     child: Child,
     request_id: u64,
@@ -138,39 +137,39 @@ impl McpClient {
         };
 
         let stdin = self.child.stdin.as_mut().ok_or_else(|| {
-            RuntimeError::CallError("MCP stdin not available".into())
+            RuntimeError::CallError(format!("MCP '{}': stdin not available", self.name))
         })?;
 
         let json = serde_json::to_string(&request).map_err(|e| {
-            RuntimeError::CallError(format!("MCP serialize error: {}", e))
+            RuntimeError::CallError(format!("MCP '{}': serialize error: {}", self.name, e))
         })?;
 
         writeln!(stdin, "{}", json).map_err(|e| {
-            RuntimeError::CallError(format!("MCP write error: {}", e))
+            RuntimeError::CallError(format!("MCP '{}': write error: {}", self.name, e))
         })?;
         stdin.flush().map_err(|e| {
-            RuntimeError::CallError(format!("MCP flush error: {}", e))
+            RuntimeError::CallError(format!("MCP '{}': flush error: {}", self.name, e))
         })?;
 
         // Read response line from stdout
         let stdout = self.child.stdout.as_mut().ok_or_else(|| {
-            RuntimeError::CallError("MCP stdout not available".into())
+            RuntimeError::CallError(format!("MCP '{}': stdout not available", self.name))
         })?;
 
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         reader.read_line(&mut line).map_err(|e| {
-            RuntimeError::CallError(format!("MCP read error: {}", e))
+            RuntimeError::CallError(format!("MCP '{}': read error: {}", self.name, e))
         })?;
 
         if line.is_empty() {
-            return Err(RuntimeError::CallError(
-                "MCP server closed connection".into(),
-            ));
+            return Err(RuntimeError::CallError(format!(
+                "MCP '{}': server closed connection", self.name
+            )));
         }
 
         let response: JsonRpcResponse = serde_json::from_str(&line).map_err(|e| {
-            RuntimeError::CallError(format!("MCP response parse error: {}", e))
+            RuntimeError::CallError(format!("MCP '{}': response parse error: {}", self.name, e))
         })?;
 
         if let Some(error) = response.error {

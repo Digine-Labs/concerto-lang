@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use concerto_common::DiagnosticBag;
+use concerto_common::{Diagnostic, DiagnosticBag};
 
 use crate::ast::nodes::*;
 
@@ -67,12 +67,13 @@ impl Validator {
     fn validate_agent(&mut self, agent: &AgentDecl) {
         let has_provider = agent.fields.iter().any(|f| f.name == "provider");
         if !has_provider {
-            self.diagnostics.error(
-                format!(
+            self.diagnostics.report(
+                Diagnostic::error(format!(
                     "agent `{}` is missing required field `provider`",
                     agent.name
-                ),
-                agent.span.clone(),
+                ))
+                .with_span(agent.span.clone())
+                .with_suggestion("add a 'provider: <connection>' field referencing a connect block"),
             );
         }
     }
@@ -80,12 +81,13 @@ impl Validator {
     fn validate_tool(&mut self, tool: &ToolDecl) {
         let has_description = tool.fields.iter().any(|f| f.name == "description");
         if !has_description {
-            self.diagnostics.error(
-                format!(
+            self.diagnostics.report(
+                Diagnostic::error(format!(
                     "tool `{}` is missing required field `description`",
                     tool.name
-                ),
-                tool.span.clone(),
+                ))
+                .with_span(tool.span.clone())
+                .with_suggestion("add a 'description: \"...\"' field to the tool declaration"),
             );
         }
 
@@ -306,5 +308,41 @@ mod tests {
             "#,
         );
         assert!(warns.iter().any(|w| w.contains("has no stages")));
+    }
+
+    /// Helper: return full Diagnostic objects from validator.
+    fn full_val_diagnostics(source: &str) -> Vec<concerto_common::Diagnostic> {
+        let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+        assert!(!lex_diags.has_errors(), "lexer errors: {:?}", lex_diags);
+        let (program, parse_diags) = parser::Parser::new(tokens).parse();
+        assert!(
+            !parse_diags.has_errors(),
+            "parser errors: {:?}",
+            parse_diags
+        );
+        let diags = super::Validator::new().validate(&program);
+        diags.into_diagnostics()
+    }
+
+    #[test]
+    fn agent_missing_provider_has_suggestion() {
+        let diags = full_val_diagnostics(
+            r#"
+            agent MyAgent {
+                model: "gpt-4o",
+            }
+            "#,
+        );
+        let diag = diags
+            .iter()
+            .find(|d| d.message.contains("missing required field `provider`"))
+            .expect("should have missing provider error");
+        assert!(
+            diag.suggestion
+                .as_ref()
+                .is_some_and(|s| s.contains("connect")),
+            "expected suggestion mentioning 'connect', got: {:?}",
+            diag.suggestion
+        );
     }
 }

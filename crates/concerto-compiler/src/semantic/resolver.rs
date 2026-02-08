@@ -1,4 +1,4 @@
-use concerto_common::{DiagnosticBag, Span};
+use concerto_common::{Diagnostic, DiagnosticBag, Span};
 
 use crate::ast::nodes::*;
 
@@ -614,8 +614,11 @@ impl Resolver {
 
     fn resolve_return(&mut self, stmt: &ReturnStmt) {
         if !self.scopes.in_function() {
-            self.diagnostics
-                .error("`return` outside of function", stmt.span.clone());
+            self.diagnostics.report(
+                Diagnostic::error("`return` outside of function")
+                    .with_span(stmt.span.clone())
+                    .with_suggestion("return can only appear inside a function body"),
+            );
         }
         if let Some(ref val) = stmt.value {
             self.resolve_expr(val);
@@ -624,8 +627,11 @@ impl Resolver {
 
     fn resolve_break(&mut self, stmt: &BreakStmt) {
         if !self.scopes.in_loop() {
-            self.diagnostics
-                .error("`break` outside of loop", stmt.span.clone());
+            self.diagnostics.report(
+                Diagnostic::error("`break` outside of loop")
+                    .with_span(stmt.span.clone())
+                    .with_suggestion("break can only appear inside for, while, or loop"),
+            );
         }
         if let Some(ref val) = stmt.value {
             self.resolve_expr(val);
@@ -634,8 +640,11 @@ impl Resolver {
 
     fn resolve_continue(&mut self, stmt: &ContinueStmt) {
         if !self.scopes.in_loop() {
-            self.diagnostics
-                .error("`continue` outside of loop", stmt.span.clone());
+            self.diagnostics.report(
+                Diagnostic::error("`continue` outside of loop")
+                    .with_span(stmt.span.clone())
+                    .with_suggestion("continue can only appear inside for, while, or loop"),
+            );
         }
     }
 
@@ -666,9 +675,10 @@ impl Resolver {
                 if let Some(sym) = self.scopes.lookup_mut(name) {
                     sym.used = true;
                 } else {
-                    self.diagnostics.error(
-                        format!("undefined variable `{}`", name),
-                        expr.span.clone(),
+                    self.diagnostics.report(
+                        Diagnostic::error(format!("undefined variable `{}`", name))
+                            .with_span(expr.span.clone())
+                            .with_suggestion("check the spelling, or declare with 'let'"),
                     );
                 }
             }
@@ -886,15 +896,17 @@ impl Resolver {
                         && !ret_ty.is_option()
                         && !matches!(ret_ty, Type::Unknown | Type::Any | Type::Error)
                     {
-                        self.diagnostics.error(
-                            "`?` operator can only be used in functions returning Result or Option",
-                            expr.span.clone(),
+                        self.diagnostics.report(
+                            Diagnostic::error("`?` operator can only be used in functions returning Result or Option")
+                                .with_span(expr.span.clone())
+                                .with_suggestion("the enclosing function must return Result<T, E> or Option<T>"),
                         );
                     }
                 } else {
-                    self.diagnostics.error(
-                        "`?` operator can only be used inside a function",
-                        expr.span.clone(),
+                    self.diagnostics.report(
+                        Diagnostic::error("`?` operator can only be used inside a function")
+                            .with_span(expr.span.clone())
+                            .with_suggestion("the '?' operator requires an enclosing function returning Result<T, E>"),
                     );
                 }
             }
@@ -1163,9 +1175,10 @@ impl Resolver {
             ExprKind::Identifier(name) => {
                 if let Some(sym) = self.scopes.lookup(name) {
                     if !sym.mutable && sym.kind == SymbolKind::Variable {
-                        self.diagnostics.error(
-                            format!("cannot assign to immutable variable `{}`", name),
-                            target.span.clone(),
+                        self.diagnostics.report(
+                            Diagnostic::error(format!("cannot assign to immutable variable `{}`", name))
+                                .with_span(target.span.clone())
+                                .with_suggestion("make the binding mutable with 'let mut'"),
                         );
                     } else if sym.kind == SymbolKind::Const {
                         self.diagnostics.error(
@@ -1593,5 +1606,58 @@ mod tests {
             "#,
         );
         assert!(errs.is_empty(), "unexpected errors: {:?}", errs);
+    }
+
+    // -- Suggestion tests --
+
+    /// Helper: parse source, run resolver, return full Diagnostic objects.
+    fn full_diagnostics(source: &str) -> Vec<concerto_common::Diagnostic> {
+        let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+        assert!(!lex_diags.has_errors(), "lexer errors: {:?}", lex_diags);
+        let (program, parse_diags) = parser::Parser::new(tokens).parse();
+        assert!(
+            !parse_diags.has_errors(),
+            "parser errors: {:?}",
+            parse_diags
+        );
+        let diags = super::Resolver::new().resolve(&program);
+        diags.into_diagnostics()
+    }
+
+    #[test]
+    fn undefined_variable_has_suggestion() {
+        let diags = full_diagnostics("fn main() { let x = y; }");
+        let diag = diags
+            .iter()
+            .find(|d| d.message.contains("undefined variable"))
+            .expect("should have undefined variable error");
+        assert!(
+            diag.suggestion.as_ref().is_some_and(|s| s.contains("let")),
+            "expected suggestion mentioning 'let', got: {:?}",
+            diag.suggestion
+        );
+    }
+
+    #[test]
+    fn assign_to_immutable_has_suggestion() {
+        let diags = full_diagnostics(
+            r#"
+            fn main() {
+                let x = 5;
+                x = 10;
+            }
+            "#,
+        );
+        let diag = diags
+            .iter()
+            .find(|d| d.message.contains("cannot assign to immutable"))
+            .expect("should have immutable assign error");
+        assert!(
+            diag.suggestion
+                .as_ref()
+                .is_some_and(|s| s.contains("let mut")),
+            "expected suggestion mentioning 'let mut', got: {:?}",
+            diag.suggestion
+        );
     }
 }
