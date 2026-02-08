@@ -47,9 +47,9 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 
 1. **Lexer**: Character scanning, tokenization, source position tracking
 2. **Parser**: Recursive descent with Pratt parsing for expressions
-3. **AST**: Abstract syntax tree with source spans -- 16 declaration types, decorators, config/typed fields, self params, 30 ExprKind variants (incl. Return expr), 11 PatternKind variants, 6 Stmt variants, union/string-literal type annotations
-4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, Database, Ledger, std). Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
-5. **IR Generation**: Full coverage lowering of all 16 declaration types, all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/connect/db/ledger/mcp lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum
+3. **AST**: Abstract syntax tree with source spans -- 15 declaration types (connect removed), decorators, config/typed fields, self params, 30 ExprKind variants (incl. Return expr), 11 PatternKind variants, 6 Stmt variants, union/string-literal type annotations
+4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, Database, Ledger, std). Manifest-sourced connection names registered as `SymbolKind::Connection`. Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
+5. **IR Generation**: Full coverage lowering of all 15 declaration types (connect removed — connections come from Concerto.toml), all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/db/ledger/mcp lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum. Manifest connections embedded into IR via `add_manifest_connections()`
 
 ### Runtime Pipeline
 
@@ -63,7 +63,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
 5. **CALL_METHOD convention**: Object pushed first, then args. VM pops N args, then object. Method name from instruction `name` field, schema from `schema` field
 6. **LOAD_LOCAL**: Checks locals → globals → module.functions → path-based names → error
-7. **LLM Providers**: `LlmProvider` trait (sync). OpenAI + Anthropic HTTP providers (reqwest::blocking). `ConnectionManager` resolves from IR connections. `MockProvider` fallback when no API key
+7. **LLM Providers**: `LlmProvider` trait (sync). OpenAI + Anthropic HTTP providers (reqwest::blocking). `ConnectionManager` resolves from IR connections. Explicit `provider` field from Concerto.toml; fallback name-based heuristics for legacy. Ollama support (no API key, localhost default). `resolve_api_key()` handles `api_key` (direct/`$env` ref) and `api_key_env` (TOML format). `MockProvider` fallback when no API key
 8. **Agent Execution**: `execute()` → ChatRequest → provider → Response. `execute_with_schema()` → json_schema format → SchemaValidator (retry up to 3x) → typed struct. Decorator support: @retry (backoff), @timeout, @log
 9. **Schema Validation**: `SchemaValidator` (jsonschema crate). Normalizes Concerto types → JSON Schema types. Retry prompt with error feedback
 10. **Tool Dispatch**: `ToolRegistry` per-tool state. `CallTool` → qualified function `Tool::method` with self
@@ -109,14 +109,16 @@ concerto-lang/
     19-standard-library.md   # std:: modules and functions
     20-interop-and-ffi.md    # Host bindings, FFI, WASM, MCP
     21-ledger.md             # Fault-tolerant knowledge store for AI agents
-  examples/              # Example .conc programs
-    hello_agent.conc     # Minimal agent example
-    multi_agent_pipeline.conc  # Multi-stage pipeline
-    tool_usage.conc      # Tool definition and usage
+    22-project-manifest.md   # Concerto.toml manifest format
+    23-project-scaffolding.md  # concerto init command
+  examples/              # Example projects (each has Concerto.toml + src/main.conc)
+    hello_agent/         # Minimal agent example
+    tool_usage/          # Tool definition and usage
+    multi_agent_pipeline/  # Multi-stage pipeline with multiple providers
   Cargo.toml             # Workspace root
   crates/
-    concerto-common/     # Shared types (Span, Diagnostic, IR types, Opcodes)
-      src/lib.rs, span.rs, errors.rs, ir.rs, ir_opcodes.rs
+    concerto-common/     # Shared types (Span, Diagnostic, IR types, Opcodes, Manifest)
+      src/lib.rs, span.rs, errors.rs, ir.rs, ir_opcodes.rs, manifest.rs
     concerto-compiler/   # Compiler library (lexer, parser, AST, semantic, codegen)
       src/
         lib.rs
@@ -145,7 +147,7 @@ concerto-lang/
       tests/
         integration.rs   # 15 end-to-end compile→run tests
     concerto/            # Runtime CLI binary
-      src/main.rs        # `concerto run <file.conc-ir> [--debug] [--quiet]` (#[tokio::main])
+      src/main.rs        # `concerto run` + `concerto init` (#[tokio::main])
   tests/
     fixtures/            # Test .conc source files
       minimal.conc       # Milestone program for end-to-end testing
@@ -217,9 +219,9 @@ docs: update README with installation guide
 let    mut    fn     agent   tool    pub     use     mod
 if     else   match  for     while   loop    break   continue
 return try    catch  throw   emit    await   async   pipeline
-stage  schema db     connect self    impl    trait   enum
-struct as     in     with    true    false   nil     const
-type   mcp    ledger
+stage  schema db     self    impl    trait   enum    struct
+as     in     with   true    false   nil     const   type
+mcp    ledger
 ```
 
 ## Built-in Functions
@@ -257,3 +259,5 @@ type   mcp    ledger
 | 18 | run_loop_until(stop_depth) for nested execution | Pipeline stages and thunks call run_loop_until to prevent executing caller's instructions after RETURN |
 | 19 | Thunk-based async foundations | SpawnAsync creates Value::Thunk (deferred computation), Await resolves synchronously. True parallel deferred |
 | 20 | MCP stdio JSON-RPC transport | McpClient spawns subprocess, communicates via JSON-RPC 2.0 on stdin/stdout. Tool schemas fed to LLM ChatRequest |
+| 21 | `Concerto.toml` project manifest | Connections defined in TOML (like Cargo.toml), not in source code. Compiler embeds connection config into IR at compile time. `connect` keyword removed |
+| 22 | `concerto init` scaffolding | Creates project structure (Concerto.toml + src/main.conc + .gitignore). Supports openai/anthropic/ollama providers. Generates working hello-world agent |

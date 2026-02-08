@@ -14,7 +14,6 @@ pub trait Visitor {
     fn visit_declaration(&mut self, decl: &Declaration) {
         match decl {
             Declaration::Function(f) => self.visit_function_decl(f),
-            Declaration::Connect(c) => self.visit_connect_decl(c),
             Declaration::Agent(a) => self.visit_agent_decl(a),
             Declaration::Tool(t) => self.visit_tool_decl(t),
             Declaration::Schema(s) => self.visit_schema_decl(s),
@@ -36,12 +35,6 @@ pub trait Visitor {
     fn visit_function_decl(&mut self, func: &FunctionDecl) {
         if let Some(ref body) = func.body {
             self.visit_block(body);
-        }
-    }
-
-    fn visit_connect_decl(&mut self, decl: &ConnectDecl) {
-        for field in &decl.fields {
-            self.visit_expr(&field.value);
         }
     }
 

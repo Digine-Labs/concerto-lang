@@ -1,10 +1,5 @@
-// hello_agent.conc
-// The simplest useful Concerto program: connect to an LLM, ask a question, emit the response.
-
-connect openai {
-    api_key: env("OPENAI_API_KEY"),
-    default_model: "gpt-4o-mini",
-}
+// hello_agent - The simplest useful Concerto program
+// Connect to an LLM, ask a question, emit the response.
 
 schema Greeting {
     message: String,

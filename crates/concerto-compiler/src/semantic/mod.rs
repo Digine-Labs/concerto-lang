@@ -18,10 +18,23 @@ use crate::ast::nodes::Program;
 ///  4. Declaration-level validation (agent/tool/schema field rules)
 ///  5. Unused variable warnings
 pub fn analyze(program: &Program) -> DiagnosticBag {
+    analyze_with_connections(program, &[])
+}
+
+/// Run semantic analysis with connection names from Concerto.toml.
+///
+/// Connection names are registered as symbols so that `provider: name`
+/// in agent declarations resolves correctly.
+pub fn analyze_with_connections(
+    program: &Program,
+    connection_names: &[String],
+) -> DiagnosticBag {
     let mut all_diagnostics = DiagnosticBag::new();
 
     // Pass 1–3: name resolution + type checking + control-flow validation.
-    let resolve_diags = resolver::Resolver::new().resolve(program);
+    let mut resolver = resolver::Resolver::new();
+    resolver.register_manifest_connections(connection_names);
+    let resolve_diags = resolver.resolve(program);
     for diag in resolve_diags.into_diagnostics() {
         all_diagnostics.report(diag);
     }

@@ -45,6 +45,12 @@ impl CodeGenerator {
         }
     }
 
+    /// Add connections from Concerto.toml manifest into the IR.
+    /// Called before `generate()` to embed external connection configs.
+    pub fn add_manifest_connections(&mut self, connections: Vec<IrConnection>) {
+        self.connections.extend(connections);
+    }
+
     /// Generate IR from a parsed program.
     pub fn generate(mut self, program: &Program) -> IrModule {
         for decl in &program.declarations {
@@ -86,7 +92,6 @@ impl CodeGenerator {
             Declaration::Agent(a) => self.generate_agent(a),
             Declaration::Tool(t) => self.generate_tool(t),
             Declaration::Schema(s) => self.generate_schema(s),
-            Declaration::Connect(c) => self.generate_connect(c),
             Declaration::Pipeline(p) => self.generate_pipeline(p),
             Declaration::Struct(s) => self.generate_struct_decl(s),
             Declaration::Enum(e) => self.generate_enum_decl(e),
@@ -2179,18 +2184,6 @@ impl CodeGenerator {
         });
     }
 
-    fn generate_connect(&mut self, connect: &ConnectDecl) {
-        let mut config = serde_json::Map::new();
-        for field in &connect.fields {
-            config.insert(field.name.clone(), expr_to_json(&field.value));
-        }
-
-        self.connections.push(IrConnection {
-            name: connect.name.clone(),
-            config: serde_json::Value::Object(config),
-        });
-    }
-
     fn generate_pipeline(&mut self, pipeline: &PipelineDecl) {
         let stages: Vec<IrPipelineStage> = pipeline
             .stages
@@ -2989,9 +2982,6 @@ mod tests {
     fn agent_generates_ir_agent() {
         let ir = compile(
             r#"
-            connect openai {
-                api_key: "test",
-            }
             agent MyAgent {
                 provider: openai,
                 model: "gpt-4o",
@@ -3003,8 +2993,6 @@ mod tests {
         assert_eq!(ir.agents[0].name, "MyAgent");
         assert_eq!(ir.agents[0].connection, "openai");
         assert_eq!(ir.agents[0].config.model, Some("gpt-4o".to_string()));
-        assert_eq!(ir.connections.len(), 1);
-        assert_eq!(ir.connections[0].name, "openai");
     }
 
     #[test]

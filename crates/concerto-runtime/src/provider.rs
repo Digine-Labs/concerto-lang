@@ -204,51 +204,89 @@ impl Default for ConnectionManager {
 fn create_provider(conn: &IrConnection) -> Result<Box<dyn LlmProvider>> {
     let config = &conn.config;
 
-    // Try to resolve API key (may be env("VAR") or direct string)
-    let api_key = resolve_api_key(config)?;
-    if api_key.is_empty() {
-        return Err(RuntimeError::CallError("no API key for connection".into()));
-    }
-
     let base_url = config
         .get("base_url")
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    // Detect provider type from connection name or base_url
-    let is_anthropic = conn.name == "anthropic"
-        || base_url
-            .as_deref()
-            .is_some_and(|u| u.contains("anthropic"));
+    // Determine provider type: explicit "provider" field (from Concerto.toml),
+    // or fall back to name/base_url heuristics (legacy connect blocks).
+    let provider_type = config
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| {
+            if conn.name == "anthropic"
+                || base_url
+                    .as_deref()
+                    .is_some_and(|u| u.contains("anthropic"))
+            {
+                "anthropic".to_string()
+            } else {
+                "openai".to_string()
+            }
+        });
 
-    if is_anthropic {
-        Ok(Box::new(
+    // Ollama and local providers don't need an API key
+    if provider_type == "ollama" {
+        let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+        return Ok(Box::new(
+            crate::providers::openai::OpenAiProvider::new(
+                "ollama".to_string(),
+                Some(format!("{}/v1", url)),
+            ),
+        ));
+    }
+
+    // Try to resolve API key (may be env("VAR"), direct string, or api_key_env)
+    let api_key = resolve_api_key(config)?;
+    if api_key.is_empty() {
+        return Err(RuntimeError::CallError("no API key for connection".into()));
+    }
+
+    match provider_type.as_str() {
+        "anthropic" => Ok(Box::new(
             crate::providers::anthropic::AnthropicProvider::new(api_key, base_url),
-        ))
-    } else {
-        // Default to OpenAI-compatible
-        Ok(Box::new(
-            crate::providers::openai::OpenAiProvider::new(api_key, base_url),
-        ))
+        )),
+        _ => {
+            // Default to OpenAI-compatible (covers "openai", "groq", etc.)
+            Ok(Box::new(
+                crate::providers::openai::OpenAiProvider::new(api_key, base_url),
+            ))
+        }
     }
 }
 
 /// Resolve an API key from connection config.
-/// The config may have `api_key: "sk-..."` (direct) or
-/// `api_key: {"$env": "OPENAI_API_KEY"}` (env reference).
+/// Supports three formats:
+/// - `api_key: "sk-..."` — direct string (legacy connect blocks)
+/// - `api_key: {"$env": "OPENAI_API_KEY"}` — env reference (legacy connect blocks)
+/// - `api_key_env: "OPENAI_API_KEY"` — env var name (Concerto.toml)
 fn resolve_api_key(config: &serde_json::Value) -> Result<String> {
-    match config.get("api_key") {
-        Some(serde_json::Value::String(key)) => Ok(key.clone()),
-        Some(obj) if obj.get("$env").is_some() => {
-            let var_name = obj["$env"]
-                .as_str()
-                .ok_or_else(|| RuntimeError::CallError("$env must be a string".into()))?;
-            std::env::var(var_name).map_err(|_| {
-                RuntimeError::CallError(format!("env var '{}' not set", var_name))
-            })
+    // Try api_key field first (legacy format)
+    if let Some(api_key_val) = config.get("api_key") {
+        match api_key_val {
+            serde_json::Value::String(key) => return Ok(key.clone()),
+            obj if obj.get("$env").is_some() => {
+                let var_name = obj["$env"]
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::CallError("$env must be a string".into()))?;
+                return std::env::var(var_name).map_err(|_| {
+                    RuntimeError::CallError(format!("env var '{}' not set", var_name))
+                });
+            }
+            _ => {}
         }
-        _ => Err(RuntimeError::CallError("no api_key in connection config".into())),
     }
+
+    // Try api_key_env field (Concerto.toml format)
+    if let Some(env_var) = config.get("api_key_env").and_then(|v| v.as_str()) {
+        return std::env::var(env_var).map_err(|_| {
+            RuntimeError::CallError(format!("env var '{}' not set", env_var))
+        });
+    }
+
+    Err(RuntimeError::CallError("no api_key in connection config".into()))
 }
 
 // ============================================================================
@@ -326,6 +364,57 @@ mod tests {
         };
         // Should work (mock provider)
         let result = provider.chat_completion(request);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn resolve_api_key_direct_string() {
+        let config = serde_json::json!({ "api_key": "sk-test-123" });
+        let key = resolve_api_key(&config).unwrap();
+        assert_eq!(key, "sk-test-123");
+    }
+
+    #[test]
+    fn resolve_api_key_env_ref() {
+        std::env::set_var("CONCERTO_TEST_KEY_1", "sk-from-env");
+        let config = serde_json::json!({ "api_key": { "$env": "CONCERTO_TEST_KEY_1" } });
+        let key = resolve_api_key(&config).unwrap();
+        assert_eq!(key, "sk-from-env");
+        std::env::remove_var("CONCERTO_TEST_KEY_1");
+    }
+
+    #[test]
+    fn resolve_api_key_env_field() {
+        std::env::set_var("CONCERTO_TEST_KEY_2", "sk-from-toml-env");
+        let config = serde_json::json!({ "api_key_env": "CONCERTO_TEST_KEY_2" });
+        let key = resolve_api_key(&config).unwrap();
+        assert_eq!(key, "sk-from-toml-env");
+        std::env::remove_var("CONCERTO_TEST_KEY_2");
+    }
+
+    #[test]
+    fn resolve_api_key_missing() {
+        let config = serde_json::json!({ "provider": "openai" });
+        let result = resolve_api_key(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn create_provider_uses_explicit_provider_field() {
+        // Without API key, should fail for non-ollama
+        let conn = IrConnection {
+            name: "my_llm".to_string(),
+            config: serde_json::json!({ "provider": "anthropic" }),
+        };
+        let result = create_provider(&conn);
+        assert!(result.is_err()); // no API key
+
+        // Ollama doesn't need an API key
+        let conn = IrConnection {
+            name: "local".to_string(),
+            config: serde_json::json!({ "provider": "ollama" }),
+        };
+        let result = create_provider(&conn);
         assert!(result.is_ok());
     }
 }

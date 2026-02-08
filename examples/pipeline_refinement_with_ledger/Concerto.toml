@@ -1,0 +1,13 @@
+[project]
+name = "pipeline_refinement_with_ledger"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[connections.openai]
+provider = "openai"
+api_key_env = "OPENAI_API_KEY"
+default_model = "gpt-4o"
+
+[connections.openai.retry]
+max_attempts = 3
+backoff = "exponential"

@@ -1,0 +1,151 @@
+// pipeline_refinement_with_ledger
+// Pipeline + ledger + schema review flow for end-to-end orchestration testing.
+
+schema DraftPacket {
+    response: String,
+    open_questions: Array<String>,
+}
+
+schema VerdictPacket {
+    verdict: "approved" | "revise",
+    score: Int,
+    fixes: Array<String>,
+    final_response: String,
+}
+
+ledger facts: Ledger = Ledger::new();
+db pipeline_state: Database<String, Any> = Database::new();
+
+agent PipelineWriter {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.7,
+    max_tokens: 1100,
+    system_prompt: "Draft practical technical guidance with concise structure.",
+}
+
+agent PipelineReviewer {
+    provider: openai,
+    model: "gpt-4o",
+    temperature: 0.1,
+    max_tokens: 900,
+    system_prompt: "Review drafts against context and improve weak sections.",
+}
+
+fn seed_facts() {
+    facts.insert(
+        "Concerto encourages schema-first output for reliable host integration.",
+        ["Concerto", "Schema", "Host Integration"],
+        "Structured outputs reduce brittle string parsing and simplify downstream automation."
+    );
+
+    facts.insert(
+        "Ledger supports tolerant identifier queries and exact key lookups.",
+        ["Ledger", "Query", "Knowledge"],
+        "Use query().from_identifier for tolerant matching and from_key for exact tag retrieval."
+    );
+
+    facts.insert(
+        "Pipeline stages emit lifecycle events and can use retry/timeout decorators.",
+        ["Pipeline", "Stage", "Retry", "Timeout"],
+        "Concerto runtime emits pipeline:start/stage_start/stage_complete/error/complete events."
+    );
+}
+
+pipeline ResearchRefinement {
+    stage gather(question: String) -> String {
+        pipeline_state.set("question", question);
+
+        let hits = facts.query().from_identifier(question);
+        let mut context = "";
+
+        for entry in hits {
+            context = context + "- ${entry.identifier}\n  ${entry.value}\n";
+        }
+
+        if context == "" {
+            context = "No exact ledger identifier match. Use general Concerto best practices.";
+        }
+
+        pipeline_state.set("gathered_context", context);
+        context
+    }
+
+    stage draft(context: String) -> DraftPacket {
+        let question = pipeline_state.get("question") ?? "";
+
+        let prompt = """
+            Question:
+            ${question}
+
+            Ledger context:
+            ${context}
+
+            Write an actionable answer and list remaining open questions.
+            Return JSON matching DraftPacket.
+            """;
+
+        let draft = PipelineWriter.execute_with_schema<DraftPacket>(prompt)?;
+        pipeline_state.set("draft_response", draft.response);
+        draft
+    }
+
+    @retry(max: 2, backoff: "linear")
+    stage review(draft: DraftPacket) -> VerdictPacket {
+        let question = pipeline_state.get("question") ?? "";
+        let context = pipeline_state.get("gathered_context") ?? "";
+
+        let prompt = """
+            Review and improve this draft.
+
+            Question:
+            ${question}
+
+            Context:
+            ${context}
+
+            Draft response:
+            ${draft.response}
+
+            Draft open questions:
+            ${draft.open_questions}
+
+            Return JSON matching VerdictPacket.
+            """;
+
+        let verdict = PipelineReviewer.execute_with_schema<VerdictPacket>(prompt)?;
+        pipeline_state.set("review_score", verdict.score);
+        verdict
+    }
+
+    stage finalize(verdict: VerdictPacket) -> String {
+        if verdict.verdict == "approved" || verdict.score >= 80 {
+            verdict.final_response
+        } else {
+            "Needs another iteration. Draft for operator review:\n${verdict.final_response}\nFixes: ${verdict.fixes}"
+        }
+    }
+}
+
+fn main() {
+    seed_facts();
+
+    let question = "Design a reliable workflow for schema-validated multi-agent support triage.";
+
+    let result = ResearchRefinement.run(question);
+    match result {
+        Ok(final_text) => {
+            emit("pipeline_result", {
+                "question": question,
+                "final_text": final_text,
+                "score": pipeline_state.get("review_score") ?? 0,
+            });
+        },
+        Err(e) => {
+            emit("pipeline_error", {
+                "message": e.message,
+                "question": question,
+            });
+        },
+    }
+}

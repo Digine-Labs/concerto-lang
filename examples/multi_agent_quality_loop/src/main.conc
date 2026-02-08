@@ -1,0 +1,288 @@
+// multi_agent_quality_loop
+// Pipeline-based redesign: prepare context -> iterative scoring loop -> finalize output.
+
+schema ArticleDraft {
+    title: String,
+    body: String,
+    checklist: Array<String>,
+}
+
+schema JudgeScore {
+    score: Int,
+    strengths: Array<String>,
+    weaknesses: Array<String>,
+    rewrite_hint: String,
+}
+
+ledger style_guide: Ledger = Ledger::new();
+db rounds: Database<String, Any> = Database::new();
+
+agent Writer {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.8,
+    max_tokens: 1200,
+    system_prompt: "You write crisp launch communications. Return strict JSON.",
+}
+
+agent AccuracyJudge {
+    provider: openai,
+    model: "gpt-4o",
+    temperature: 0.1,
+    max_tokens: 800,
+    system_prompt: "You grade factual consistency and correctness from 0 to 10.",
+}
+
+agent StyleJudge {
+    provider: anthropic,
+    model: "claude-sonnet-4-20250514",
+    temperature: 0.2,
+    max_tokens: 800,
+    system_prompt: "You grade clarity and style quality from 0 to 10.",
+}
+
+agent ProductJudge {
+    provider: openai,
+    model: "gpt-4o",
+    temperature: 0.2,
+    max_tokens: 800,
+    system_prompt: "You grade actionability and decision usefulness from 0 to 10.",
+}
+
+fn seed_style_guide() {
+    style_guide.insert(
+        "Strong launch memos start with one-sentence executive context.",
+        ["memo", "launch", "context"],
+        "Open with why this matters now and what changed."
+    );
+
+    style_guide.insert(
+        "High-quality technical writing separates facts, risks, and actions.",
+        ["memo", "structure", "risk", "action"],
+        "Use sections: Facts, Risks, Actions, Owner."
+    );
+
+    style_guide.insert(
+        "Decision memos should include measurable success criteria.",
+        ["memo", "decision", "metrics"],
+        "Add explicit KPIs and review checkpoints."
+    );
+}
+
+fn build_style_context(topic: String) -> String {
+    let hits = style_guide.query().from_any_keys(["memo", "launch", "decision"]);
+    let mut context = "Topic: ${topic}\n\n";
+
+    for entry in hits {
+        context = context + "- ${entry.identifier}\n  ${entry.value}\n";
+    }
+
+    if context == "Topic: ${topic}\n\n" {
+        return "No style guidance available.";
+    }
+
+    context
+}
+
+pipeline MemoQualityPipeline {
+    stage prepare(topic: String) -> String {
+        let style_context = build_style_context(topic);
+        rounds.set("topic", topic);
+        rounds.set("style_context", style_context);
+        rounds.set("target_total", 24);
+        rounds.set("max_rounds", 5);
+        style_context
+    }
+
+    @retry(max: 2, backoff: "linear")
+    stage iterate(style_context: String) -> String {
+        let topic = rounds.get("topic") ?? "";
+        let target_total = rounds.get("target_total") ?? 24;
+        let max_rounds = rounds.get("max_rounds") ?? 5;
+
+        let mut round = 1;
+        let mut accepted = false;
+        let mut current_feedback = "No feedback yet.";
+
+        let mut final_title = "";
+        let mut final_body = "";
+        let mut final_total = 0;
+
+        while round <= max_rounds && !accepted {
+            let writer_prompt = """
+                Write a launch memo.
+
+                Topic:
+                ${topic}
+
+                Style guidance:
+                ${style_context}
+
+                Previous judge feedback:
+                ${current_feedback}
+
+                Return JSON matching ArticleDraft.
+                """;
+
+            match Writer.execute_with_schema<ArticleDraft>(writer_prompt) {
+                Ok(draft) => {
+                    final_title = draft.title;
+                    final_body = draft.body;
+
+                    let accuracy_prompt = """
+                        Score factual rigor from 0 to 10.
+                        Draft title: ${draft.title}
+                        Draft body: ${draft.body}
+                        Guidance: ${style_context}
+                        Return JSON matching JudgeScore.
+                        """;
+
+                    let style_prompt = """
+                        Score writing clarity and flow from 0 to 10.
+                        Draft title: ${draft.title}
+                        Draft body: ${draft.body}
+                        Return JSON matching JudgeScore.
+                        """;
+
+                    let product_prompt = """
+                        Score actionability for product/engineering decisions from 0 to 10.
+                        Draft checklist: ${draft.checklist}
+                        Draft body: ${draft.body}
+                        Return JSON matching JudgeScore.
+                        """;
+
+                    match AccuracyJudge.execute_with_schema<JudgeScore>(accuracy_prompt) {
+                        Ok(accuracy) => {
+                            match StyleJudge.execute_with_schema<JudgeScore>(style_prompt) {
+                                Ok(style) => {
+                                    match ProductJudge.execute_with_schema<JudgeScore>(product_prompt) {
+                                        Ok(product) => {
+                                            let total = accuracy.score + style.score + product.score;
+                                            let average = total / 3;
+
+                                            final_total = total;
+                                            rounds.set("round_${round}_total", total);
+                                            rounds.set("round_${round}_average", average);
+
+                                            emit("round_scores", {
+                                                "round": round,
+                                                "accuracy": accuracy.score,
+                                                "style": style.score,
+                                                "product": product.score,
+                                                "total": total,
+                                                "average": average,
+                                            });
+
+                                            if total >= target_total {
+                                                accepted = true;
+                                                emit("accepted", {
+                                                    "round": round,
+                                                    "total": total,
+                                                });
+                                            } else {
+                                                current_feedback = """
+                                                    Accuracy weaknesses: ${accuracy.weaknesses}
+                                                    Style weaknesses: ${style.weaknesses}
+                                                    Product weaknesses: ${product.weaknesses}
+                                                    Rewrite hints: ${accuracy.rewrite_hint}; ${style.rewrite_hint}; ${product.rewrite_hint}
+                                                    """;
+                                                rounds.set("latest_feedback", current_feedback);
+                                                round = round + 1;
+                                            }
+                                        },
+                                        Err(e) => {
+                                            current_feedback = "Product judge failed: ${e.message}";
+                                            rounds.set("latest_feedback", current_feedback);
+                                            emit("judge_error", {
+                                                "round": round,
+                                                "judge": "ProductJudge",
+                                                "message": e.message,
+                                            });
+                                            round = round + 1;
+                                        },
+                                    }
+                                },
+                                Err(e) => {
+                                    current_feedback = "Style judge failed: ${e.message}";
+                                    rounds.set("latest_feedback", current_feedback);
+                                    emit("judge_error", {
+                                        "round": round,
+                                        "judge": "StyleJudge",
+                                        "message": e.message,
+                                    });
+                                    round = round + 1;
+                                },
+                            }
+                        },
+                        Err(e) => {
+                            current_feedback = "Accuracy judge failed: ${e.message}";
+                            rounds.set("latest_feedback", current_feedback);
+                            emit("judge_error", {
+                                "round": round,
+                                "judge": "AccuracyJudge",
+                                "message": e.message,
+                            });
+                            round = round + 1;
+                        },
+                    }
+                },
+                Err(e) => {
+                    current_feedback = "Writer failed: ${e.message}";
+                    rounds.set("latest_feedback", current_feedback);
+                    emit("writer_error", {
+                        "round": round,
+                        "message": e.message,
+                    });
+                    round = round + 1;
+                },
+            }
+        }
+
+        rounds.set("accepted", accepted);
+        rounds.set("round_counter", round);
+        rounds.set("final_total", final_total);
+        rounds.set("final_title", final_title);
+        rounds.set("final_body", final_body);
+
+        if final_body == "" {
+            "No memo body produced by Writer."
+        } else {
+            "Title: ${final_title}\n\n${final_body}"
+        }
+    }
+
+    stage finalize(memo_text: String) -> String {
+        let accepted = rounds.get("accepted") ?? false;
+        if accepted {
+            "APPROVED MEMO\n\n${memo_text}"
+        } else {
+            let feedback = rounds.get("latest_feedback") ?? "No feedback captured.";
+            "MAX ROUNDS REACHED\n\n${memo_text}\n\nLatest feedback:\n${feedback}"
+        }
+    }
+}
+
+fn main() {
+    seed_style_guide();
+
+    let topic = "Launch memo for rolling out a schema-validated support triage assistant.";
+    let result = MemoQualityPipeline.run(topic);
+
+    match result {
+        Ok(final_text) => {
+            emit("final_output", {
+                "accepted": rounds.get("accepted") ?? false,
+                "round_counter": rounds.get("round_counter") ?? 0,
+                "total_score": rounds.get("final_total") ?? 0,
+                "title": rounds.get("final_title") ?? "",
+                "memo": final_text,
+            });
+        },
+        Err(e) => {
+            emit("pipeline_error", {
+                "message": e.message,
+                "topic": topic,
+            });
+        },
+    }
+}

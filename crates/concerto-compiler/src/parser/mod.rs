@@ -161,7 +161,6 @@ impl Parser {
                 | TokenKind::Throw
                 | TokenKind::Try
                 | TokenKind::Emit
-                | TokenKind::Connect
                 | TokenKind::Agent
                 | TokenKind::Tool
                 | TokenKind::Schema

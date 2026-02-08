@@ -39,6 +39,9 @@ tokio = { version = "1", features = ["full"] }
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 
+# TOML parsing
+toml = "0.8"
+
 # JSON Schema validation
 jsonschema = "0.28"
 

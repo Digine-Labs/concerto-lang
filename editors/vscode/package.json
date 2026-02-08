@@ -1,0 +1,47 @@
+{
+  "name": "concerto-lang",
+  "displayName": "Concerto Language",
+  "description": "Syntax highlighting for the Concerto programming language (.conc files)",
+  "version": "0.1.0",
+  "publisher": "digine-labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Digine-Labs/concerto-lang"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "concerto",
+    "ai",
+    "agent",
+    "llm",
+    "orchestration"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "concerto",
+        "aliases": [
+          "Concerto",
+          "concerto"
+        ],
+        "extensions": [
+          ".conc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "concerto",
+        "scopeName": "source.concerto",
+        "path": "./syntaxes/concerto.tmLanguage.json"
+      }
+    ]
+  }
+}

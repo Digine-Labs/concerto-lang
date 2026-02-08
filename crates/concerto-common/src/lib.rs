@@ -1,6 +1,7 @@
 pub mod errors;
 pub mod ir;
 pub mod ir_opcodes;
+pub mod manifest;
 pub mod span;
 
 pub use errors::{Diagnostic, DiagnosticBag, Severity};

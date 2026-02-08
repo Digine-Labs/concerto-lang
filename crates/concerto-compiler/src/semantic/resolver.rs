@@ -47,6 +47,21 @@ impl Resolver {
         self.diagnostics
     }
 
+    /// Register connection names from Concerto.toml so that `provider: name`
+    /// in agent declarations resolves correctly during semantic analysis.
+    pub fn register_manifest_connections(&mut self, connection_names: &[String]) {
+        for name in connection_names {
+            self.define_symbol(
+                name,
+                SymbolKind::Connection,
+                Type::Named(name.clone()),
+                false,
+                false,
+                Span::dummy(),
+            );
+        }
+    }
+
     // ====================================================================
     // Built-in symbols
     // ====================================================================
@@ -118,6 +133,30 @@ impl Resolver {
                     return_type: Box::new(Type::String),
                 },
             ),
+            (
+                "len",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![Type::Any],
+                    return_type: Box::new(Type::Int),
+                },
+            ),
+            (
+                "typeof",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![Type::Any],
+                    return_type: Box::new(Type::String),
+                },
+            ),
+            (
+                "panic",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![Type::Any],
+                    return_type: Box::new(Type::Nil),
+                },
+            ),
             // Common type constructors (used as namespaces via path expressions)
             ("ToolError", SymbolKind::Struct, Type::Named("ToolError".to_string())),
             ("Database", SymbolKind::Struct, Type::Named("Database".to_string())),
@@ -146,16 +185,6 @@ impl Resolver {
         for decl in &program.declarations {
             match decl {
                 Declaration::Function(f) => self.declare_function_symbol(f),
-                Declaration::Connect(c) => {
-                    self.define_symbol(
-                        &c.name,
-                        SymbolKind::Connection,
-                        Type::Named(c.name.clone()),
-                        false,
-                        false,
-                        c.span.clone(),
-                    );
-                }
                 Declaration::Agent(a) => {
                     self.define_symbol(
                         &a.name,
@@ -335,7 +364,6 @@ impl Resolver {
     fn resolve_declaration(&mut self, decl: &Declaration) {
         match decl {
             Declaration::Function(f) => self.resolve_function(f),
-            Declaration::Connect(c) => self.resolve_config_fields(&c.fields),
             Declaration::Agent(a) => self.resolve_config_fields(&a.fields),
             Declaration::Tool(t) => {
                 self.resolve_config_fields(&t.fields);
@@ -1567,6 +1595,21 @@ mod tests {
                 let b = None;
                 let c = Ok(1);
                 let d = Err("fail");
+            }
+            "#,
+        );
+        assert!(errs.is_empty(), "unexpected errors: {:?}", errs);
+    }
+
+    #[test]
+    fn len_typeof_panic_builtins() {
+        let errs = errors(
+            r#"
+            fn main() {
+                let xs = [1, 2, 3];
+                let n = len(xs);
+                let t = typeof(n);
+                panic("done");
             }
             "#,
         );

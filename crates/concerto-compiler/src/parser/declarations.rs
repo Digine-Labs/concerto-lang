@@ -27,7 +27,6 @@ impl Parser {
                     }
                 }
             }
-            TokenKind::Connect => self.parse_connect_decl(),
             TokenKind::Agent => self.parse_agent_decl(decorators),
             TokenKind::Tool => self.parse_tool_decl(),
             TokenKind::Schema => self.parse_schema_decl(decorators),
@@ -440,24 +439,6 @@ impl Parser {
             is_optional,
             span,
         })
-    }
-
-    // ========================================================================
-    // connect declaration
-    // ========================================================================
-
-    /// Parse `connect name { fields... }`
-    fn parse_connect_decl(&mut self) -> Option<Declaration> {
-        let start = self.current_span();
-        self.advance(); // consume 'connect'
-
-        let name_token = self.expect(TokenKind::Identifier)?;
-        let name = name_token.lexeme.clone();
-
-        let fields = self.parse_config_fields()?;
-        let span = start.merge(&self.previous_span());
-
-        Some(Declaration::Connect(ConnectDecl { name, fields, span }))
     }
 
     // ========================================================================
@@ -1038,28 +1019,6 @@ mod tests {
     fn parse_with_errors(source: &str) -> (Program, concerto_common::DiagnosticBag) {
         let (tokens, _) = Lexer::new(source, "test.conc").tokenize();
         Parser::new(tokens).parse()
-    }
-
-    // ===== connect =====
-
-    #[test]
-    fn parse_connect_decl() {
-        let prog = parse(r#"
-            connect openai {
-                api_key: "sk-123",
-                default_model: "gpt-4o",
-            }
-        "#);
-        assert_eq!(prog.declarations.len(), 1);
-        match &prog.declarations[0] {
-            Declaration::Connect(c) => {
-                assert_eq!(c.name, "openai");
-                assert_eq!(c.fields.len(), 2);
-                assert_eq!(c.fields[0].name, "api_key");
-                assert_eq!(c.fields[1].name, "default_model");
-            }
-            other => panic!("expected Connect, got {:?}", std::mem::discriminant(other)),
-        }
     }
 
     // ===== agent =====
@@ -1652,14 +1611,12 @@ mod tests {
         let prog = parse(r#"
             use std::json;
             const MAX: Int = 100;
-            connect openai { api_key: "key" }
             fn main() {}
         "#);
-        assert_eq!(prog.declarations.len(), 4);
+        assert_eq!(prog.declarations.len(), 3);
         assert!(matches!(&prog.declarations[0], Declaration::Use(_)));
         assert!(matches!(&prog.declarations[1], Declaration::Const(_)));
-        assert!(matches!(&prog.declarations[2], Declaration::Connect(_)));
-        assert!(matches!(&prog.declarations[3], Declaration::Function(_)));
+        assert!(matches!(&prog.declarations[2], Declaration::Function(_)));
     }
 
     // ===== agent with tools array (config field with array expression) =====

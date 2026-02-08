@@ -1,0 +1,14 @@
+[project]
+name = "multi_agent_quality_loop"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[connections.openai]
+provider = "openai"
+api_key_env = "OPENAI_API_KEY"
+default_model = "gpt-4o-mini"
+
+[connections.anthropic]
+provider = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+default_model = "claude-sonnet-4-20250514"

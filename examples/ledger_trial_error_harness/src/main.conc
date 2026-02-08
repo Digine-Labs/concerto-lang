@@ -1,0 +1,199 @@
+// ledger_trial_error_harness
+// Complex harness: draft -> review -> repair loop using first-class Ledger knowledge.
+
+schema CandidateAnswer {
+    answer: String,
+    cited_keys: Array<String>,
+    confidence: Int,
+}
+
+schema LedgerReview {
+    score: Int,
+    verdict: "pass" | "revise",
+    missing_topics: Array<String>,
+    revised_answer: String,
+    rationale: String,
+}
+
+ledger knowledge: Ledger = Ledger::new();
+db run_state: Database<String, Any> = Database::new();
+
+@retry(max: 2, backoff: "linear")
+agent DraftingAgent {
+    provider: openai,
+    model: "fast",
+    temperature: 0.9,
+    max_tokens: 900,
+    system_prompt: "You draft concise but evidence-aware answers. Return valid JSON only.",
+}
+
+@retry(max: 3, backoff: "exponential")
+agent LedgerReviewer {
+    provider: openai,
+    model: "strong",
+    temperature: 0.2,
+    max_tokens: 1000,
+    system_prompt: "You are a strict reviewer. Score answers against provided ledger evidence.",
+}
+
+fn seed_ledger() {
+    knowledge.insert(
+        "Concerto uses schema-validated structured output for reliable agent orchestration.",
+        ["Concerto", "Schema", "Reliability", "Structured Output"],
+        "execute_with_schema<T>() validates JSON and retries on mismatch."
+    );
+
+    knowledge.insert(
+        "Ledger supports word-level identifier matching and exact case-insensitive key matching.",
+        ["Ledger", "Query", "from_identifier", "from_key"],
+        "Use from_identifier for tolerant phrase queries and from_key for strict key lookups."
+    );
+
+    knowledge.insert(
+        "Concerto pipelines compose stages where each stage output feeds the next stage input.",
+        ["Pipeline", "Stage", "Composition"],
+        "Pipelines are first-class and emit lifecycle events during execution."
+    );
+}
+
+fn context_from_ledger(query: String) -> String {
+    let hits = knowledge.query().from_identifier(query);
+    let mut context = "";
+    for entry in hits {
+        context = context
+            + "Identifier: ${entry.identifier}\n"
+            + "Keys: ${entry.keys}\n"
+            + "Value: ${entry.value}\n\n";
+    }
+
+    if context == "" {
+        return "No curated ledger entries matched the query.";
+    }
+
+    context
+}
+
+fn main() {
+    seed_ledger();
+
+    let question = "Explain how Concerto improves reliability for multi-agent orchestration.";
+    let max_attempts = 4;
+    let min_score = 85;
+
+    let mut attempt = 1;
+    let mut accepted = false;
+    let mut best_score = 0;
+    let mut best_answer = "";
+    let mut feedback = "No reviewer feedback yet.";
+
+    while attempt <= max_attempts && !accepted {
+        let context = context_from_ledger(question + " " + feedback);
+
+        let draft_prompt = """
+            Question:
+            ${question}
+
+            Curated ledger context:
+            ${context}
+
+            Reviewer feedback from previous attempt:
+            ${feedback}
+
+            Produce a precise answer with explicit references to the provided context.
+            Return JSON matching CandidateAnswer.
+            """;
+
+        let draft_result = DraftingAgent.execute_with_schema<CandidateAnswer>(draft_prompt);
+
+        match draft_result {
+            Ok(draft) => {
+                let review_prompt = """
+                    Evaluate this answer using only the ledger context.
+
+                    Question:
+                    ${question}
+
+                    Candidate answer:
+                    ${draft.answer}
+
+                    Candidate cited keys:
+                    ${draft.cited_keys}
+
+                    Ledger context:
+                    ${context}
+
+                    Score quality from 0-100 and decide pass/revise.
+                    Return JSON matching LedgerReview.
+                    """;
+
+                let review_result = LedgerReviewer.execute_with_schema<LedgerReview>(review_prompt);
+
+                match review_result {
+                    Ok(review) => {
+                        run_state.set("attempt_${attempt}_score", review.score);
+                        run_state.set("attempt_${attempt}_verdict", review.verdict);
+
+                        emit("attempt", {
+                            "attempt": attempt,
+                            "draft_confidence": draft.confidence,
+                            "review_score": review.score,
+                            "verdict": review.verdict,
+                            "missing_topics": review.missing_topics,
+                        });
+
+                        if review.score > best_score {
+                            best_score = review.score;
+                            best_answer = review.revised_answer;
+                        }
+
+                        if review.score >= min_score || review.verdict == "pass" {
+                            accepted = true;
+                            best_answer = review.revised_answer;
+                            emit("accepted", {
+                                "attempt": attempt,
+                                "score": review.score,
+                            });
+                        } else {
+                            feedback = "Reviewer rationale: ${review.rationale}. Missing topics: ${review.missing_topics}";
+
+                            // Add transient repair hints into the ledger to support the next attempt.
+                            for topic in review.missing_topics {
+                                knowledge.insert(
+                                    "Repair hint for ${topic}",
+                                    [topic, "Repair", "Attempt ${attempt}"],
+                                    "Include concrete detail about '${topic}' in the next revision."
+                                );
+                            }
+
+                            attempt = attempt + 1;
+                        }
+                    },
+                    Err(e) => {
+                        feedback = "Review stage failed: ${e.message}";
+                        emit("review_error", {
+                            "attempt": attempt,
+                            "message": e.message,
+                        });
+                        attempt = attempt + 1;
+                    },
+                }
+            },
+            Err(e) => {
+                feedback = "Draft stage failed: ${e.message}";
+                emit("draft_error", {
+                    "attempt": attempt,
+                    "message": e.message,
+                });
+                attempt = attempt + 1;
+            },
+        }
+    }
+
+    emit("final", {
+        "accepted": accepted,
+        "best_score": best_score,
+        "answer": best_answer,
+        "ledger_entries": knowledge.len(),
+        "attempt_counter": attempt,
+    });
+}

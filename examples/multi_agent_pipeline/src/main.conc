@@ -1,16 +1,5 @@
-// multi_agent_pipeline.conc
-// Demonstrates a multi-stage pipeline with multiple agents, branching logic,
-// in-memory database, and structured output.
-
-connect openai {
-    api_key: env("OPENAI_API_KEY"),
-    default_model: "gpt-4o",
-}
-
-connect anthropic {
-    api_key: env("ANTHROPIC_API_KEY"),
-    default_model: "claude-sonnet-4-20250514",
-}
+// multi_agent_pipeline - Demonstrates a multi-stage pipeline with multiple agents,
+// branching logic, in-memory database, and structured output.
 
 // Schemas for structured LLM output
 schema Classification {
@@ -86,7 +75,7 @@ pipeline DocumentProcessor {
             "Classify this document:\n\n${document}"
         )?;
 
-        // Record in ledger
+        // Record in database
         store.set("classification", result);
         store.set("classify_time", std::time::now());
 
@@ -178,7 +167,7 @@ fn main() {
             emit("error", {
                 "pipeline": "DocumentProcessor",
                 "message": e.message,
-                "ledger_state": {
+                "store_state": {
                     "has_classification": store.has("classification"),
                     "has_summary": store.has("summary"),
                 },

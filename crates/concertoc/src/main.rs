@@ -5,6 +5,8 @@ use std::process;
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use clap::Parser;
 
+use concerto_common::ir::IrConnection;
+use concerto_common::manifest;
 use concerto_compiler::codegen::CodeGenerator;
 use concerto_compiler::lexer::Lexer;
 use concerto_compiler::parser;
@@ -66,6 +68,33 @@ fn main() {
         .to_string_lossy()
         .to_string();
 
+    // === Manifest ===
+    // Find and load Concerto.toml from the source file's directory (walks up).
+    let abs_input = fs::canonicalize(&cli.input).unwrap_or_else(|_| cli.input.clone());
+    let (connection_names, ir_connections) =
+        match manifest::find_and_load_manifest(&abs_input) {
+            Ok(m) => {
+                let names: Vec<String> = m.connections.keys().cloned().collect();
+                let ir_conns: Vec<IrConnection> = m
+                    .connections
+                    .iter()
+                    .map(|(name, cfg)| IrConnection {
+                        name: name.clone(),
+                        config: cfg.to_ir_config(),
+                    })
+                    .collect();
+                (names, ir_conns)
+            }
+            Err(manifest::ManifestError::NotFound(_)) => {
+                // No Concerto.toml found — that's OK, compile without manifest
+                (Vec::new(), Vec::new())
+            }
+            Err(e) => {
+                eprintln!("error: {}", e);
+                process::exit(1);
+            }
+        };
+
     // === Lexer ===
     let (tokens, lex_diags) = Lexer::new(&source, &file_name).tokenize();
 
@@ -117,7 +146,8 @@ fn main() {
     }
 
     // === Semantic Analysis ===
-    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    let sem_diags =
+        concerto_compiler::semantic::analyze_with_connections(&program, &connection_names);
 
     if sem_diags.has_errors() {
         for diag in sem_diags.diagnostics() {
@@ -148,7 +178,9 @@ fn main() {
         .to_string_lossy()
         .to_string();
 
-    let ir = CodeGenerator::new(&module_name, &file_name).generate(&program);
+    let mut codegen = CodeGenerator::new(&module_name, &file_name);
+    codegen.add_manifest_connections(ir_connections);
+    let ir = codegen.generate(&program);
 
     let json = match serde_json::to_string_pretty(&ir) {
         Ok(j) => j,

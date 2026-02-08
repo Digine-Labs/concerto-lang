@@ -52,7 +52,6 @@ pub enum DecoratorArg {
 #[derive(Debug, Clone)]
 pub enum Declaration {
     Function(FunctionDecl),
-    Connect(ConnectDecl),
     Agent(AgentDecl),
     Tool(ToolDecl),
     Schema(SchemaDecl),
@@ -107,18 +106,6 @@ pub struct Param {
     pub name: String,
     pub type_ann: Option<TypeAnnotation>,
     pub default: Option<Expr>,
-    pub span: Span,
-}
-
-// ============================================================================
-// Connect declaration
-// ============================================================================
-
-/// `connect name { field: value, ... }`
-#[derive(Debug, Clone)]
-pub struct ConnectDecl {
-    pub name: String,
-    pub fields: Vec<ConfigField>,
     pub span: Span,
 }
 
@@ -379,7 +366,7 @@ pub struct McpDecl {
 // Shared field types
 // ============================================================================
 
-/// A key-value config field: `name: expr` (used in connect, agent, tool, mcp).
+/// A key-value config field: `name: expr` (used in agent, tool, mcp).
 #[derive(Debug, Clone)]
 pub struct ConfigField {
     pub name: String,

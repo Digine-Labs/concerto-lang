@@ -1,12 +1,5 @@
-// tool_usage.conc
-// Demonstrates defining local tools with @describe/@param decorators,
-// connecting to an MCP server with typed interfaces, and attaching
-// both to an agent.
-
-connect openai {
-    api_key: env("OPENAI_API_KEY"),
-    default_model: "gpt-4o",
-}
+// tool_usage - Demonstrates defining local tools with @describe/@param decorators,
+// connecting to an MCP server with typed interfaces, and attaching both to an agent.
 
 // === Local Tools ===
 
