@@ -8,7 +8,7 @@ Concerto provides a Rust-like syntax purpose-built for designing complex AI harn
 
 Prompt engineering is time-consuming. LangChain-style libraries are task-specific. Concerto gives you a **full programming language** to orchestrate agents -- with type safety, error handling, and composable pipelines.
 
-```concerto
+```rust
 connect openai {
     api_key: env("OPENAI_API_KEY"),
     default_model: "gpt-4o",
@@ -78,7 +78,7 @@ fn main() {
 
 ## Example: Multi-Agent Pipeline
 
-```concerto
+```rust
 pipeline DocumentProcessor {
     stage extract(doc: String) {
         let text = Extractor.execute(doc)?;
