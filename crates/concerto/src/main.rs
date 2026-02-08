@@ -1,3 +1,58 @@
-fn main() {
-    println!("concerto: Concerto runtime (not yet implemented)");
+use std::path::PathBuf;
+use std::process;
+
+use clap::Parser;
+use concerto_runtime::{LoadedModule, VM};
+
+/// Concerto language runtime — executes compiled .conc-ir files.
+#[derive(Parser)]
+#[command(name = "concerto", version, about)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Execute a compiled .conc-ir file
+    Run {
+        /// Path to the .conc-ir file
+        input: PathBuf,
+
+        /// Enable debug output (show stack trace on error)
+        #[arg(long)]
+        debug: bool,
+    },
+}
+
+#[tokio::main]
+async fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Command::Run { input, debug } => {
+            let path = input.to_string_lossy().to_string();
+
+            let module = match LoadedModule::load_from_file(&path) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("error: failed to load IR: {}", e);
+                    process::exit(1);
+                }
+            };
+
+            let mut vm = VM::new(module);
+
+            match vm.execute() {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("runtime error: {}", e);
+                    if debug {
+                        eprintln!("  in function: {}", vm.current_function_name());
+                    }
+                    process::exit(1);
+                }
+            }
+        }
+    }
 }

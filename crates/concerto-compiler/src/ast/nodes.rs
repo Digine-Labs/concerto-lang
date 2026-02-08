@@ -619,10 +619,11 @@ pub enum ExprKind {
         field: String,
     },
 
-    /// Method call: `obj.method(args)`
+    /// Method call: `obj.method(args)` or `obj.method<Type>(args)`
     MethodCall {
         object: Box<Expr>,
         method: String,
+        type_args: Vec<super::types::TypeAnnotation>,
         args: Vec<Expr>,
     },
 

@@ -69,6 +69,14 @@ impl Parser {
             .unwrap_or(TokenKind::Eof)
     }
 
+    /// Peek at a token kind N positions ahead.
+    fn peek_at(&self, offset: usize) -> TokenKind {
+        self.tokens
+            .get(self.pos + offset)
+            .map(|t| t.kind)
+            .unwrap_or(TokenKind::Eof)
+    }
+
     /// Get the current token.
     fn current(&self) -> &Token {
         self.tokens

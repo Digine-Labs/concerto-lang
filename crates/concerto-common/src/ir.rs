@@ -216,6 +216,8 @@ pub struct IrPipeline {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IrPipelineStage {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<IrParam>,
     pub input_type: serde_json::Value,
     pub output_type: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

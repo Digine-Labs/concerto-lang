@@ -1,11 +1,14 @@
 # STATUS.md - Concerto Language Project Ledger
 
-> **Last updated**: 2026-02-07
+> **Last updated**: 2026-02-08
 
 ## Current Focus
 
 **Phase 1: Foundation** - COMPLETE. All specs, docs, and examples written.
-**Phase 2: Compiler Implementation** - COMPLETE. All 12 steps done. All 3 example programs compile end-to-end to IR. 222 tests, clippy clean.
+**Phase 2: Compiler Implementation** - COMPLETE. All 12 steps done + generic method call fix. All 3 example programs compile end-to-end to IR. 225 tests, clippy clean.
+**Phase 3a: Runtime Core** - COMPLETE. Stack-based VM with all opcodes, mock agent system, database stubs, emit channels. All 3 examples compile AND run end-to-end. 261 tests total, clippy clean.
+**Phase 3b: Agent & Tool System** - COMPLETE. Try/catch exception handling, real LLM providers (OpenAI + Anthropic), schema validation with retry, tool method dispatch. 299 tests total, clippy clean.
+**Phase 3c: Pipeline & Polish** - COMPLETE. Decorator runtime (@retry/@timeout/@log), full pipeline lifecycle events, async foundations (Thunk), MCP client (stdio transport), run_loop_until for nested execution. 320 tests total, clippy clean, all 3 examples run end-to-end.
 
 ---
 
@@ -59,25 +62,65 @@
 | Semantic analysis | Done | Name resolution (forward refs, scoping), type checking (operators, conditions, inference), control flow validation (break/continue in loops, return in fns, ?/throw in Result fns, .await in async), mutability checking, declaration validation (agent provider, tool description, @describe), unused variable warnings, built-ins (emit, print, env, Some/None/Ok/Err, ToolError, Database, std), 216 tests total |
 | IR generator - full coverage | Done | All 16 declaration types lowered (agent, tool, schema, connect, pipeline, struct, enum, impl, trait, const, db, mcp). All statement types (break w/ value, continue, throw). All 29 expression types (while/for/loop with break/continue, match with pattern check+bind, try/catch/throw, closures, pipe rewrite, ? propagation, ?? nil coalesce, range, cast, path, .await, tuples, struct literals, string interpolation). Loop result variables, pattern matching (literal/wildcard/identifier/or/range/binding/tuple/struct/enum/array), 216 tests total |
 | Integration & polish | Done | All 3 examples compile end-to-end. Parser fixes: prefix `await expr`, `return` as expression (match arms), union types (`"a" \| "b"`). Semantic fixes: tool methods implicitly async, pipeline stages implicitly async with Result return, `self` not warned unused in tools. 222 tests total, clippy clean |
+| Generic method calls | Done | Parser: `method<Type>(args)` parsed as MethodCall with type_args (lookahead disambiguates from comparison). AST: type_args field on MethodCall. Codegen: schema field on CALL_METHOD. 225 compiler tests total |
 
 ## Phase 3: Runtime Implementation
 
+### Phase 3a: Core VM (COMPLETE)
+
 | Task | Status | Notes |
 |------|--------|-------|
-| Value system | Not Started | Runtime value representation |
-| IR loader/decoder | Not Started | JSON IR deserialization |
-| VM execution loop | Not Started | Stack-based instruction dispatch |
-| Agent registry | Not Started | Agent instances, lifecycle |
-| Tool registry | Not Started | Tool registration, permissions |
-| Connection manager | Not Started | LLM provider connections |
-| Memory/database system | Not Started | In-memory KV with scoping |
-| Emit channel system | Not Started | Bidirectional emit with host |
-| Schema validator | Not Started | JSON Schema validation engine |
-| Error handling frames | Not Started | try/catch frame stack |
-| Async executor | Not Started | Concurrent agent calls |
-| Runtime host API | Not Started | Rust library for embedding |
-| Runtime CLI (`concerto`) | Not Started | CLI interface for execution |
-| Runtime test suite | Not Started | Unit + integration tests |
+| Value system | Done | 15 Value variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, DatabaseRef, PipelineRef). Arithmetic with type promotion, string coercion, comparisons, truthiness, field/index access. 16 tests |
+| IR loader/decoder | Done | LoadedModule from JSON IR. Constants conversion, function/agent/tool/schema/connection/database/pipeline tables. Qualified tool method registration. 2 tests |
+| VM execution loop | Done | Stack-based dispatch of all 59 opcodes. CallFrame with locals HashMap. CALL convention (args then callee), CALL_METHOD (object then args). LOAD_LOCAL falls back to globals and function names. Max call depth 1000. 10 tests |
+| Agent mock system | Done | Mock execute() returns Response struct with text/tokens/model. Mock execute_with_schema() populates fields from JSON Schema properties. Schema name passed via CALL_METHOD instruction |
+| Database stubs | Done | In-memory KV (HashMap<String, HashMap<String, Value>>). set/get/has/delete operations via CALL_METHOD and DB_* opcodes |
+| Emit channel system | Done | EMIT opcode pops channel + payload, invokes handler callback. Custom emit handler via set_emit_handler(). Default prints `[emit:channel] value` |
+| Built-in functions | Done | Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new. Dispatched via $builtin_ prefix. 8 tests |
+| Runtime host API | Done | lib.rs: run_file(path), VM::new(), VM::execute(), VM::set_emit_handler() |
+| Runtime CLI (`concerto`) | Done | `concerto run <file.conc-ir> [--debug]`. Loads module, creates VM, executes, prints errors |
+| Runtime test suite | Done | 36 tests: value arithmetic/comparison/truthiness/access, IR loading, VM opcodes (add, store/load, jumps, emit, calls, propagate, build_map, nil coalesce) |
+
+### Phase 3b: Agent & Tool System (COMPLETE)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Try/catch exception handling | Done | TryFrame stack with catch_pc/call_depth/stack_height. Typed catch with skip logic. Propagate routes through try/catch. 7 tests |
+| IndexSet, CheckType, Cast | Done | IndexSet (Array/Map), CheckType, Cast (Int/Float/String/Bool). 7 tests |
+| Tool method dispatch | Done | ToolRegistry with per-tool state. CallTool via qualified function lookup. 2 tests |
+| LlmProvider trait + deps | Done | tokio, reqwest (blocking), jsonschema. MockProvider + ConnectionManager. 3 tests |
+| OpenAI + Anthropic providers | Done | HTTP providers with tool call support. Provider factory with auto-detection. 12 tests |
+| Wire providers into VM | Done | ConnectionManager from IR connections. Agent calls use real providers with MockProvider fallback |
+| Schema validation engine | Done | jsonschema crate validation, Concerto type normalization, retry prompt, json_to_value. 7 tests |
+| Integration testing | Done | 299 tests (225 compiler + 74 runtime), clippy clean. Examples run with MockProvider |
+
+### Phase 3c: Pipeline & Polish (COMPLETE)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| IR Fix: IrPipelineStage.params | Done | Added params field to IR, compiler emits actual stage param names, runtime uses them |
+| Decorator runtime | Done | decorator.rs: @retry (exponential/linear/none backoff), @timeout (seconds), @log (emit agent:log). 9 tests |
+| Pipeline lifecycle events | Done | pipeline:start, pipeline:stage_start, pipeline:stage_complete, pipeline:error, pipeline:complete emits with duration tracking |
+| Pipeline error handling | Done | Stage @retry/@timeout decorators, Result unwrapping, error short-circuit |
+| Async foundations | Done | Value::Thunk variant. SpawnAsync creates thunk, Await resolves synchronously, AwaitAll collects. 4 tests |
+| MCP client | Done | mcp.rs: McpClient (stdio JSON-RPC 2.0), McpRegistry, tool discovery, tool schemas for LLM. 8 tests |
+| VM nested execution fix | Done | run_loop_until(stop_depth) prevents pipeline stages from executing caller's instructions |
+| Mock provider enum fix | Done | mock_json_from_schema respects JSON Schema enum constraints |
+| Integration testing | Done | 320 tests (225 compiler + 95 runtime), clippy clean. All 3 examples run end-to-end with full pipeline lifecycle |
+
+### Phase 3d: Ledger System
+
+| Task | Status | Notes |
+|------|--------|-------|
+| spec/21-ledger.md | Done | Full specification: data model, query API, compilation, runtime |
+| Compiler: `ledger` keyword + parser | Not Started | New keyword, LedgerDecl AST node, semantic validation |
+| Compiler: IR generation | Not Started | `ledgers` IR section, CALL_METHOD lowering for query builder |
+| Runtime: LedgerRef value + store | Not Started | LedgerEntry struct, in-memory Vec storage, LedgerRef variant |
+| Runtime: insert/delete/update | Not Started | Mutation methods via CALL_METHOD dispatch |
+| Runtime: from_identifier query | Not Started | Word-tokenization + case-insensitive containment matching |
+| Runtime: from_key / from_any_keys / from_exact_keys | Not Started | Exact case-insensitive key matching (single, OR, AND) |
+| Runtime: scoping | Not Started | Namespaced ledger views (same pattern as db scoping) |
+| Ledger test suite | Not Started | Unit tests for all query modes, edge cases, scoping |
 
 ## Phase 4: Standard Library
 
@@ -124,6 +167,12 @@
 | 8 | Dual error model (Result + try/catch) | 2026-02-07 | Functional and imperative styles both supported |
 | 9 | `@describe`/`@param` decorators for tools | 2026-02-07 | Compiler-enforced tool descriptions replace fragile `///` doc comments; descriptions are language grammar, not comments |
 | 10 | First-class `mcp` construct | 2026-02-07 | MCP tool interfaces declared in source with typed fn signatures; compile-time type checking + runtime schema validation |
+| 11 | Generic method call syntax | 2026-02-08 | `method<Type>(args)` parsed with lookahead disambiguation from comparison operators; type args passed as schema on CALL_METHOD |
+| 12 | Phase 3a mock-first | 2026-02-08 | No async runtime (tokio) in Phase 3a; AWAIT is no-op; agents return mock responses; enables full end-to-end testing without HTTP |
+| 13 | First-class `ledger` keyword | 2026-02-08 | Fault-tolerant knowledge store for AI agents. Separate from `db` (exact-key state). Identifier + Keys + Value model with word-containment similarity and case-insensitive key matching. First-class keyword for compiler integration |
+| 14 | Synchronous LlmProvider trait | 2026-02-08 | Uses reqwest::blocking for Phase 3b simplicity. Async deferred to Phase 3c. tokio added now for CLI + future async needs |
+| 15 | Trait-based provider with MockProvider fallback | 2026-02-08 | MockProvider auto-selected when no API key. Existing tests unchanged. Real providers require env API keys |
+| 16 | Schema type normalization at runtime | 2026-02-08 | Compiler emits Concerto types (String, Int, Array<T>). Runtime normalizes to JSON Schema types (string, integer, array) before validation |
 
 ## Open Questions
 

@@ -2,7 +2,9 @@
 
 ## Overview
 
-Concerto provides an in-memory key-value database system for agent coordination and harness state management. Databases act as a **shared ledger** -- agents can read and write data, enabling communication between pipeline stages and maintaining context across interactions.
+Concerto provides an in-memory key-value database system for agent coordination and harness state management. Databases act as a **shared state store** -- agents can read and write data, enabling communication between pipeline stages and maintaining context across interactions.
+
+> **Note**: For fault-tolerant knowledge retrieval with similarity-based querying (designed for AI agents that may issue imprecise queries), see the [Ledger System](21-ledger.md). Databases (`db`) are for exact-key typed state management; Ledgers (`ledger`) are for tagged knowledge with fuzzy matching.
 
 ## Database Declaration
 
@@ -244,9 +246,9 @@ db persistent_store: Database<String, String> = Database::new()
 
 This is handled by the runtime -- the host configures which databases persist and where.
 
-## Database as Harness Ledger
+## Database as Pipeline State Tracker
 
-The primary use case for databases in Concerto is as a **harness ledger** -- a shared state that tracks the progress and results of an AI orchestration pipeline.
+The primary use case for databases in Concerto is as a **pipeline state tracker** -- a shared store that tracks the progress and results of an AI orchestration pipeline. For knowledge storage with fault-tolerant querying, see the [Ledger System](21-ledger.md).
 
 ```concerto
 db ledger: Database<String, Any> = Database::new();

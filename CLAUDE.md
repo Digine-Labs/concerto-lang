@@ -54,12 +54,27 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 ### Runtime Pipeline
 
 ```
-IR (.conc-ir) -> IR Loader -> Instruction Dispatcher -> Execution (with LLM, tools, memory, emits)
+IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 ```
 
-- Stack-based virtual machine
-- JSON-based IR format (human-readable, debuggable)
-- Async execution for LLM calls
+1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, databases, pipelines). Converts constant types, builds lookup HashMaps, registers qualified tool methods
+2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap, stack_base). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks)
+3. **Value System**: 16 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, DatabaseRef, PipelineRef, Thunk). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
+4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
+5. **CALL_METHOD convention**: Object pushed first, then args. VM pops N args, then object. Method name from instruction `name` field, schema from `schema` field
+6. **LOAD_LOCAL**: Checks locals → globals → module.functions → path-based names → error
+7. **LLM Providers**: `LlmProvider` trait (sync). OpenAI + Anthropic HTTP providers (reqwest::blocking). `ConnectionManager` resolves from IR connections. `MockProvider` fallback when no API key
+8. **Agent Execution**: `execute()` → ChatRequest → provider → Response. `execute_with_schema()` → json_schema format → SchemaValidator (retry up to 3x) → typed struct. Decorator support: @retry (backoff), @timeout, @log
+9. **Schema Validation**: `SchemaValidator` (jsonschema crate). Normalizes Concerto types → JSON Schema types. Retry prompt with error feedback
+10. **Tool Dispatch**: `ToolRegistry` per-tool state. `CallTool` → qualified function `Tool::method` with self
+11. **Try/Catch**: `TryFrame` stack (catch_pc, call_depth, stack_height). Throw unwinds. Typed catch. Propagate (?) routes through try/catch
+12. **Database**: In-memory KV (HashMap<String, HashMap<String, Value>>). set/get/has/delete
+13. **Emit**: Pops channel + payload, invokes callback. Custom handler via `set_emit_handler()`
+14. **Built-ins**: Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new
+15. **Decorators**: decorator.rs — @retry (max attempts, exponential/linear/none backoff), @timeout (seconds), @log (emit event). Applied to agents and pipeline stages
+16. **Pipeline Lifecycle**: Full lifecycle emits (pipeline:start/stage_start/stage_complete/error/complete). Stage @retry/@timeout decorators. Result unwrapping. Error short-circuit. Duration tracking
+17. **Async Foundations**: Thunk value (deferred computation). SpawnAsync creates thunk, Await resolves synchronously, AwaitAll collects results. True parallel execution deferred
+18. **MCP Client**: mcp.rs — McpClient (stdio JSON-RPC 2.0 transport), McpRegistry (manages connections). Tool discovery via tools/list, tool schemas included in ChatRequest for LLM function calling
 
 ## Directory Structure
 
@@ -91,6 +106,7 @@ concerto-lang/
     18-compiler-pipeline.md  # Lexer, parser, AST, semantic, IR gen
     19-standard-library.md   # std:: modules and functions
     20-interop-and-ffi.md    # Host bindings, FFI, WASM, MCP
+    21-ledger.md             # Fault-tolerant knowledge store for AI agents
   examples/              # Example .conc programs
     hello_agent.conc     # Minimal agent example
     multi_agent_pipeline.conc  # Multi-stage pipeline
@@ -109,10 +125,17 @@ concerto-lang/
         codegen/mod.rs, emitter.rs, constant_pool.rs
     concertoc/           # Compiler CLI binary
       src/main.rs
-    concerto-runtime/    # Runtime library (Phase 3 - stub)
-      src/lib.rs
-    concerto/            # Runtime CLI binary (Phase 3 - stub)
-      src/main.rs
+    concerto-runtime/    # Runtime library (Phase 3c complete)
+      src/
+        lib.rs, error.rs, value.rs, ir_loader.rs, vm.rs, builtins.rs
+        provider.rs      # LlmProvider trait, ChatRequest/Response, MockProvider, ConnectionManager
+        providers/mod.rs, openai.rs, anthropic.rs  # HTTP LLM providers
+        schema.rs        # SchemaValidator (jsonschema validation, type normalization, retry)
+        tool.rs          # ToolRegistry (per-tool instance state)
+        decorator.rs     # @retry/@timeout/@log decorator parsing and application
+        mcp.rs           # MCP JSON-RPC client (stdio), McpRegistry, tool discovery
+    concerto/            # Runtime CLI binary
+      src/main.rs        # `concerto run <file.conc-ir> [--debug]` (#[tokio::main])
   tests/
     fixtures/            # Test .conc source files
       minimal.conc       # Milestone program for end-to-end testing
@@ -171,6 +194,7 @@ docs: update README with installation guide
 | `ToolCall` | Tool invocation request from LLM |
 | `AgentRef` | Reference to running agent instance |
 | `DatabaseRef` | Reference to in-memory database |
+| `LedgerRef` | Reference to fault-tolerant knowledge store |
 
 ### User-Defined Types
 - `struct` - Product types with named fields
@@ -185,7 +209,7 @@ if     else   match  for     while   loop    break   continue
 return try    catch  throw   emit    await   async   pipeline
 stage  schema db     connect self    impl    trait   enum
 struct as     in     with    true    false   nil     const
-type   mcp
+type   mcp    ledger
 ```
 
 ## Built-in Functions
@@ -214,3 +238,12 @@ type   mcp
 | 9 | Spec-first development | All features fully specified before implementation begins |
 | 10 | `@describe`/`@param` for tool descriptions | Compiler-enforced decorators replace fragile doc comments; descriptions are language grammar, not comments |
 | 11 | First-class `mcp` construct | MCP tool interfaces declared in source with typed signatures; compile-time type checking, runtime schema validation |
+| 12 | Generic method call syntax | `method<Type>(args)` with lookahead disambiguation from comparison; type args as schema on CALL_METHOD |
+| 13 | Phase 3a mock-first approach | No tokio/async in Phase 3a; AWAIT is no-op; agents return mock responses; full end-to-end without HTTP |
+| 14 | First-class `ledger` keyword | Fault-tolerant knowledge store for AI agents. Separate from `db` (exact-key state). Identifier + Keys + Value document model with word-containment similarity matching and case-insensitive tag queries |
+| 15 | Synchronous LlmProvider trait | Uses reqwest::blocking for simplicity. Async deferred to Phase 3c. tokio added for CLI + future async |
+| 16 | Trait-based provider with MockProvider fallback | MockProvider auto-selected when no API key. Real providers need env vars (OPENAI_API_KEY etc.) |
+| 17 | Schema type normalization at runtime | Compiler emits Concerto types (String, Int, Array<T>). Runtime normalizes to JSON Schema types before jsonschema validation |
+| 18 | run_loop_until(stop_depth) for nested execution | Pipeline stages and thunks call run_loop_until to prevent executing caller's instructions after RETURN |
+| 19 | Thunk-based async foundations | SpawnAsync creates Value::Thunk (deferred computation), Await resolves synchronously. True parallel deferred |
+| 20 | MCP stdio JSON-RPC transport | McpClient spawns subprocess, communicates via JSON-RPC 2.0 on stdin/stdout. Tool schemas fed to LLM ChatRequest |

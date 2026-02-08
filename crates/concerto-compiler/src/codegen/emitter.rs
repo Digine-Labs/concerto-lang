@@ -498,16 +498,26 @@ impl CodeGenerator {
             ExprKind::MethodCall {
                 object,
                 method,
+                type_args,
                 args,
             } => {
                 self.generate_expr(object, ctx);
                 for arg in args {
                     self.generate_expr(arg, ctx);
                 }
+                // Extract schema name from type args (first type arg, if any)
+                let schema = type_args.first().and_then(|ta| {
+                    if let crate::ast::types::TypeKind::Named(name) = &ta.kind {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                });
                 ctx.emit(IrInstruction {
                     op: Opcode::CallMethod,
                     name: Some(method.clone()),
                     argc: Some(args.len() as u32),
+                    schema,
                     span,
                     ..default_instruction()
                 });
@@ -1893,6 +1903,7 @@ impl CodeGenerator {
             ExprKind::MethodCall {
                 object,
                 method,
+                type_args,
                 args,
             } => {
                 // left |> obj.method(args) => obj.method(left, args)
@@ -1901,10 +1912,18 @@ impl CodeGenerator {
                 for arg in args {
                     self.generate_expr(arg, ctx);
                 }
+                let schema = type_args.first().and_then(|ta| {
+                    if let crate::ast::types::TypeKind::Named(name) = &ta.kind {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                });
                 ctx.emit(IrInstruction {
                     op: Opcode::CallMethod,
                     name: Some(method.clone()),
                     argc: Some((args.len() + 1) as u32),
+                    schema,
                     span,
                     ..default_instruction()
                 });
@@ -2197,6 +2216,12 @@ impl CodeGenerator {
 
                 IrPipelineStage {
                     name: stage.name.clone(),
+                    params: stage.params.iter().map(|p| IrParam {
+                        name: p.name.clone(),
+                        param_type: p.type_ann.as_ref()
+                            .map(|t| serde_json::Value::String(format_type(t)))
+                            .unwrap_or(serde_json::Value::String("any".to_string())),
+                    }).collect(),
                     input_type: stage
                         .params
                         .first()

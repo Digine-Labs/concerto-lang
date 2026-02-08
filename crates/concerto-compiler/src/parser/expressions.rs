@@ -497,7 +497,7 @@ impl Parser {
                     let field = self.advance().clone();
                     let field_name = field.lexeme.clone();
 
-                    // Check if it's a method call
+                    // Check if it's a method call (possibly with generic type args)
                     if self.peek() == TokenKind::LeftParen {
                         self.advance(); // consume '('
                         let args = self.parse_arg_list();
@@ -509,10 +509,48 @@ impl Parser {
                             ExprKind::MethodCall {
                                 object: Box::new(expr),
                                 method: field_name,
+                                type_args: vec![],
                                 args,
                             },
                             span,
                         );
+                    } else if self.peek() == TokenKind::Less {
+                        // Could be generic method call: method<Type>(args)
+                        // Lookahead to disambiguate from comparison: need <Ident>(
+                        if self.is_generic_method_call() {
+                            self.advance(); // consume '<'
+                            let type_args = self.parse_type_arg_list();
+                            if self.expect(TokenKind::Greater).is_none() {
+                                return expr;
+                            }
+                            if self.expect(TokenKind::LeftParen).is_none() {
+                                return expr;
+                            }
+                            let args = self.parse_arg_list();
+                            if self.expect(TokenKind::RightParen).is_none() {
+                                return expr;
+                            }
+                            let span = expr.span.merge(&self.previous_span());
+                            expr = Expr::new(
+                                ExprKind::MethodCall {
+                                    object: Box::new(expr),
+                                    method: field_name,
+                                    type_args,
+                                    args,
+                                },
+                                span,
+                            );
+                        } else {
+                            // Not a generic call — fall through to field access
+                            let span = expr.span.merge(&field.span);
+                            expr = Expr::new(
+                                ExprKind::FieldAccess {
+                                    object: Box::new(expr),
+                                    field: field_name,
+                                },
+                                span,
+                            );
+                        }
                     } else {
                         let span = expr.span.merge(&field.span);
                         expr = Expr::new(
@@ -564,6 +602,53 @@ impl Parser {
             }
         }
         args
+    }
+
+    /// Lookahead to determine if `<` starts a generic type argument list
+    /// for a method call (e.g., `method<Type>(args)`), as opposed to a
+    /// comparison operator. Checks pattern: `< Identifier [, Identifier]* > (`
+    fn is_generic_method_call(&self) -> bool {
+        // Current token should be '<'
+        if self.peek() != TokenKind::Less {
+            return false;
+        }
+        // Scan ahead: < Type [, Type]* > (
+        let mut offset = 1; // skip '<'
+        loop {
+            // Expect an identifier (type name)
+            if self.peek_at(offset) != TokenKind::Identifier {
+                return false;
+            }
+            offset += 1;
+            // After identifier, expect ',' (more types) or '>' (end)
+            match self.peek_at(offset) {
+                TokenKind::Comma => {
+                    offset += 1; // skip ',' and continue to next type
+                }
+                TokenKind::Greater => {
+                    offset += 1; // skip '>'
+                    // Must be followed by '(' to be a method call
+                    return self.peek_at(offset) == TokenKind::LeftParen;
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// Parse generic type arguments: `Type [, Type]*` (between `<` and `>`).
+    /// The `<` has already been consumed.
+    fn parse_type_arg_list(&mut self) -> Vec<crate::ast::types::TypeAnnotation> {
+        let mut type_args = Vec::new();
+        if self.peek() == TokenKind::Greater {
+            return type_args;
+        }
+        while let Some(ty) = self.parse_type_annotation() {
+            type_args.push(ty);
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        type_args
     }
 
     // ========================================================================
@@ -1560,6 +1645,69 @@ mod tests {
                 _ => panic!("expected method call"),
             },
             _ => panic!("expected expression statement"),
+        }
+    }
+
+    #[test]
+    fn parse_generic_method_call() {
+        let prog = parse("fn main() { obj.method<Type>(a, b); }");
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Expr(s) => match &s.expr.kind {
+                ExprKind::MethodCall {
+                    method, type_args, args, ..
+                } => {
+                    assert_eq!(method, "method");
+                    assert_eq!(type_args.len(), 1);
+                    assert_eq!(args.len(), 2);
+                    // Verify the type arg is "Type"
+                    if let crate::ast::types::TypeKind::Named(name) = &type_args[0].kind {
+                        assert_eq!(name, "Type");
+                    } else {
+                        panic!("expected Named type arg");
+                    }
+                }
+                _ => panic!("expected method call, got {:?}", s.expr.kind),
+            },
+            _ => panic!("expected expression statement"),
+        }
+    }
+
+    #[test]
+    fn parse_generic_method_call_multiple_type_args() {
+        let prog = parse("fn main() { obj.method<A, B>(x); }");
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Expr(s) => match &s.expr.kind {
+                ExprKind::MethodCall {
+                    method, type_args, args, ..
+                } => {
+                    assert_eq!(method, "method");
+                    assert_eq!(type_args.len(), 2);
+                    assert_eq!(args.len(), 1);
+                }
+                _ => panic!("expected method call"),
+            },
+            _ => panic!("expected expression statement"),
+        }
+    }
+
+    #[test]
+    fn parse_less_than_not_generic() {
+        // `a.b < c` should parse as comparison, not generic method
+        let prog = parse("fn main() { let x = a.b < c; }");
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Let(l) => match &l.initializer.as_ref().unwrap().kind {
+                ExprKind::Binary { op, .. } => {
+                    assert_eq!(op, &BinaryOp::Lt);
+                }
+                _ => panic!("expected binary expression"),
+            },
+            _ => panic!("expected let statement"),
         }
     }
 
