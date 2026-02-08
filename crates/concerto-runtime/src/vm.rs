@@ -719,6 +719,9 @@ impl VM {
                         &func.params,
                     )?;
                     // Execution continues in run_loop reading from new frame
+                } else if name.starts_with("std::") {
+                    let result = crate::stdlib::call_stdlib(&name, args)?;
+                    self.push(result);
                 } else {
                     // Unknown function — try as a no-op returning nil
                     self.push(Value::Nil);
@@ -777,6 +780,11 @@ impl VM {
             Value::Option(opt) => Self::call_option_method(opt, &method)?,
             Value::String(s) => Self::call_string_method(s, &method, args)?,
             Value::Array(arr) => Self::call_array_method(arr, &method, args)?,
+            Value::Struct { ref type_name, .. }
+                if type_name == "Set" || type_name == "Queue" || type_name == "Stack" =>
+            {
+                crate::stdlib::collections::call_collection_method(object, &method, args)?
+            }
             _ => {
                 // Try to find a qualified function (Type::method)
                 let type_name = object.type_name().to_string();

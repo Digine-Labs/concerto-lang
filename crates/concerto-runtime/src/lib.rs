@@ -7,6 +7,7 @@ pub mod mcp;
 pub mod provider;
 pub mod providers;
 pub mod schema;
+pub mod stdlib;
 pub mod tool;
 pub mod value;
 pub mod vm;

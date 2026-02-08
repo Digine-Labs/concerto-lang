@@ -76,6 +76,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 17. **Pipeline Lifecycle**: Full lifecycle emits (pipeline:start/stage_start/stage_complete/error/complete). Stage @retry/@timeout decorators. Result unwrapping. Error short-circuit. Duration tracking
 18. **Async Foundations**: Thunk value (deferred computation). SpawnAsync creates thunk, Await resolves synchronously, AwaitAll collects results. True parallel execution deferred
 19. **MCP Client**: mcp.rs — McpClient (stdio JSON-RPC 2.0 transport), McpRegistry (manages connections). Tool discovery via tools/list, tool schemas included in ChatRequest for LLM function calling
+20. **Standard Library**: stdlib/ module with 12 sub-modules. VM dispatches `std::*` calls via `call_stdlib()`. Collections (Set/Queue/Stack) as Value::Struct with immutable method semantics, dispatched via exec_call_method. Modules: math (11 fns), string (17 fns), env (4 fns), time (3 fns), json (4 fns), fmt (5 fns), log (4 fns), fs (7 fns), collections (3 types + 20 methods), http (5 fns), crypto (4 fns), prompt (3 fns)
 
 ## Directory Structure
 
@@ -126,7 +127,7 @@ concerto-lang/
         codegen/mod.rs, emitter.rs, constant_pool.rs
     concertoc/           # Compiler CLI binary
       src/main.rs
-    concerto-runtime/    # Runtime library (Phase 3d complete)
+    concerto-runtime/    # Runtime library (Phase 4 complete)
       src/
         lib.rs, error.rs, value.rs, ir_loader.rs, vm.rs, builtins.rs
         ledger.rs        # LedgerStore (fault-tolerant knowledge store, word-containment queries)
@@ -136,6 +137,10 @@ concerto-lang/
         tool.rs          # ToolRegistry (per-tool instance state)
         decorator.rs     # @retry/@timeout/@log decorator parsing and application
         mcp.rs           # MCP JSON-RPC client (stdio), McpRegistry, tool discovery
+        stdlib/          # Standard library (12 modules, 87 functions)
+          mod.rs         # Router: call_stdlib() dispatches by module path
+          math.rs, string.rs, env.rs, time.rs, json.rs, fmt.rs
+          log.rs, fs.rs, collections.rs, http.rs, crypto.rs, prompt.rs
     concerto/            # Runtime CLI binary
       src/main.rs        # `concerto run <file.conc-ir> [--debug]` (#[tokio::main])
   tests/

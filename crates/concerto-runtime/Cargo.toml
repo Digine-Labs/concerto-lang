@@ -13,3 +13,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
 jsonschema = { workspace = true }
+sha2 = { workspace = true }
+md-5 = { workspace = true }
+uuid = { workspace = true }

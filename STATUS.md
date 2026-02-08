@@ -10,6 +10,7 @@
 **Phase 3b: Agent & Tool System** - COMPLETE. Try/catch exception handling, real LLM providers (OpenAI + Anthropic), schema validation with retry, tool method dispatch. 299 tests total, clippy clean.
 **Phase 3c: Pipeline & Polish** - COMPLETE. Decorator runtime (@retry/@timeout/@log), full pipeline lifecycle events, async foundations (Thunk), MCP client (stdio transport), run_loop_until for nested execution. 320 tests total, clippy clean, all 3 examples run end-to-end.
 **Phase 3d: Ledger System** - COMPLETE. First-class `ledger` keyword across full compiler+runtime stack. LedgerStore with word-containment identifier queries, case-insensitive key queries (single/OR/AND), mutations, scoping. 338 tests total, clippy clean, all 3 examples run end-to-end.
+**Phase 4: Standard Library** - COMPLETE. All 12 std:: modules implemented (math, string, env, time, json, fmt, log, fs, collections, http, crypto, prompt). 102 new stdlib tests. VM dispatch for std:: function calls and collection method calls. 440 tests total (225 compiler + 215 runtime), clippy clean, all 3 examples run end-to-end.
 
 ---
 
@@ -124,22 +125,23 @@
 | Runtime: query builder pattern | Done | query() returns same LedgerRef, from_* performs query — two CALL_METHOD dispatches |
 | Ledger test suite | Done | 18 unit tests covering all query modes, mutations, edge cases, scoping |
 
-## Phase 4: Standard Library
+## Phase 4: Standard Library (COMPLETE)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| std::json | Not Started | parse, stringify |
-| std::http | Not Started | get, post, request |
-| std::fs | Not Started | read_file, write_file, exists |
-| std::env | Not Started | get, set, all |
-| std::fmt | Not Started | format, pad, truncate |
-| std::collections | Not Started | Set, Queue, Stack |
-| std::time | Not Started | now, sleep, timestamp |
-| std::math | Not Started | abs, min, max, round, random |
-| std::string | Not Started | split, join, trim, replace |
-| std::log | Not Started | info, warn, error, debug |
-| std::prompt | Not Started | Prompt templates and utilities |
-| std::crypto | Not Started | hash_sha256, uuid |
+| stdlib scaffold + VM integration | Done | stdlib/mod.rs router, vm.rs std:: dispatch in exec_call + collections dispatch in exec_call_method, lib.rs pub mod stdlib |
+| std::math | Done | abs, min, max, clamp, round, floor, ceil, pow, sqrt, random, random_int. 16 tests |
+| std::string | Done | split, join, trim, trim_start, trim_end, replace, to_upper, to_lower, contains, starts_with, ends_with, substring, len, repeat, reverse, parse_int, parse_float. 16 tests |
+| std::env | Done | get (Option), require (Result), all (Map), has (Bool). 6 tests |
+| std::time | Done | now (ISO 8601), now_ms (epoch millis), sleep. Manual Gregorian calendar arithmetic. 6 tests |
+| std::json | Done | parse (reuses SchemaValidator::json_to_value), stringify (reuses Value::to_json), stringify_pretty, is_valid. 8 tests |
+| std::fmt | Done | format ({} sequential replacement), pad_left, pad_right, truncate, indent. 8 tests |
+| std::log | Done | info, warn, error, debug — eprintln!("[LEVEL]"). 5 tests |
+| std::fs | Done | read_file, write_file, append_file, exists, list_dir, remove_file, file_size. 8 tests |
+| std::collections | Done | Set/Queue/Stack as Value::Struct with immutable semantics. Constructors + 20 methods. 12 tests |
+| std::http | Done | get, post, put, delete, request — uses reqwest::blocking. HttpResponse struct. 6 tests |
+| std::crypto | Done | sha256 (sha2), md5 (md-5), uuid (uuid v4), random_bytes. 5 tests |
+| std::prompt | Done | template (${var} substitution), from_file (with optional vars), count_tokens (word heuristic). 5 tests |
 
 ## Phase 5: Integration and Polish
 
