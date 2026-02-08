@@ -1,0 +1,188 @@
+// multi_agent_pipeline.conc
+// Demonstrates a multi-stage pipeline with multiple agents, branching logic,
+// in-memory database, and structured output.
+
+connect openai {
+    api_key: env("OPENAI_API_KEY"),
+    default_model: "gpt-4o",
+}
+
+connect anthropic {
+    api_key: env("ANTHROPIC_API_KEY"),
+    default_model: "claude-sonnet-4-20250514",
+}
+
+// Schemas for structured LLM output
+schema Classification {
+    category: "legal" | "technical" | "financial" | "general",
+    confidence: Float,
+    reasoning: String,
+    key_topics: Array<String>,
+}
+
+schema Summary {
+    title: String,
+    summary: String,
+    action_items: Array<String>,
+}
+
+schema ProcessedDocument {
+    classification: Classification,
+    summary: Summary,
+    processed_by: String,
+}
+
+// Shared memory database for pipeline state
+db ledger: Database<String, Any> = Database::new();
+
+// Agents -- each with a specific role
+@retry(max: 3, backoff: "exponential")
+agent Classifier {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.1,
+    max_tokens: 500,
+    system_prompt: """
+        You are a document classifier. Classify documents into one of these
+        categories: legal, technical, financial, general.
+        Always respond with valid JSON matching the requested schema.
+        """,
+}
+
+agent LegalAnalyzer {
+    provider: anthropic,
+    model: "claude-sonnet-4-20250514",
+    temperature: 0.3,
+    system_prompt: "You are a legal document analyst. Extract key legal points and action items.",
+}
+
+agent TechWriter {
+    provider: openai,
+    model: "gpt-4o",
+    temperature: 0.5,
+    system_prompt: "You are a technical writer. Summarize technical documents clearly and concisely.",
+}
+
+agent FinancialAnalyst {
+    provider: openai,
+    model: "gpt-4o",
+    temperature: 0.2,
+    system_prompt: "You are a financial analyst. Summarize financial documents with key metrics and action items.",
+}
+
+agent GeneralSummarizer {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.5,
+    system_prompt: "You are a general-purpose summarizer. Create concise summaries with action items.",
+}
+
+// Pipeline: classify -> route to specialist -> produce summary
+pipeline DocumentProcessor {
+    stage classify(document: String) -> Classification {
+        emit("pipeline:progress", { "stage": "classify", "status": "started" });
+
+        let result = Classifier.execute_with_schema<Classification>(
+            "Classify this document:\n\n${document}"
+        )?;
+
+        // Record in ledger
+        ledger.set("classification", result);
+        ledger.set("classify_time", std::time::now());
+
+        emit("pipeline:progress", {
+            "stage": "classify",
+            "status": "complete",
+            "category": result.category,
+            "confidence": result.confidence,
+        });
+
+        result
+    }
+
+    stage summarize(classification: Classification) -> Summary {
+        emit("pipeline:progress", { "stage": "summarize", "status": "started" });
+
+        let document = ledger.get("original_document") ?? "";
+
+        let prompt = """
+            Summarize this ${classification.category} document.
+            Key topics identified: ${classification.key_topics}.
+
+            Document:
+            ${document}
+
+            Provide a title, summary, and list of action items.
+            """;
+
+        // Route to specialist agent based on classification
+        let summary = match classification.category {
+            "legal" => {
+                emit("routing", "Using legal specialist");
+                LegalAnalyzer.execute_with_schema<Summary>(prompt)?
+            },
+            "technical" => {
+                emit("routing", "Using technical specialist");
+                TechWriter.execute_with_schema<Summary>(prompt)?
+            },
+            "financial" => {
+                emit("routing", "Using financial specialist");
+                FinancialAnalyst.execute_with_schema<Summary>(prompt)?
+            },
+            _ => {
+                emit("routing", "Using general summarizer");
+                GeneralSummarizer.execute_with_schema<Summary>(prompt)?
+            },
+        };
+
+        ledger.set("summary", summary);
+        ledger.set("summarize_time", std::time::now());
+
+        emit("pipeline:progress", { "stage": "summarize", "status": "complete" });
+
+        summary
+    }
+}
+
+fn main() {
+    // Input document (in practice, this would come from an emit or argument)
+    let document = """
+        QUARTERLY EARNINGS REPORT - Q4 2025
+        Revenue increased 15% year-over-year to $2.3 billion.
+        Operating margin improved to 28% from 24%.
+        The board approved a $500M share buyback program.
+        Key risks include regulatory changes in the EU market
+        and ongoing supply chain disruptions in Asia.
+        Management projects 10-12% revenue growth for FY2026.
+        """;
+
+    // Store original document for pipeline access
+    ledger.set("original_document", document);
+
+    // Run the pipeline
+    let result = DocumentProcessor.run(document);
+
+    match result {
+        Ok(summary) => {
+            let classification = ledger.get("classification");
+
+            let output = ProcessedDocument {
+                classification: classification.unwrap(),
+                summary: summary,
+                processed_by: "DocumentProcessor pipeline",
+            };
+
+            emit("result", output);
+        },
+        Err(e) => {
+            emit("error", {
+                "pipeline": "DocumentProcessor",
+                "message": e.message,
+                "ledger_state": {
+                    "has_classification": ledger.has("classification"),
+                    "has_summary": ledger.has("summary"),
+                },
+            });
+        },
+    }
+}

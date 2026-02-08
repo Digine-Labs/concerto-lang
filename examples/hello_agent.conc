@@ -1,0 +1,48 @@
+// hello_agent.conc
+// The simplest useful Concerto program: connect to an LLM, ask a question, emit the response.
+
+connect openai {
+    api_key: env("OPENAI_API_KEY"),
+    default_model: "gpt-4o-mini",
+}
+
+schema Greeting {
+    message: String,
+    language: String,
+}
+
+agent Greeter {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.7,
+    system_prompt: "You are a friendly multilingual greeter. Always respond with valid JSON.",
+}
+
+fn main() {
+    let prompt = "Say hello in French. Return JSON with 'message' and 'language' fields.";
+
+    // Simple execution (raw string response)
+    let raw_response = Greeter.execute(prompt);
+    match raw_response {
+        Ok(response) => {
+            emit("raw", response.text);
+            emit("tokens", {
+                "input": response.tokens_in,
+                "output": response.tokens_out,
+            });
+        },
+        Err(e) => emit("error", e.message),
+    }
+
+    // Structured execution (typed, validated response)
+    let structured_response = Greeter.execute_with_schema<Greeting>(prompt);
+    match structured_response {
+        Ok(greeting) => {
+            emit("greeting", {
+                "message": greeting.message,
+                "language": greeting.language,
+            });
+        },
+        Err(e) => emit("error", e.message),
+    }
+}

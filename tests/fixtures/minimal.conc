@@ -1,0 +1,8 @@
+// minimal.conc -- the milestone program from the Phase 2 plan
+fn main() {
+    let x = 5;
+    let y = x + 3;
+    if y > 7 {
+        emit("result", y);
+    }
+}

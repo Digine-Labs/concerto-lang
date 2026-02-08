@@ -1,0 +1,40 @@
+# Build output
+/target/
+dist/
+build/
+out/
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Concerto build artifacts
+*.conc-ir
+*.conc-ir.map
+
+# Test coverage
+coverage/
+.nyc_output/
+tarpaulin-report.html
+
+# Temporary
+tmp/
+temp/
+
+# Cargo lock for library crates (keep for binaries)
+# Cargo.lock

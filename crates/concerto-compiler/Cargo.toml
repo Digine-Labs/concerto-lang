@@ -1,0 +1,12 @@
+[package]
+name = "concerto-compiler"
+description = "Concerto language compiler: lexer, parser, semantic analysis, IR generation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+concerto-common = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

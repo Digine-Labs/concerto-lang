@@ -1,0 +1,164 @@
+// tool_usage.conc
+// Demonstrates defining local tools with @describe/@param decorators,
+// connecting to an MCP server with typed interfaces, and attaching
+// both to an agent.
+
+connect openai {
+    api_key: env("OPENAI_API_KEY"),
+    default_model: "gpt-4o",
+}
+
+// === Local Tools ===
+
+// Custom tool: File operations (delegates to host via emit)
+tool FileManager {
+    description: "Read, write, and list files on the filesystem",
+
+    @describe("Read the contents of a file at the given path")
+    @param("path", "Absolute or relative file path to read")
+    pub fn read_file(self, path: String) -> Result<String, ToolError> {
+        let result = await emit("tool:file:read", { "path": path });
+        match result {
+            Ok(content) => Ok(content),
+            Err(e) => Err(ToolError::new("Failed to read file '${path}': ${e}")),
+        }
+    }
+
+    @describe("Write content to a file, creating it if it doesn't exist")
+    @param("path", "Absolute or relative file path to write to")
+    @param("content", "The string content to write")
+    pub fn write_file(self, path: String, content: String) -> Result<Bool, ToolError> {
+        let result = await emit("tool:file:write", {
+            "path": path,
+            "content": content,
+        });
+        match result {
+            Ok(_) => Ok(true),
+            Err(e) => Err(ToolError::new("Failed to write file '${path}': ${e}")),
+        }
+    }
+
+    @describe("List all files in a directory")
+    @param("path", "Path to the directory to list")
+    pub fn list_directory(self, path: String) -> Result<Array<String>, ToolError> {
+        let result = await emit("tool:file:list", { "path": path });
+        match result {
+            Ok(files) => Ok(files),
+            Err(e) => Err(ToolError::new("Failed to list directory '${path}': ${e}")),
+        }
+    }
+}
+
+// Custom tool: Simple calculator (implemented in Concerto, no host delegation)
+tool Calculator {
+    description: "Evaluate simple arithmetic operations on two numbers",
+
+    @describe("Evaluate a simple arithmetic expression")
+    @param("operation", "The operation to perform: add, subtract, multiply, or divide")
+    @param("a", "First operand")
+    @param("b", "Second operand")
+    pub fn calculate(self, operation: String, a: Float, b: Float) -> Result<Float, ToolError> {
+        let result = match operation {
+            "add" => a + b,
+            "subtract" => a - b,
+            "multiply" => a * b,
+            "divide" => {
+                if b == 0.0 {
+                    return Err(ToolError::new("Division by zero"));
+                }
+                a / b
+            },
+            _ => return Err(ToolError::new("Unknown operation: ${operation}")),
+        };
+        Ok(result)
+    }
+}
+
+// === MCP Server ===
+
+// Connect to a GitHub MCP server -- typed interfaces are declared here
+// so the compiler can type-check all usage at compile time.
+mcp GitHubServer {
+    transport: "stdio",
+    command: "npx -y @modelcontextprotocol/server-github",
+
+    @describe("Search GitHub repositories by query")
+    @param("query", "Search query string")
+    @param("max_results", "Maximum number of results to return")
+    fn search_repositories(query: String, max_results: Int = 10) -> Result<Array<Map<String, Any>>, ToolError>;
+
+    @describe("Get the contents of a file in a repository")
+    @param("owner", "Repository owner username")
+    @param("repo", "Repository name")
+    @param("path", "File path within the repository")
+    fn get_file_contents(owner: String, repo: String, path: String) -> Result<String, ToolError>;
+}
+
+// === Schema ===
+
+schema FileAnalysis {
+    file_count: Int,
+    summary: String,
+    recommendations: Array<String>,
+}
+
+// === Agent ===
+
+// Agent with both local tools and MCP tools attached uniformly
+@log(channel: "agent_debug")
+@timeout(seconds: 60)
+agent FileAnalyzer {
+    provider: openai,
+    model: "gpt-4o",
+    temperature: 0.3,
+    max_tokens: 2000,
+    system_prompt: """
+        You are a file system and code analyzer. You have access to tools for:
+        - Reading and listing local files (FileManager)
+        - Doing arithmetic (Calculator)
+        - Searching GitHub repositories and reading their files (GitHubServer)
+
+        Use these tools to analyze projects and provide insights.
+        """,
+    tools: [FileManager, Calculator, GitHubServer],
+}
+
+// === Main ===
+
+fn main() {
+    let target_directory = env("ANALYSIS_DIR") ?? "./src";
+
+    emit("status", "Starting file analysis of '${target_directory}'");
+
+    // Ask the agent to analyze -- it will use local tools and MCP tools as needed
+    let prompt = """
+        Analyze the project directory at '${target_directory}'.
+
+        1. List the files in the directory
+        2. Read the most important-looking files (up to 3)
+        3. Count total files and calculate average file importance
+        4. Search GitHub for similar projects
+
+        Provide a summary and recommendations.
+        """;
+
+    let result = FileAnalyzer.execute_with_schema<FileAnalysis>(prompt);
+
+    match result {
+        Ok(analysis) => {
+            emit("result", {
+                "file_count": analysis.file_count,
+                "summary": analysis.summary,
+                "recommendations": analysis.recommendations,
+            });
+        },
+        Err(e) => {
+            emit("error", {
+                "message": e.message,
+                "hint": "Make sure ANALYSIS_DIR is set and the host handles tool:file:* emits",
+            });
+        },
+    }
+
+    emit("status", "Analysis complete");
+}

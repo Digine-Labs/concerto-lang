@@ -1,0 +1,34 @@
+[workspace]
+members = [
+    "crates/concerto-common",
+    "crates/concerto-compiler",
+    "crates/concertoc",
+    "crates/concerto-runtime",
+    "crates/concerto",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Digine-Labs/concerto-lang"
+
+[workspace.dependencies]
+# Shared within workspace
+concerto-common = { path = "crates/concerto-common" }
+concerto-compiler = { path = "crates/concerto-compiler" }
+concerto-runtime = { path = "crates/concerto-runtime" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Diagnostics
+ariadne = "0.4"
