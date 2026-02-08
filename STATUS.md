@@ -11,6 +11,8 @@
 **Phase 3c: Pipeline & Polish** - COMPLETE. Decorator runtime (@retry/@timeout/@log), full pipeline lifecycle events, async foundations (Thunk), MCP client (stdio transport), run_loop_until for nested execution. 320 tests total, clippy clean, all 3 examples run end-to-end.
 **Phase 3d: Ledger System** - COMPLETE. First-class `ledger` keyword across full compiler+runtime stack. LedgerStore with word-containment identifier queries, case-insensitive key queries (single/OR/AND), mutations, scoping. 338 tests total, clippy clean, all 3 examples run end-to-end.
 **Phase 4: Standard Library** - COMPLETE. All 12 std:: modules implemented (math, string, env, time, json, fmt, log, fs, collections, http, crypto, prompt). 102 new stdlib tests. VM dispatch for std:: function calls and collection method calls. 440 tests total (225 compiler + 215 runtime), clippy clean, all 3 examples run end-to-end.
+**Phase 5: Integration and Polish** - COMPLETE. Runtime robustness (replaced 5 unwraps, implemented DbQuery, error on unknown fn, mock provider warning). Compiler error quality (ariadne colored output, --quiet/--emit-ir flags, 7 error suggestions). 15 end-to-end integration tests. CLI polish (help text, long_about). README/docs updates. 458 tests total (228 compiler + 215 runtime + 15 integration), clippy clean.
+**Phase 6: Project Manifest & Scaffolding** - NEXT. Introduce `Concerto.toml` as mandatory project manifest. Remove `connect` keyword from language. Add `concerto init` scaffolding command. See [spec/22](spec/22-project-manifest.md) and [spec/23](spec/23-project-scaffolding.md).
 
 ---
 
@@ -143,13 +145,90 @@
 | std::crypto | Done | sha256 (sha2), md5 (md-5), uuid (uuid v4), random_bytes. 5 tests |
 | std::prompt | Done | template (${var} substitution), from_file (with optional vars), count_tokens (word heuristic). 5 tests |
 
-## Phase 5: Integration and Polish
+## Phase 5: Integration and Polish (COMPLETE)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| End-to-end pipeline test | Not Started | Compile + run full example |
-| Example programs verified | Not Started | All examples compile and run |
-| Error message quality | Not Started | Helpful, actionable errors |
+| Runtime robustness | Done | Replaced 5 unwraps in vm.rs with proper error returns, implemented DbQuery with closure-based filtering, error on unknown functions (was Nil), mock provider fallback warning, removed dead code (stack_base), added call_stack_depth() |
+| Compiler error quality | Done | ariadne colored error output (replaces manual eprintln), --quiet flag (compiler + runtime), --emit-ir flag, 7 error suggestions (.with_suggestion on common diagnostics) |
+| Integration test suite | Done | 15 end-to-end compile-to-run tests in tests/integration.rs (arithmetic, strings, if/else, match, for/while loops, functions, pipe, structs, try/catch, Result, database, stdlib, recursion) |
+| CLI polish | Done | Long help text (--help), --emit-ir (print IR JSON to stdout), --quiet (suppress warnings/emits) |
+| README & docs | Done | Installation, getting started, stdlib table, ledger in features, license MIT |
+| Example programs verified | Done | All 3 examples compile and run end-to-end |
+
+## Phase 6: Project Manifest & Scaffolding
+
+This phase introduces `Concerto.toml` as the mandatory project manifest and adds the `concerto init` scaffolding command. The `connect` keyword is removed from the language — connection config moves entirely to TOML. See [spec/22-project-manifest.md](spec/22-project-manifest.md) and [spec/23-project-scaffolding.md](spec/23-project-scaffolding.md).
+
+### Step 1: Concerto.toml Loader
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add `toml` crate dependency | Not Started | Workspace-level dep for TOML parsing |
+| Create `concerto-common/src/manifest.rs` | Not Started | `ConcertoManifest` struct: `[project]`, `[connections.*]`, `[mcp.*]` sections. `load_manifest(path)` and `find_manifest(source_dir)` (walk-up search). Validation of required fields per provider type |
+| Manifest unit tests | Not Started | Parse valid TOML, missing fields, unknown provider, walk-up discovery |
+
+### Step 2: Remove `connect` Keyword
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Lexer: remove `connect` keyword | Not Started | Remove from keyword list (42→41 keywords). `connect` becomes a regular identifier |
+| Parser: remove `ConnectDecl` parsing | Not Started | Remove `parse_connect_declaration()` and related AST nodes |
+| AST: remove `ConnectDecl` variant | Not Started | Remove from `Declaration` enum, remove `ConnectField` types |
+| Semantic: remove connect name registration | Not Started | Resolver no longer registers connect block names in global scope |
+| Codegen: remove connect IR generation | Not Started | Remove `generate_connect()`, `IrConnection` still exists (populated from TOML now) |
+| Update existing tests | Not Started | Remove/update tests that use `connect` blocks. Compiler tests that parse connect syntax need updating |
+
+### Step 3: Wire Manifest into Compiler
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `concertoc` reads Concerto.toml | Not Started | Find manifest from source file dir, parse, validate. Error if not found |
+| Semantic: validate `provider:` against TOML | Not Started | Resolver loads connection names from manifest, checks agent `provider:` fields |
+| Codegen: embed TOML connections in IR | Not Started | `connections` IR section populated from manifest instead of `connect` blocks |
+| MCP: merge TOML config with source interfaces | Not Started | `mcp_connections` IR section gets transport/command/url from TOML, typed tools from source |
+| Compiler error messages | Not Started | Unknown provider, missing manifest, MCP name mismatch warnings |
+
+### Step 4: Update Runtime for TOML-sourced Connections
+
+| Task | Status | Notes |
+|------|--------|-------|
+| IR connection format: add `provider` field | Not Started | `IrConnection.config` now includes explicit `provider` type string from TOML |
+| ConnectionManager: use `provider` field | Not Started | Provider factory uses explicit `provider` field instead of guessing from name |
+| MCP registry: TOML config fields | Not Started | McpClient reads transport/command/url from IR (sourced from TOML) |
+| Runtime integration tests | Not Started | End-to-end tests with TOML-based connections |
+
+### Step 5: `concerto init` Command
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add `Init` subcommand to CLI | Not Started | `concerto init <name> [--provider openai\|anthropic\|ollama]` |
+| Generate Concerto.toml | Not Started | Provider-specific template with `[project]` + `[connections.*]` |
+| Generate src/main.conc | Not Started | Hello-world agent program matching the chosen provider |
+| Generate .gitignore | Not Started | `*.conc-ir` and `.env` |
+| Overwrite protection | Not Started | Error if `Concerto.toml` already exists |
+| Output formatting | Not Started | Print created files + "Get started" instructions |
+| Init tests | Not Started | Test each provider template, overwrite check, name inference from `.` |
+
+### Step 6: Restructure Examples & Update Docs
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Restructure examples into project dirs | Not Started | Flat `examples/*.conc` → proper project layout: `examples/hello_agent/Concerto.toml` + `examples/hello_agent/src/main.conc` (same for multi_agent_pipeline, tool_usage). Remove old flat files + `.conc-ir` artifacts |
+| Create Concerto.toml per example | Not Started | hello_agent: openai only. multi_agent_pipeline: openai + anthropic. tool_usage: openai + `[mcp.GitHubServer]` with stdio transport |
+| Remove `connect` blocks from examples | Not Started | Delete `connect openai { ... }` / `connect anthropic { ... }` from all 3 `.conc` sources |
+| Remove MCP connection fields from tool_usage | Not Started | `mcp GitHubServer` keeps typed fn signatures, loses `transport`/`command` fields (now in TOML) |
+| Update integration tests | Not Started | Integration tests need Concerto.toml or manifest injection for programs that use agents/connections |
+| Update spec/11 (LLM connections) | Not Started | Mark as superseded by spec/22, add cross-reference |
+| Update spec/07 (Agents) | Not Started | Remove `connect` from agent examples, reference Concerto.toml |
+| Update spec/20 (Interop/MCP) | Not Started | MCP connection config references Concerto.toml |
+| Update CLAUDE.md | Not Started | New keyword count (41), manifest in architecture, new spec files, updated examples dir structure |
+| Update README.md | Not Started | Getting started with `concerto init` + Concerto.toml workflow, add spec/22 and spec/23 to docs list |
+
+### Future (deferred)
+
+| Task | Status | Notes |
+|------|--------|-------|
 | Performance benchmarks | Not Started | VM execution performance |
 | Documentation site | Not Started | Language guide and API docs |
 | VS Code extension | Not Started | Syntax highlighting for .conc |
