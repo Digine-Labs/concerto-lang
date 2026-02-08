@@ -34,6 +34,8 @@ pub enum Value {
     SchemaRef(String),
     /// Reference to a database.
     DatabaseRef(String),
+    /// Reference to a ledger (fault-tolerant knowledge store).
+    LedgerRef(String),
     /// Reference to a pipeline.
     PipelineRef(String),
     /// A deferred computation (function name + captured args).
@@ -335,6 +337,7 @@ impl Value {
             Value::AgentRef(_) => "AgentRef",
             Value::SchemaRef(_) => "SchemaRef",
             Value::DatabaseRef(_) => "DatabaseRef",
+            Value::LedgerRef(_) => "LedgerRef",
             Value::PipelineRef(_) => "PipelineRef",
             Value::Thunk { .. } => "Thunk",
         }
@@ -393,6 +396,7 @@ impl Value {
             Value::AgentRef(name) => serde_json::json!(format!("<agent {}>", name)),
             Value::SchemaRef(name) => serde_json::json!(format!("<schema {}>", name)),
             Value::DatabaseRef(name) => serde_json::json!(format!("<db {}>", name)),
+            Value::LedgerRef(name) => serde_json::json!(format!("<ledger {}>", name)),
             Value::PipelineRef(name) => serde_json::json!(format!("<pipeline {}>", name)),
             Value::Thunk { function, .. } => serde_json::json!(format!("<thunk {}>", function)),
         }
@@ -477,6 +481,7 @@ impl fmt::Display for Value {
             Value::AgentRef(name) => write!(f, "<agent {}>", name),
             Value::SchemaRef(name) => write!(f, "<schema {}>", name),
             Value::DatabaseRef(name) => write!(f, "<db {}>", name),
+            Value::LedgerRef(name) => write!(f, "<ledger {}>", name),
             Value::PipelineRef(name) => write!(f, "<pipeline {}>", name),
             Value::Thunk { function, .. } => write!(f, "<thunk {}>", function),
         }

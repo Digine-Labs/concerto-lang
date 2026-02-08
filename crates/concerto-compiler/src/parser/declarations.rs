@@ -41,6 +41,7 @@ impl Parser {
             TokenKind::Const => self.parse_const_decl(),
             TokenKind::Type => self.parse_type_alias_decl(),
             TokenKind::Db => self.parse_db_decl(),
+            TokenKind::Ledger => self.parse_ledger_decl(),
             TokenKind::Mcp => self.parse_mcp_decl(),
             _ => {
                 let span = self.current_span();
@@ -931,6 +932,33 @@ impl Parser {
 
         let span = start.merge(&self.previous_span());
         Some(Declaration::Db(DbDecl {
+            name,
+            type_ann,
+            initializer,
+            span,
+        }))
+    }
+
+    // ========================================================================
+    // ledger declaration
+    // ========================================================================
+
+    /// Parse `ledger name: Ledger = Ledger::new();`
+    fn parse_ledger_decl(&mut self) -> Option<Declaration> {
+        let start = self.current_span();
+        self.advance(); // consume 'ledger'
+
+        let name_token = self.expect(TokenKind::Identifier)?;
+        let name = name_token.lexeme.clone();
+
+        self.expect(TokenKind::Colon)?;
+        let type_ann = self.parse_type_annotation()?;
+        self.expect(TokenKind::Equal)?;
+        let initializer = self.parse_expression()?;
+        self.expect(TokenKind::Semicolon)?;
+
+        let span = start.merge(&self.previous_span());
+        Some(Declaration::Ledger(LedgerDecl {
             name,
             type_ann,
             initializer,

@@ -25,6 +25,8 @@ pub struct LoadedModule {
     pub connections: HashMap<String, IrConnection>,
     /// Database declarations by name.
     pub databases: HashMap<String, IrDatabase>,
+    /// Ledger declarations by name.
+    pub ledgers: HashMap<String, IrLedger>,
     /// Pipeline definitions by name.
     pub pipelines: HashMap<String, IrPipeline>,
     /// Type definitions by name.
@@ -107,6 +109,13 @@ impl LoadedModule {
             .map(|d| (d.name.clone(), d))
             .collect();
 
+        // Build ledger table
+        let ledgers: HashMap<String, IrLedger> = module
+            .ledgers
+            .into_iter()
+            .map(|l| (l.name.clone(), l))
+            .collect();
+
         // Build pipeline table
         let pipelines: HashMap<String, IrPipeline> = module
             .pipelines
@@ -139,6 +148,7 @@ impl LoadedModule {
             schemas,
             connections,
             databases,
+            ledgers,
             pipelines,
             types,
             entry_point,

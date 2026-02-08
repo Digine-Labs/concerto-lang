@@ -2,6 +2,7 @@ pub mod builtins;
 pub mod decorator;
 pub mod error;
 pub mod ir_loader;
+pub mod ledger;
 pub mod mcp;
 pub mod provider;
 pub mod providers;

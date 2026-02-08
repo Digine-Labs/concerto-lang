@@ -20,6 +20,7 @@ pub struct CodeGenerator {
     schemas: Vec<IrSchema>,
     connections: Vec<IrConnection>,
     databases: Vec<IrDatabase>,
+    ledgers: Vec<IrLedger>,
     pipelines: Vec<IrPipeline>,
     types: Vec<IrType>,
     closure_counter: usize,
@@ -37,6 +38,7 @@ impl CodeGenerator {
             schemas: Vec::new(),
             connections: Vec::new(),
             databases: Vec::new(),
+            ledgers: Vec::new(),
             pipelines: Vec::new(),
             types: Vec::new(),
             closure_counter: 0,
@@ -61,6 +63,7 @@ impl CodeGenerator {
             schemas: self.schemas,
             connections: self.connections,
             databases: self.databases,
+            ledgers: self.ledgers,
             pipelines: self.pipelines,
             source_map: None,
             metadata: IrMetadata {
@@ -91,6 +94,7 @@ impl CodeGenerator {
             Declaration::Trait(t) => self.generate_trait_decl(t),
             Declaration::Const(c) => self.generate_const(c),
             Declaration::Db(d) => self.generate_db(d),
+            Declaration::Ledger(l) => self.generate_ledger(l),
             Declaration::Mcp(m) => self.generate_mcp(m),
             // Use, Module, TypeAlias are compile-time only; no IR emitted.
             Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
@@ -2375,6 +2379,12 @@ impl CodeGenerator {
             key_type,
             value_type,
             persistence: None,
+        });
+    }
+
+    fn generate_ledger(&mut self, ledger: &LedgerDecl) {
+        self.ledgers.push(IrLedger {
+            name: ledger.name.clone(),
         });
     }
 

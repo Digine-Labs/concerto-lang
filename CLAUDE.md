@@ -48,8 +48,8 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 1. **Lexer**: Character scanning, tokenization, source position tracking
 2. **Parser**: Recursive descent with Pratt parsing for expressions
 3. **AST**: Abstract syntax tree with source spans -- 16 declaration types, decorators, config/typed fields, self params, 30 ExprKind variants (incl. Return expr), 11 PatternKind variants, 6 Stmt variants, union/string-literal type annotations
-4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, Database, std). Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
-5. **IR Generation**: Full coverage lowering of all 16 declaration types, all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/connect/db/mcp lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum
+4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, Database, Ledger, std). Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
+5. **IR Generation**: Full coverage lowering of all 16 declaration types, all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/connect/db/ledger/mcp lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum
 
 ### Runtime Pipeline
 
@@ -57,9 +57,9 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 ```
 
-1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, databases, pipelines). Converts constant types, builds lookup HashMaps, registers qualified tool methods
+1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, databases, ledgers, pipelines). Converts constant types, builds lookup HashMaps, registers qualified tool methods
 2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap, stack_base). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks)
-3. **Value System**: 16 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, DatabaseRef, PipelineRef, Thunk). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
+3. **Value System**: 17 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, DatabaseRef, LedgerRef, PipelineRef, Thunk). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
 4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
 5. **CALL_METHOD convention**: Object pushed first, then args. VM pops N args, then object. Method name from instruction `name` field, schema from `schema` field
 6. **LOAD_LOCAL**: Checks locals → globals → module.functions → path-based names → error
@@ -69,12 +69,13 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 10. **Tool Dispatch**: `ToolRegistry` per-tool state. `CallTool` → qualified function `Tool::method` with self
 11. **Try/Catch**: `TryFrame` stack (catch_pc, call_depth, stack_height). Throw unwinds. Typed catch. Propagate (?) routes through try/catch
 12. **Database**: In-memory KV (HashMap<String, HashMap<String, Value>>). set/get/has/delete
-13. **Emit**: Pops channel + payload, invokes callback. Custom handler via `set_emit_handler()`
-14. **Built-ins**: Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new
-15. **Decorators**: decorator.rs — @retry (max attempts, exponential/linear/none backoff), @timeout (seconds), @log (emit event). Applied to agents and pipeline stages
-16. **Pipeline Lifecycle**: Full lifecycle emits (pipeline:start/stage_start/stage_complete/error/complete). Stage @retry/@timeout decorators. Result unwrapping. Error short-circuit. Duration tracking
-17. **Async Foundations**: Thunk value (deferred computation). SpawnAsync creates thunk, Await resolves synchronously, AwaitAll collects results. True parallel execution deferred
-18. **MCP Client**: mcp.rs — McpClient (stdio JSON-RPC 2.0 transport), McpRegistry (manages connections). Tool discovery via tools/list, tool schemas included in ChatRequest for LLM function calling
+13. **Ledger**: LedgerStore (in-memory Vec<LedgerEntry> per ledger). Three-field document model (identifier, keys, value). Word-containment identifier queries (tokenize + case-insensitive ALL-match). Case-insensitive key queries (exact single, OR, AND). Mutations (insert/upsert, delete, update, update_keys). Scoping via `"name::prefix"` namespacing. Query builder: `query()` returns same `LedgerRef` for chaining. Returns `LedgerEntry` structs
+14. **Emit**: Pops channel + payload, invokes callback. Custom handler via `set_emit_handler()`
+15. **Built-ins**: Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new
+16. **Decorators**: decorator.rs — @retry (max attempts, exponential/linear/none backoff), @timeout (seconds), @log (emit event). Applied to agents and pipeline stages
+17. **Pipeline Lifecycle**: Full lifecycle emits (pipeline:start/stage_start/stage_complete/error/complete). Stage @retry/@timeout decorators. Result unwrapping. Error short-circuit. Duration tracking
+18. **Async Foundations**: Thunk value (deferred computation). SpawnAsync creates thunk, Await resolves synchronously, AwaitAll collects results. True parallel execution deferred
+19. **MCP Client**: mcp.rs — McpClient (stdio JSON-RPC 2.0 transport), McpRegistry (manages connections). Tool discovery via tools/list, tool schemas included in ChatRequest for LLM function calling
 
 ## Directory Structure
 
@@ -125,9 +126,10 @@ concerto-lang/
         codegen/mod.rs, emitter.rs, constant_pool.rs
     concertoc/           # Compiler CLI binary
       src/main.rs
-    concerto-runtime/    # Runtime library (Phase 3c complete)
+    concerto-runtime/    # Runtime library (Phase 3d complete)
       src/
         lib.rs, error.rs, value.rs, ir_loader.rs, vm.rs, builtins.rs
+        ledger.rs        # LedgerStore (fault-tolerant knowledge store, word-containment queries)
         provider.rs      # LlmProvider trait, ChatRequest/Response, MockProvider, ConnectionManager
         providers/mod.rs, openai.rs, anthropic.rs  # HTTP LLM providers
         schema.rs        # SchemaValidator (jsonschema validation, type normalization, retry)

@@ -27,6 +27,8 @@ pub struct IrModule {
     pub databases: Vec<IrDatabase>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pipelines: Vec<IrPipeline>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ledgers: Vec<IrLedger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_map: Option<IrSourceMap>,
     pub metadata: IrMetadata,
@@ -204,6 +206,12 @@ pub struct IrDatabase {
     pub value_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persistence: Option<String>,
+}
+
+/// A ledger declaration (fault-tolerant knowledge store).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrLedger {
+    pub name: String,
 }
 
 /// A pipeline definition.

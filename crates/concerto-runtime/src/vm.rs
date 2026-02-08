@@ -6,6 +6,7 @@ use concerto_common::ir_opcodes::Opcode;
 use crate::builtins;
 use crate::error::{RuntimeError, Result};
 use crate::ir_loader::LoadedModule;
+use crate::ledger::LedgerStore;
 use crate::mcp::McpRegistry;
 use crate::provider::{ChatMessage, ChatRequest, ConnectionManager};
 use crate::schema::SchemaValidator;
@@ -53,6 +54,8 @@ pub struct VM {
     globals: HashMap<String, Value>,
     /// In-memory databases (db_name -> key -> value).
     databases: HashMap<String, HashMap<String, Value>>,
+    /// Ledger store (fault-tolerant knowledge stores).
+    ledger_store: LedgerStore,
     /// Exception handler stack for try/catch.
     try_stack: Vec<TryFrame>,
     /// Tool instance state registry.
@@ -115,6 +118,13 @@ impl VM {
             databases.insert(name.clone(), HashMap::new());
         }
 
+        // Initialize ledger store
+        let mut ledger_store = LedgerStore::new();
+        for name in module.ledgers.keys() {
+            ledger_store.init_ledger(name);
+            globals.insert(name.clone(), Value::LedgerRef(name.clone()));
+        }
+
         // Initialize tool registry
         let mut tool_registry = ToolRegistry::new();
         for name in module.tools.keys() {
@@ -133,6 +143,7 @@ impl VM {
             call_stack: Vec::with_capacity(64),
             globals,
             databases,
+            ledger_store,
             try_stack: Vec::new(),
             tool_registry,
             connection_manager,
@@ -753,6 +764,9 @@ impl VM {
             }
             Value::DatabaseRef(db_name) => {
                 self.call_database_method(db_name, &method, args)?
+            }
+            Value::LedgerRef(ledger_name) => {
+                self.call_ledger_method(ledger_name, &method, args)?
             }
             Value::PipelineRef(pipeline_name) => {
                 self.call_pipeline_method(pipeline_name, &method, args)?
@@ -1565,6 +1579,159 @@ impl VM {
     }
 
     // ========================================================================
+    // Ledger method dispatch (for CALL_METHOD on LedgerRef)
+    // ========================================================================
+
+    fn call_ledger_method(
+        &mut self,
+        ledger_name: &str,
+        method: &str,
+        args: Vec<Value>,
+    ) -> Result<Value> {
+        match method {
+            "insert" => {
+                // insert(identifier: String, keys: Array<String>, value: String) -> Nil
+                if args.len() >= 3 {
+                    let identifier = args[0].display_string();
+                    let keys = match &args[1] {
+                        Value::Array(arr) => arr.iter().map(|v| v.display_string()).collect(),
+                        _ => vec![args[1].display_string()],
+                    };
+                    let value = args[2].display_string();
+                    self.ledger_store.insert(ledger_name, identifier, keys, value);
+                }
+                Ok(Value::Nil)
+            }
+            "delete" => {
+                // delete(identifier: String) -> Bool
+                let identifier = args.into_iter().next()
+                    .map(|v| v.display_string())
+                    .unwrap_or_default();
+                Ok(Value::Bool(self.ledger_store.delete(ledger_name, &identifier)))
+            }
+            "update" => {
+                // update(identifier: String, value: String) -> Bool
+                if args.len() >= 2 {
+                    let identifier = args[0].display_string();
+                    let value = args[1].display_string();
+                    Ok(Value::Bool(self.ledger_store.update(ledger_name, &identifier, value)))
+                } else {
+                    Ok(Value::Bool(false))
+                }
+            }
+            "update_keys" => {
+                // update_keys(identifier: String, keys: Array<String>) -> Bool
+                if args.len() >= 2 {
+                    let identifier = args[0].display_string();
+                    let keys = match &args[1] {
+                        Value::Array(arr) => arr.iter().map(|v| v.display_string()).collect(),
+                        _ => vec![args[1].display_string()],
+                    };
+                    Ok(Value::Bool(self.ledger_store.update_keys(ledger_name, &identifier, keys)))
+                } else {
+                    Ok(Value::Bool(false))
+                }
+            }
+            "query" => {
+                // query() -> LedgerRef (identity, for method chaining)
+                Ok(Value::LedgerRef(ledger_name.to_string()))
+            }
+            "from_identifier" => {
+                // from_identifier(text: String) -> Array<LedgerEntry>
+                let text = args.into_iter().next()
+                    .map(|v| v.display_string())
+                    .unwrap_or_default();
+                let entries: Vec<Value> = self.ledger_store
+                    .query_from_identifier(ledger_name, &text)
+                    .into_iter()
+                    .map(|e| e.to_value())
+                    .collect();
+                Ok(Value::Array(entries))
+            }
+            "from_key" => {
+                // from_key(key: String) -> Array<LedgerEntry>
+                let key = args.into_iter().next()
+                    .map(|v| v.display_string())
+                    .unwrap_or_default();
+                let entries: Vec<Value> = self.ledger_store
+                    .query_from_key(ledger_name, &key)
+                    .into_iter()
+                    .map(|e| e.to_value())
+                    .collect();
+                Ok(Value::Array(entries))
+            }
+            "from_any_keys" => {
+                // from_any_keys(keys: Array<String>) -> Array<LedgerEntry>
+                let keys: Vec<String> = match args.into_iter().next() {
+                    Some(Value::Array(arr)) => arr.iter().map(|v| v.display_string()).collect(),
+                    Some(v) => vec![v.display_string()],
+                    None => vec![],
+                };
+                let entries: Vec<Value> = self.ledger_store
+                    .query_from_any_keys(ledger_name, &keys)
+                    .into_iter()
+                    .map(|e| e.to_value())
+                    .collect();
+                Ok(Value::Array(entries))
+            }
+            "from_exact_keys" => {
+                // from_exact_keys(keys: Array<String>) -> Array<LedgerEntry>
+                let keys: Vec<String> = match args.into_iter().next() {
+                    Some(Value::Array(arr)) => arr.iter().map(|v| v.display_string()).collect(),
+                    Some(v) => vec![v.display_string()],
+                    None => vec![],
+                };
+                let entries: Vec<Value> = self.ledger_store
+                    .query_from_exact_keys(ledger_name, &keys)
+                    .into_iter()
+                    .map(|e| e.to_value())
+                    .collect();
+                Ok(Value::Array(entries))
+            }
+            "len" => {
+                Ok(Value::Int(self.ledger_store.len(ledger_name) as i64))
+            }
+            "is_empty" => {
+                Ok(Value::Bool(self.ledger_store.is_empty(ledger_name)))
+            }
+            "clear" => {
+                self.ledger_store.clear(ledger_name);
+                Ok(Value::Nil)
+            }
+            "entries" => {
+                let entries: Vec<Value> = self.ledger_store
+                    .entries(ledger_name)
+                    .iter()
+                    .map(|e| e.to_value())
+                    .collect();
+                Ok(Value::Array(entries))
+            }
+            "identifiers" => {
+                let ids: Vec<Value> = self.ledger_store
+                    .identifiers(ledger_name)
+                    .into_iter()
+                    .map(|id| Value::String(id.to_string()))
+                    .collect();
+                Ok(Value::Array(ids))
+            }
+            "scope" => {
+                // scope(prefix: String) -> LedgerRef("name::prefix")
+                let prefix = args.into_iter().next()
+                    .map(|v| v.display_string())
+                    .unwrap_or_default();
+                let scoped_name = format!("{}::{}", ledger_name, prefix);
+                // Initialize the scoped ledger if it doesn't exist
+                self.ledger_store.init_ledger(&scoped_name);
+                Ok(Value::LedgerRef(scoped_name))
+            }
+            _ => Err(RuntimeError::CallError(format!(
+                "unknown ledger method: {}.{}",
+                ledger_name, method
+            ))),
+        }
+    }
+
+    // ========================================================================
     // Pipeline method dispatch
     // ========================================================================
 
@@ -1869,6 +2036,7 @@ mod tests {
             schemas: vec![],
             connections: vec![],
             databases: vec![],
+            ledgers: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {
@@ -2127,6 +2295,7 @@ mod tests {
             schemas: vec![],
             connections: vec![],
             databases: vec![],
+            ledgers: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {
@@ -2607,6 +2776,7 @@ mod tests {
             schemas: vec![],
             connections: vec![],
             databases: vec![],
+            ledgers: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {

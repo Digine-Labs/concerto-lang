@@ -121,6 +121,7 @@ impl Resolver {
             // Common type constructors (used as namespaces via path expressions)
             ("ToolError", SymbolKind::Struct, Type::Named("ToolError".to_string())),
             ("Database", SymbolKind::Struct, Type::Named("Database".to_string())),
+            ("Ledger", SymbolKind::Struct, Type::Named("Ledger".to_string())),
             ("std", SymbolKind::Module, Type::Any),
         ];
 
@@ -256,6 +257,16 @@ impl Resolver {
                         d.span.clone(),
                     );
                 }
+                Declaration::Ledger(l) => {
+                    self.define_symbol(
+                        &l.name,
+                        SymbolKind::Ledger,
+                        Type::LedgerRef,
+                        false,
+                        false,
+                        l.span.clone(),
+                    );
+                }
                 Declaration::Mcp(m) => {
                     self.define_symbol(
                         &m.name,
@@ -377,6 +388,7 @@ impl Resolver {
             }
             Declaration::Const(c) => self.resolve_expr(&c.value),
             Declaration::Db(d) => self.resolve_expr(&d.initializer),
+            Declaration::Ledger(l) => self.resolve_expr(&l.initializer),
             Declaration::Mcp(m) => self.resolve_config_fields(&m.fields),
             Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
         }

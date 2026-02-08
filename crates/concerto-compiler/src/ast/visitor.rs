@@ -28,6 +28,7 @@ pub trait Visitor {
             Declaration::Const(c) => self.visit_const_decl(c),
             Declaration::TypeAlias(t) => self.visit_type_alias_decl(t),
             Declaration::Db(d) => self.visit_db_decl(d),
+            Declaration::Ledger(l) => self.visit_ledger_decl(l),
             Declaration::Mcp(m) => self.visit_mcp_decl(m),
         }
     }
@@ -112,6 +113,10 @@ pub trait Visitor {
     fn visit_type_alias_decl(&mut self, _decl: &TypeAliasDecl) {}
 
     fn visit_db_decl(&mut self, decl: &DbDecl) {
+        self.visit_expr(&decl.initializer);
+    }
+
+    fn visit_ledger_decl(&mut self, decl: &LedgerDecl) {
         self.visit_expr(&decl.initializer);
     }
 

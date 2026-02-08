@@ -22,6 +22,7 @@ pub enum SymbolKind {
     Connection,
     Database,
     Pipeline,
+    Ledger,
     Mcp,
 }
 

@@ -33,7 +33,7 @@ schema ProcessedDocument {
 }
 
 // Shared memory database for pipeline state
-db ledger: Database<String, Any> = Database::new();
+db store: Database<String, Any> = Database::new();
 
 // Agents -- each with a specific role
 @retry(max: 3, backoff: "exponential")
@@ -87,8 +87,8 @@ pipeline DocumentProcessor {
         )?;
 
         // Record in ledger
-        ledger.set("classification", result);
-        ledger.set("classify_time", std::time::now());
+        store.set("classification", result);
+        store.set("classify_time", std::time::now());
 
         emit("pipeline:progress", {
             "stage": "classify",
@@ -103,7 +103,7 @@ pipeline DocumentProcessor {
     stage summarize(classification: Classification) -> Summary {
         emit("pipeline:progress", { "stage": "summarize", "status": "started" });
 
-        let document = ledger.get("original_document") ?? "";
+        let document = store.get("original_document") ?? "";
 
         let prompt = """
             Summarize this ${classification.category} document.
@@ -135,8 +135,8 @@ pipeline DocumentProcessor {
             },
         };
 
-        ledger.set("summary", summary);
-        ledger.set("summarize_time", std::time::now());
+        store.set("summary", summary);
+        store.set("summarize_time", std::time::now());
 
         emit("pipeline:progress", { "stage": "summarize", "status": "complete" });
 
@@ -157,14 +157,14 @@ fn main() {
         """;
 
     // Store original document for pipeline access
-    ledger.set("original_document", document);
+    store.set("original_document", document);
 
     // Run the pipeline
     let result = DocumentProcessor.run(document);
 
     match result {
         Ok(summary) => {
-            let classification = ledger.get("classification");
+            let classification = store.get("classification");
 
             let output = ProcessedDocument {
                 classification: classification.unwrap(),
@@ -179,8 +179,8 @@ fn main() {
                 "pipeline": "DocumentProcessor",
                 "message": e.message,
                 "ledger_state": {
-                    "has_classification": ledger.has("classification"),
-                    "has_summary": ledger.has("summary"),
+                    "has_classification": store.has("classification"),
+                    "has_summary": store.has("summary"),
                 },
             });
         },

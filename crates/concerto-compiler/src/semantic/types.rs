@@ -35,6 +35,7 @@ pub enum Type {
     ToolCall,
     AgentRef,
     DatabaseRef,
+    LedgerRef,
 
     // -- User-defined (struct, enum, schema, etc.) --
     Named(std::string::String),
@@ -116,6 +117,7 @@ impl Type {
             "ToolCall" => Type::ToolCall,
             "AgentRef" => Type::AgentRef,
             "DatabaseRef" => Type::DatabaseRef,
+            "Ledger" | "LedgerRef" => Type::LedgerRef,
             "Any" => Type::Any,
             other => Type::Named(other.to_string()),
         }
@@ -188,6 +190,7 @@ impl Type {
             Type::ToolCall => "ToolCall".into(),
             Type::AgentRef => "AgentRef".into(),
             Type::DatabaseRef => "DatabaseRef".into(),
+            Type::LedgerRef => "LedgerRef".into(),
             Type::Named(n) => n.clone(),
             Type::Unknown => "unknown".into(),
             Type::Any => "Any".into(),

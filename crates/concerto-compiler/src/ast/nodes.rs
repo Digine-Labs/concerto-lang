@@ -66,6 +66,7 @@ pub enum Declaration {
     Const(ConstDecl),
     TypeAlias(TypeAliasDecl),
     Db(DbDecl),
+    Ledger(LedgerDecl),
     Mcp(McpDecl),
 }
 
@@ -336,6 +337,19 @@ pub struct TypeAliasDecl {
 /// `db name: Type = expr;`
 #[derive(Debug, Clone)]
 pub struct DbDecl {
+    pub name: String,
+    pub type_ann: TypeAnnotation,
+    pub initializer: Expr,
+    pub span: Span,
+}
+
+// ============================================================================
+// Ledger declaration
+// ============================================================================
+
+/// `ledger name: Ledger = Ledger::new();`
+#[derive(Debug, Clone)]
+pub struct LedgerDecl {
     pub name: String,
     pub type_ann: TypeAnnotation,
     pub initializer: Expr,

@@ -9,6 +9,7 @@
 **Phase 3a: Runtime Core** - COMPLETE. Stack-based VM with all opcodes, mock agent system, database stubs, emit channels. All 3 examples compile AND run end-to-end. 261 tests total, clippy clean.
 **Phase 3b: Agent & Tool System** - COMPLETE. Try/catch exception handling, real LLM providers (OpenAI + Anthropic), schema validation with retry, tool method dispatch. 299 tests total, clippy clean.
 **Phase 3c: Pipeline & Polish** - COMPLETE. Decorator runtime (@retry/@timeout/@log), full pipeline lifecycle events, async foundations (Thunk), MCP client (stdio transport), run_loop_until for nested execution. 320 tests total, clippy clean, all 3 examples run end-to-end.
+**Phase 3d: Ledger System** - COMPLETE. First-class `ledger` keyword across full compiler+runtime stack. LedgerStore with word-containment identifier queries, case-insensitive key queries (single/OR/AND), mutations, scoping. 338 tests total, clippy clean, all 3 examples run end-to-end.
 
 ---
 
@@ -113,14 +114,15 @@
 | Task | Status | Notes |
 |------|--------|-------|
 | spec/21-ledger.md | Done | Full specification: data model, query API, compilation, runtime |
-| Compiler: `ledger` keyword + parser | Not Started | New keyword, LedgerDecl AST node, semantic validation |
-| Compiler: IR generation | Not Started | `ledgers` IR section, CALL_METHOD lowering for query builder |
-| Runtime: LedgerRef value + store | Not Started | LedgerEntry struct, in-memory Vec storage, LedgerRef variant |
-| Runtime: insert/delete/update | Not Started | Mutation methods via CALL_METHOD dispatch |
-| Runtime: from_identifier query | Not Started | Word-tokenization + case-insensitive containment matching |
-| Runtime: from_key / from_any_keys / from_exact_keys | Not Started | Exact case-insensitive key matching (single, OR, AND) |
-| Runtime: scoping | Not Started | Namespaced ledger views (same pattern as db scoping) |
-| Ledger test suite | Not Started | Unit tests for all query modes, edge cases, scoping |
+| Compiler: `ledger` keyword + parser | Done | Lexer keyword, LedgerDecl AST node, parser, semantic validation (SymbolKind::Ledger, Type::LedgerRef) |
+| Compiler: IR generation | Done | IrLedger struct, `ledgers` IR section, generate_ledger() in codegen |
+| Runtime: LedgerRef value + store | Done | LedgerEntry struct, LedgerStore (in-memory Vec), Value::LedgerRef variant |
+| Runtime: insert/delete/update | Done | Upsert insert, delete, update value, update_keys — all via CALL_METHOD dispatch |
+| Runtime: from_identifier query | Done | Word-tokenization + case-insensitive ALL-words containment matching |
+| Runtime: from_key / from_any_keys / from_exact_keys | Done | Exact case-insensitive key matching (single, OR, AND semantics) |
+| Runtime: scoping | Done | Namespaced ledger views via "name::prefix" convention in LedgerStore |
+| Runtime: query builder pattern | Done | query() returns same LedgerRef, from_* performs query — two CALL_METHOD dispatches |
+| Ledger test suite | Done | 18 unit tests covering all query modes, mutations, edge cases, scoping |
 
 ## Phase 4: Standard Library
 
