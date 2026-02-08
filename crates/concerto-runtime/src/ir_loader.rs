@@ -23,10 +23,14 @@ pub struct LoadedModule {
     pub schemas: HashMap<String, IrSchema>,
     /// Connection configurations by name.
     pub connections: HashMap<String, IrConnection>,
-    /// Database declarations by name.
-    pub databases: HashMap<String, IrDatabase>,
+    /// HashMap declarations by name.
+    pub hashmaps: HashMap<String, IrHashMap>,
     /// Ledger declarations by name.
     pub ledgers: HashMap<String, IrLedger>,
+    /// Memory declarations by name.
+    pub memories: HashMap<String, IrMemory>,
+    /// Host declarations by name.
+    pub hosts: HashMap<String, IrHost>,
     /// Pipeline definitions by name.
     pub pipelines: HashMap<String, IrPipeline>,
     /// Type definitions by name.
@@ -102,9 +106,9 @@ impl LoadedModule {
             .map(|c| (c.name.clone(), c))
             .collect();
 
-        // Build database table
-        let databases: HashMap<String, IrDatabase> = module
-            .databases
+        // Build hashmap table
+        let hashmaps: HashMap<String, IrHashMap> = module
+            .hashmaps
             .into_iter()
             .map(|d| (d.name.clone(), d))
             .collect();
@@ -114,6 +118,20 @@ impl LoadedModule {
             .ledgers
             .into_iter()
             .map(|l| (l.name.clone(), l))
+            .collect();
+
+        // Build memory table
+        let memories: HashMap<String, IrMemory> = module
+            .memories
+            .into_iter()
+            .map(|m| (m.name.clone(), m))
+            .collect();
+
+        // Build host table
+        let hosts: HashMap<String, IrHost> = module
+            .hosts
+            .into_iter()
+            .map(|h| (h.name.clone(), h))
             .collect();
 
         // Build pipeline table
@@ -147,8 +165,10 @@ impl LoadedModule {
             tools,
             schemas,
             connections,
-            databases,
+            hashmaps,
             ledgers,
+            memories,
+            hosts,
             pipelines,
             types,
             entry_point,

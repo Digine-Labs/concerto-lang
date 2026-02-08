@@ -282,13 +282,13 @@ let response = agent_ref.execute(prompt)?;
 agent_ref.shutdown();
 ```
 
-### DatabaseRef
+### HashMapRef
 
-Reference to an in-memory database. Used for passing database references to agents.
+Reference to an in-memory hashmap. Used for passing hashmap references to agents.
 
 ```concerto
-db my_db: Database<String, String> = Database::new();
-let db_ref: DatabaseRef = my_db.as_ref();
+hashmap my_db: HashMap<String, String> = HashMap::new();
+let db_ref: HashMapRef = my_db.as_ref();
 ```
 
 ## User-Defined Types

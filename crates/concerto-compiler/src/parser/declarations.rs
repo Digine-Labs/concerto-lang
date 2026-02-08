@@ -39,9 +39,11 @@ impl Parser {
             TokenKind::Mod => self.parse_module_decl(),
             TokenKind::Const => self.parse_const_decl(),
             TokenKind::Type => self.parse_type_alias_decl(),
-            TokenKind::Db => self.parse_db_decl(),
+            TokenKind::HashMap => self.parse_hashmap_decl(),
             TokenKind::Ledger => self.parse_ledger_decl(),
+            TokenKind::Memory => self.parse_memory_decl(),
             TokenKind::Mcp => self.parse_mcp_decl(),
+            TokenKind::Host => self.parse_host_decl(decorators),
             _ => {
                 let span = self.current_span();
                 self.diagnostics.error(
@@ -894,13 +896,13 @@ impl Parser {
     }
 
     // ========================================================================
-    // db declaration
+    // hashmap declaration
     // ========================================================================
 
-    /// Parse `db name: Type = expr;`
-    fn parse_db_decl(&mut self) -> Option<Declaration> {
+    /// Parse `hashmap name: Type = expr;`
+    fn parse_hashmap_decl(&mut self) -> Option<Declaration> {
         let start = self.current_span();
-        self.advance(); // consume 'db'
+        self.advance(); // consume 'hashmap'
 
         let name_token = self.expect(TokenKind::Identifier)?;
         let name = name_token.lexeme.clone();
@@ -912,7 +914,7 @@ impl Parser {
         self.expect(TokenKind::Semicolon)?;
 
         let span = start.merge(&self.previous_span());
-        Some(Declaration::Db(DbDecl {
+        Some(Declaration::HashMap(HashMapDecl {
             name,
             type_ann,
             initializer,
@@ -940,6 +942,33 @@ impl Parser {
 
         let span = start.merge(&self.previous_span());
         Some(Declaration::Ledger(LedgerDecl {
+            name,
+            type_ann,
+            initializer,
+            span,
+        }))
+    }
+
+    // ========================================================================
+    // memory declaration
+    // ========================================================================
+
+    /// Parse `memory name: Memory = Memory::new();`
+    fn parse_memory_decl(&mut self) -> Option<Declaration> {
+        let start = self.current_span();
+        self.advance(); // consume 'memory'
+
+        let name_token = self.expect(TokenKind::Identifier)?;
+        let name = name_token.lexeme.clone();
+
+        self.expect(TokenKind::Colon)?;
+        let type_ann = self.parse_type_annotation()?;
+        self.expect(TokenKind::Equal)?;
+        let initializer = self.parse_expression()?;
+        self.expect(TokenKind::Semicolon)?;
+
+        let span = start.merge(&self.previous_span());
+        Some(Declaration::Memory(MemoryDecl {
             name,
             type_ann,
             initializer,
@@ -989,6 +1018,33 @@ impl Parser {
             name,
             fields,
             methods,
+            span,
+        }))
+    }
+
+    // ========================================================================
+    // host declaration
+    // ========================================================================
+
+    /// Parse `[decorators] host Name { fields... }`
+    fn parse_host_decl(&mut self, decorators: Vec<Decorator>) -> Option<Declaration> {
+        let start = if let Some(first) = decorators.first() {
+            first.span.clone()
+        } else {
+            self.current_span()
+        };
+        self.advance(); // consume 'host'
+
+        let name_token = self.expect(TokenKind::Identifier)?;
+        let name = name_token.lexeme.clone();
+
+        let fields = self.parse_config_fields()?;
+        let span = start.merge(&self.previous_span());
+
+        Some(Declaration::Host(HostDecl {
+            name,
+            decorators,
+            fields,
             span,
         }))
     }
@@ -1473,13 +1529,13 @@ mod tests {
         }
     }
 
-    // ===== db =====
+    // ===== hashmap =====
 
     #[test]
-    fn parse_db_decl() {
-        let prog = parse(r#"db cache: Map<String, String> = empty_map();"#);
+    fn parse_hashmap_decl() {
+        let prog = parse(r#"hashmap cache: Map<String, String> = empty_map();"#);
         match &prog.declarations[0] {
-            Declaration::Db(d) => {
+            Declaration::HashMap(d) => {
                 assert_eq!(d.name, "cache");
                 match &d.type_ann.kind {
                     types::TypeKind::Generic { name, args } => {
@@ -1489,7 +1545,7 @@ mod tests {
                     _ => panic!("expected generic type"),
                 }
             }
-            other => panic!("expected Db, got {:?}", std::mem::discriminant(other)),
+            other => panic!("expected HashMap, got {:?}", std::mem::discriminant(other)),
         }
     }
 

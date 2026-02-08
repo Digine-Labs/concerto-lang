@@ -24,11 +24,15 @@ pub struct IrModule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connections: Vec<IrConnection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub databases: Vec<IrDatabase>,
+    pub hashmaps: Vec<IrHashMap>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pipelines: Vec<IrPipeline>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ledgers: Vec<IrLedger>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memories: Vec<IrMemory>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hosts: Vec<IrHost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_map: Option<IrSourceMap>,
     pub metadata: IrMetadata,
@@ -112,9 +116,9 @@ pub struct IrInstruction {
     /// Tool name (for CALL_TOOL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<String>,
-    /// Database name (for DB_* ops).
+    /// HashMap name (for HASH_MAP_* ops).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub db_name: Option<String>,
+    pub hashmap_name: Option<String>,
     /// Type name (for CHECK_TYPE, CAST, BUILD_STRUCT).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_name: Option<String>,
@@ -176,6 +180,16 @@ pub struct IrTool {
     pub name: String,
     pub module: String,
     pub methods: Vec<IrFunction>,
+    #[serde(default)]
+    pub tool_schemas: Vec<ToolSchemaEntry>,
+}
+
+/// A tool schema entry for LLM function calling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSchemaEntry {
+    pub method_name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
 }
 
 /// A schema definition in the IR.
@@ -198,9 +212,9 @@ pub struct IrConnection {
     pub config: serde_json::Value,
 }
 
-/// An in-memory database declaration.
+/// An in-memory hashmap declaration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IrDatabase {
+pub struct IrHashMap {
     pub name: String,
     pub key_type: String,
     pub value_type: String,
@@ -212,6 +226,42 @@ pub struct IrDatabase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IrLedger {
     pub name: String,
+}
+
+/// A memory declaration (conversation history store).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrMemory {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_messages: Option<u32>,
+}
+
+/// A host definition (external host/connector).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrHost {
+    pub name: String,
+    pub connector: String,
+    #[serde(default = "default_text")]
+    pub input_format: String,
+    #[serde(default = "default_text")]
+    pub output_format: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decorators: Vec<IrDecorator>,
+    // Embedded TOML config (populated by compiler from manifest)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<std::collections::HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+}
+
+fn default_text() -> String {
+    "text".to_string()
 }
 
 /// A pipeline definition.

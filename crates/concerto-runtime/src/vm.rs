@@ -5,9 +5,11 @@ use concerto_common::ir_opcodes::Opcode;
 
 use crate::builtins;
 use crate::error::{RuntimeError, Result};
+use crate::host::HostRegistry;
 use crate::ir_loader::LoadedModule;
 use crate::ledger::LedgerStore;
 use crate::mcp::McpRegistry;
+use crate::memory::MemoryStore;
 use crate::provider::{ChatMessage, ChatRequest, ConnectionManager};
 use crate::schema::SchemaValidator;
 use crate::tool::ToolRegistry;
@@ -50,10 +52,12 @@ pub struct VM {
     stack: Vec<Value>,
     call_stack: Vec<CallFrame>,
     globals: HashMap<String, Value>,
-    /// In-memory databases (db_name -> key -> value).
-    databases: HashMap<String, HashMap<String, Value>>,
+    /// In-memory hashmaps (hashmap_name -> key -> value).
+    hashmaps: HashMap<String, HashMap<String, Value>>,
     /// Ledger store (fault-tolerant knowledge stores).
     ledger_store: LedgerStore,
+    /// Memory store (conversation history).
+    memory_store: MemoryStore,
     /// Exception handler stack for try/catch.
     try_stack: Vec<TryFrame>,
     /// Tool instance state registry.
@@ -62,6 +66,8 @@ pub struct VM {
     connection_manager: ConnectionManager,
     /// MCP server connections (stdio transport).
     mcp_registry: McpRegistry,
+    /// Host connections (external agent systems).
+    host_registry: HostRegistry,
     /// Emit handler callback.
     #[allow(clippy::type_complexity)]
     emit_handler: Box<dyn Fn(&str, &Value)>,
@@ -82,9 +88,26 @@ impl VM {
             globals.insert(name.clone(), Value::SchemaRef(name.clone()));
         }
 
-        // Register databases as DatabaseRef values
-        for name in module.databases.keys() {
-            globals.insert(name.clone(), Value::DatabaseRef(name.clone()));
+        // Register tool references so `[ToolName]` works in with_tools().
+        for name in module.tools.keys() {
+            globals.insert(name.clone(), Value::Function(name.clone()));
+        }
+
+        // Register MCP references so `[McpServerName]` works in with_tools().
+        for (name, conn) in &module.connections {
+            let is_mcp = conn
+                .config
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t == "mcp");
+            if is_mcp {
+                globals.insert(name.clone(), Value::Function(name.clone()));
+            }
+        }
+
+        // Register hashmaps as HashMapRef values
+        for name in module.hashmaps.keys() {
+            globals.insert(name.clone(), Value::HashMapRef(name.clone()));
         }
 
         // Register pipelines as PipelineRef values
@@ -110,10 +133,10 @@ impl VM {
             Value::Function("$builtin_tool_error_new".to_string()),
         );
 
-        // Initialize databases
-        let mut databases = HashMap::new();
-        for name in module.databases.keys() {
-            databases.insert(name.clone(), HashMap::new());
+        // Initialize hashmaps
+        let mut hashmaps = HashMap::new();
+        for name in module.hashmaps.keys() {
+            hashmaps.insert(name.clone(), HashMap::new());
         }
 
         // Initialize ledger store
@@ -121,6 +144,13 @@ impl VM {
         for name in module.ledgers.keys() {
             ledger_store.init_ledger(name);
             globals.insert(name.clone(), Value::LedgerRef(name.clone()));
+        }
+
+        // Initialize memory store
+        let mut memory_store = MemoryStore::new();
+        for (name, ir_mem) in &module.memories {
+            memory_store.init_memory(name, ir_mem.max_messages);
+            globals.insert(name.clone(), Value::MemoryRef(name.clone()));
         }
 
         // Initialize tool registry
@@ -135,17 +165,26 @@ impl VM {
         // Initialize MCP registry from IR connections (type: "mcp")
         let mcp_registry = McpRegistry::from_connections(&module.connections);
 
+        // Initialize host registry from IR hosts
+        let mut host_registry = HostRegistry::new();
+        for ir_host in module.hosts.values() {
+            host_registry.register(ir_host);
+            globals.insert(ir_host.name.clone(), Value::HostRef(ir_host.name.clone()));
+        }
+
         VM {
             module,
             stack: Vec::with_capacity(256),
             call_stack: Vec::with_capacity(64),
             globals,
-            databases,
+            hashmaps,
             ledger_store,
+            memory_store,
             try_stack: Vec::new(),
             tool_registry,
             connection_manager,
             mcp_registry,
+            host_registry,
             emit_handler: Box::new(|channel, payload| {
                 println!("[emit:{}] {}", channel, payload);
             }),
@@ -595,20 +634,20 @@ impl VM {
                 // === Tool operations ===
                 Opcode::CallTool => self.exec_call_tool(&inst)?,
 
-                // === Database operations ===
-                Opcode::DbGet => self.exec_db_get(&inst)?,
-                Opcode::DbSet => self.exec_db_set(&inst)?,
-                Opcode::DbDelete => self.exec_db_delete(&inst)?,
-                Opcode::DbHas => self.exec_db_has(&inst)?,
-                Opcode::DbQuery => {
+                // === HashMap operations ===
+                Opcode::HashMapGet => self.exec_hashmap_get(&inst)?,
+                Opcode::HashMapSet => self.exec_hashmap_set(&inst)?,
+                Opcode::HashMapDelete => self.exec_hashmap_delete(&inst)?,
+                Opcode::HashMapHas => self.exec_hashmap_has(&inst)?,
+                Opcode::HashMapQuery => {
                     let predicate = self.pop()?;
-                    let db_name = inst.db_name.as_ref().ok_or_else(|| {
-                        RuntimeError::LoadError("DB_QUERY missing db_name".into())
+                    let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
+                        RuntimeError::LoadError("HASH_MAP_QUERY missing hashmap_name".into())
                     })?;
                     let entries: Vec<(String, Value)> = self
-                        .databases
-                        .get(db_name)
-                        .map(|db| db.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                        .hashmaps
+                        .get(hashmap_name)
+                        .map(|hm| hm.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                         .unwrap_or_default();
 
                     let mut results = Vec::new();
@@ -633,7 +672,7 @@ impl VM {
                         }
                         _ => {
                             return Err(RuntimeError::TypeError(
-                                "db.query() predicate must be a function".into(),
+                                "hashmap.query() predicate must be a function".into(),
                             ));
                         }
                     }
@@ -811,13 +850,40 @@ impl VM {
         let schema = inst.schema.clone();
         let result = match &object {
             Value::AgentRef(agent_name) => {
-                self.call_agent_method(agent_name, &method, args, schema.as_deref())?
+                match method.as_str() {
+                    "with_memory" | "with_tools" | "without_tools" => {
+                        self.agent_ref_to_builder(agent_name, &method, args)?
+                    }
+                    _ => self.call_agent_method(agent_name, &method, args, schema.as_deref())?
+                }
             }
-            Value::DatabaseRef(db_name) => {
-                self.call_database_method(db_name, &method, args)?
+            Value::HashMapRef(hashmap_name) => {
+                self.call_hashmap_method(hashmap_name, &method, args)?
             }
             Value::LedgerRef(ledger_name) => {
                 self.call_ledger_method(ledger_name, &method, args)?
+            }
+            Value::MemoryRef(memory_name) => {
+                self.call_memory_method(memory_name, &method, args)?
+            }
+            Value::HostRef(host_name) => {
+                match method.as_str() {
+                    "with_memory" | "with_tools" | "without_tools" | "with_context" => {
+                        self.host_ref_to_builder(host_name, &method, args)?
+                    }
+                    "execute" => {
+                        self.call_host_execute(host_name, args, None)?
+                    }
+                    "execute_with_schema" => {
+                        self.call_host_execute(host_name, args, schema.as_deref())?
+                    }
+                    _ => return Err(RuntimeError::TypeError(format!(
+                        "no method '{}' on Host", method
+                    ))),
+                }
+            }
+            Value::AgentBuilder { .. } => {
+                self.call_agent_builder_method(object, &method, args, schema.as_deref())?
             }
             Value::PipelineRef(pipeline_name) => {
                 self.call_pipeline_method(pipeline_name, &method, args)?
@@ -1166,20 +1232,20 @@ impl VM {
     }
 
     // ========================================================================
-    // Database operations
+    // HashMap operations
     // ========================================================================
 
-    fn exec_db_get(&mut self, inst: &IrInstruction) -> Result<()> {
-        let db_name = inst.db_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("DB_GET missing db_name".into())
+    fn exec_hashmap_get(&mut self, inst: &IrInstruction) -> Result<()> {
+        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
+            RuntimeError::LoadError("HASH_MAP_GET missing hashmap_name".into())
         })?;
         let key = self.pop()?;
         let key_str = key.display_string();
 
         let value = self
-            .databases
-            .get(db_name)
-            .and_then(|db| db.get(&key_str))
+            .hashmaps
+            .get(hashmap_name)
+            .and_then(|hm| hm.get(&key_str))
             .cloned();
 
         match value {
@@ -1189,47 +1255,47 @@ impl VM {
         Ok(())
     }
 
-    fn exec_db_set(&mut self, inst: &IrInstruction) -> Result<()> {
-        let db_name = inst.db_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("DB_SET missing db_name".into())
+    fn exec_hashmap_set(&mut self, inst: &IrInstruction) -> Result<()> {
+        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
+            RuntimeError::LoadError("HASH_MAP_SET missing hashmap_name".into())
         })?;
         let value = self.pop()?;
         let key = self.pop()?;
         let key_str = key.display_string();
 
-        self.databases
-            .entry(db_name.clone())
+        self.hashmaps
+            .entry(hashmap_name.clone())
             .or_default()
             .insert(key_str, value);
         self.push(Value::Nil);
         Ok(())
     }
 
-    fn exec_db_delete(&mut self, inst: &IrInstruction) -> Result<()> {
-        let db_name = inst.db_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("DB_DELETE missing db_name".into())
+    fn exec_hashmap_delete(&mut self, inst: &IrInstruction) -> Result<()> {
+        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
+            RuntimeError::LoadError("HASH_MAP_DELETE missing hashmap_name".into())
         })?;
         let key = self.pop()?;
         let key_str = key.display_string();
 
-        if let Some(db) = self.databases.get_mut(db_name) {
-            db.remove(&key_str);
+        if let Some(hm) = self.hashmaps.get_mut(hashmap_name) {
+            hm.remove(&key_str);
         }
         self.push(Value::Nil);
         Ok(())
     }
 
-    fn exec_db_has(&mut self, inst: &IrInstruction) -> Result<()> {
-        let db_name = inst.db_name.as_ref().ok_or_else(|| {
-            RuntimeError::LoadError("DB_HAS missing db_name".into())
+    fn exec_hashmap_has(&mut self, inst: &IrInstruction) -> Result<()> {
+        let hashmap_name = inst.hashmap_name.as_ref().ok_or_else(|| {
+            RuntimeError::LoadError("HASH_MAP_HAS missing hashmap_name".into())
         })?;
         let key = self.pop()?;
         let key_str = key.display_string();
 
         let exists = self
-            .databases
-            .get(db_name)
-            .map(|db| db.contains_key(&key_str))
+            .hashmaps
+            .get(hashmap_name)
+            .map(|hm| hm.contains_key(&key_str))
             .unwrap_or(false);
 
         self.push(Value::Bool(exists));
@@ -1460,6 +1526,28 @@ impl VM {
         prompt: &str,
         response_format: Option<crate::provider::ResponseFormat>,
     ) -> ChatRequest {
+        self.build_chat_request_with_memory(agent, prompt, response_format, None)
+    }
+
+    fn build_chat_request_with_memory(
+        &self,
+        agent: &concerto_common::ir::IrAgent,
+        prompt: &str,
+        response_format: Option<crate::provider::ResponseFormat>,
+        memory_name: Option<&str>,
+    ) -> ChatRequest {
+        self.build_chat_request_full(agent, prompt, response_format, memory_name, &[], false)
+    }
+
+    fn build_chat_request_full(
+        &self,
+        agent: &concerto_common::ir::IrAgent,
+        prompt: &str,
+        response_format: Option<crate::provider::ResponseFormat>,
+        memory_name: Option<&str>,
+        extra_tools: &[String],
+        exclude_default_tools: bool,
+    ) -> ChatRequest {
         let mut messages = Vec::new();
 
         // System prompt from agent config
@@ -1471,6 +1559,13 @@ impl VM {
             });
         }
 
+        // Inject memory messages (between system prompt and user prompt)
+        if let Some(mem_name) = memory_name {
+            if let Ok(mem_msgs) = self.memory_store.messages(mem_name) {
+                messages.extend(mem_msgs);
+            }
+        }
+
         // User prompt
         messages.push(ChatMessage {
             role: "user".to_string(),
@@ -1478,13 +1573,47 @@ impl VM {
             tool_call_id: None,
         });
 
-        // Collect tool schemas from MCP servers referenced by this agent
+        // Collect tool schemas
         let mut tool_schemas = Vec::new();
-        for tool_ref in &agent.tools {
-            if self.mcp_registry.has_server(tool_ref) {
-                tool_schemas.extend(self.mcp_registry.get_tool_schemas(tool_ref));
+        let mut seen_names = std::collections::HashSet::new();
+
+        // Static tools from agent definition (unless excluded)
+        if !exclude_default_tools {
+            for tool_ref in &agent.tools {
+                if self.mcp_registry.has_server(tool_ref) {
+                    for schema in self.mcp_registry.get_tool_schemas(tool_ref) {
+                        if seen_names.insert(schema.name.clone()) {
+                            tool_schemas.push(schema);
+                        }
+                    }
+                }
             }
         }
+
+        // Dynamic tools from extra_tools
+        for tool_name in extra_tools {
+            // Check if it's a Concerto tool with schemas
+            if let Some(ir_tool) = self.module.tools.get(tool_name) {
+                for entry in &ir_tool.tool_schemas {
+                    if seen_names.insert(entry.method_name.clone()) {
+                        tool_schemas.push(crate::provider::ToolSchema {
+                            name: entry.method_name.clone(),
+                            description: entry.description.clone(),
+                            parameters: entry.parameters.clone(),
+                        });
+                    }
+                }
+            }
+            // Check if it's an MCP server
+            else if self.mcp_registry.has_server(tool_name) {
+                for schema in self.mcp_registry.get_tool_schemas(tool_name) {
+                    if seen_names.insert(schema.name.clone()) {
+                        tool_schemas.push(schema);
+                    }
+                }
+            }
+        }
+
         let tools = if tool_schemas.is_empty() {
             None
         } else {
@@ -1566,12 +1695,12 @@ impl VM {
     }
 
     // ========================================================================
-    // Database method dispatch (for CALL_METHOD on DatabaseRef)
+    // HashMap method dispatch (for CALL_METHOD on HashMapRef)
     // ========================================================================
 
-    fn call_database_method(
+    fn call_hashmap_method(
         &mut self,
-        db_name: &str,
+        hashmap_name: &str,
         method: &str,
         args: Vec<Value>,
     ) -> Result<Value> {
@@ -1580,8 +1709,8 @@ impl VM {
                 if args.len() >= 2 {
                     let key = args[0].display_string();
                     let value = args[1].clone();
-                    self.databases
-                        .entry(db_name.to_string())
+                    self.hashmaps
+                        .entry(hashmap_name.to_string())
                         .or_default()
                         .insert(key, value);
                 }
@@ -1594,9 +1723,9 @@ impl VM {
                     .map(|v| v.display_string())
                     .unwrap_or_default();
                 let value = self
-                    .databases
-                    .get(db_name)
-                    .and_then(|db| db.get(&key))
+                    .hashmaps
+                    .get(hashmap_name)
+                    .and_then(|hm| hm.get(&key))
                     .cloned();
                 match value {
                     Some(v) => Ok(Value::Option(Some(Box::new(v)))),
@@ -1610,9 +1739,9 @@ impl VM {
                     .map(|v| v.display_string())
                     .unwrap_or_default();
                 let exists = self
-                    .databases
-                    .get(db_name)
-                    .map(|db| db.contains_key(&key))
+                    .hashmaps
+                    .get(hashmap_name)
+                    .map(|hm| hm.contains_key(&key))
                     .unwrap_or(false);
                 Ok(Value::Bool(exists))
             }
@@ -1622,14 +1751,14 @@ impl VM {
                     .next()
                     .map(|v| v.display_string())
                     .unwrap_or_default();
-                if let Some(db) = self.databases.get_mut(db_name) {
-                    db.remove(&key);
+                if let Some(hm) = self.hashmaps.get_mut(hashmap_name) {
+                    hm.remove(&key);
                 }
                 Ok(Value::Nil)
             }
             _ => Err(RuntimeError::CallError(format!(
-                "unknown database method: {}.{}",
-                db_name, method
+                "unknown hashmap method: {}.{}",
+                hashmap_name, method
             ))),
         }
     }
@@ -1947,6 +2076,350 @@ impl VM {
     }
 
     // ========================================================================
+    // Memory method dispatch
+    // ========================================================================
+
+    fn call_memory_method(
+        &mut self,
+        memory_name: &str,
+        method: &str,
+        args: Vec<Value>,
+    ) -> Result<Value> {
+        match method {
+            "append" => {
+                let role = args.first()
+                    .map(|v| v.display_string())
+                    .unwrap_or_default();
+                let content = args.get(1)
+                    .map(|v| v.display_string())
+                    .unwrap_or_default();
+                self.memory_store.append(memory_name, &role, &content)?;
+                Ok(Value::Nil)
+            }
+            "messages" => {
+                self.memory_store.messages_to_value(memory_name)
+            }
+            "last" => {
+                let count = match args.first() {
+                    Some(Value::Int(n)) => *n as usize,
+                    _ => return Err(RuntimeError::TypeError(
+                        "memory.last() requires an Int argument".into()
+                    )),
+                };
+                self.memory_store.last_to_value(memory_name, count)
+            }
+            "len" => {
+                let len = self.memory_store.len(memory_name)?;
+                Ok(Value::Int(len as i64))
+            }
+            "clear" => {
+                self.memory_store.clear(memory_name)?;
+                Ok(Value::Nil)
+            }
+            _ => Err(RuntimeError::TypeError(format!(
+                "no method '{}' on MemoryRef", method
+            ))),
+        }
+    }
+
+    // ========================================================================
+    // Host method dispatch
+    // ========================================================================
+
+    /// Create an AgentBuilder from a HostRef for chaining.
+    fn host_ref_to_builder(
+        &self,
+        host_name: &str,
+        method: &str,
+        args: Vec<Value>,
+    ) -> Result<Value> {
+        let mut builder = Value::AgentBuilder {
+            source_name: host_name.to_string(),
+            source_kind: crate::value::BuilderSourceKind::Host,
+            memory: None,
+            memory_auto_append: true,
+            extra_tools: Vec::new(),
+            exclude_default_tools: false,
+            context: None,
+        };
+        self.apply_builder_method(&mut builder, method, args)?;
+        Ok(builder)
+    }
+
+    /// Execute a prompt on a host directly (without builder).
+    fn call_host_execute(
+        &mut self,
+        host_name: &str,
+        args: Vec<Value>,
+        schema_name: Option<&str>,
+    ) -> Result<Value> {
+        let prompt = args.into_iter().next().unwrap_or(Value::Nil);
+        let prompt_str = prompt.display_string();
+
+        let result_text = self.host_registry.execute(host_name, &prompt_str, None)?;
+
+        // If schema validation requested
+        if let Some(sname) = schema_name {
+            if let Some(schema) = self.module.schemas.get(sname) {
+                let schema = schema.clone();
+                match SchemaValidator::validate(&result_text, &schema) {
+                    Ok(validated) => Ok(Value::Result {
+                        is_ok: true,
+                        value: Box::new(validated),
+                    }),
+                    Err(_) => Ok(Value::Result {
+                        is_ok: false,
+                        value: Box::new(Value::String(result_text)),
+                    }),
+                }
+            } else {
+                Ok(Value::Result {
+                    is_ok: false,
+                    value: Box::new(Value::String(format!("unknown schema: {}", sname))),
+                })
+            }
+        } else {
+            // Wrap in Result
+            Ok(Value::Result {
+                is_ok: true,
+                value: Box::new(Value::String(result_text)),
+            })
+        }
+    }
+
+    // ========================================================================
+    // AgentBuilder creation and dispatch
+    // ========================================================================
+
+    /// Convert an AgentRef + builder method call into a Value::AgentBuilder.
+    fn agent_ref_to_builder(
+        &self,
+        agent_name: &str,
+        method: &str,
+        args: Vec<Value>,
+    ) -> Result<Value> {
+        use crate::value::BuilderSourceKind;
+        let mut builder = Value::AgentBuilder {
+            source_name: agent_name.to_string(),
+            source_kind: BuilderSourceKind::Agent,
+            memory: None,
+            memory_auto_append: true,
+            extra_tools: Vec::new(),
+            exclude_default_tools: false,
+            context: None,
+        };
+        self.apply_builder_method(&mut builder, method, args)?;
+        Ok(builder)
+    }
+
+    /// Apply a builder method (with_memory, with_tools, etc.) to an AgentBuilder.
+    fn apply_builder_method(
+        &self,
+        builder: &mut Value,
+        method: &str,
+        args: Vec<Value>,
+    ) -> Result<()> {
+        if let Value::AgentBuilder {
+            ref mut memory,
+            ref mut memory_auto_append,
+            ref mut extra_tools,
+            ref mut exclude_default_tools,
+            ref mut context,
+            ..
+        } = builder
+        {
+            match method {
+                "with_memory" => {
+                    match args.first() {
+                        Some(Value::MemoryRef(name)) => {
+                            *memory = Some(name.clone());
+                        }
+                        _ => return Err(RuntimeError::TypeError(
+                            "with_memory() requires a MemoryRef argument".into()
+                        )),
+                    }
+                    // Check for auto: false named arg (second arg as Bool)
+                    if let Some(Value::Bool(false)) = args.get(1) {
+                        *memory_auto_append = false;
+                    }
+                }
+                "with_tools" => {
+                    match args.first() {
+                        Some(Value::Array(tools)) => {
+                            for tool in tools {
+                                match tool {
+                                    Value::String(name) => extra_tools.push(name.clone()),
+                                    Value::Function(name) => extra_tools.push(name.clone()),
+                                    other => extra_tools.push(other.display_string()),
+                                }
+                            }
+                        }
+                        _ => return Err(RuntimeError::TypeError(
+                            "with_tools() requires an Array argument".into()
+                        )),
+                    }
+                }
+                "without_tools" => {
+                    *exclude_default_tools = true;
+                }
+                "with_context" => {
+                    if let Some(val) = args.into_iter().next() {
+                        *context = Some(Box::new(val));
+                    }
+                }
+                _ => return Err(RuntimeError::TypeError(format!(
+                    "unknown builder method '{}'", method
+                ))),
+            }
+        }
+        Ok(())
+    }
+
+    /// Dispatch a method call on an AgentBuilder value.
+    fn call_agent_builder_method(
+        &mut self,
+        builder: Value,
+        method: &str,
+        args: Vec<Value>,
+        schema_name: Option<&str>,
+    ) -> Result<Value> {
+        match method {
+            "with_memory" | "with_tools" | "without_tools" | "with_context" => {
+                let mut new_builder = builder;
+                self.apply_builder_method(&mut new_builder, method, args)?;
+                Ok(new_builder)
+            }
+            "execute" => {
+                self.execute_agent_builder(builder, args, None)
+            }
+            "execute_with_schema" => {
+                self.execute_agent_builder(builder, args, schema_name)
+            }
+            _ => Err(RuntimeError::TypeError(format!(
+                "no method '{}' on AgentBuilder", method
+            ))),
+        }
+    }
+
+    /// Execute an agent call using the accumulated builder configuration.
+    fn execute_agent_builder(
+        &mut self,
+        builder: Value,
+        args: Vec<Value>,
+        schema_name: Option<&str>,
+    ) -> Result<Value> {
+        if let Value::AgentBuilder {
+            source_name,
+            source_kind,
+            memory,
+            memory_auto_append,
+            extra_tools,
+            exclude_default_tools,
+            context,
+        } = &builder
+        {
+            let source_name = source_name.clone();
+            let source_kind = source_kind.clone();
+            let memory = memory.clone();
+            let memory_auto_append = *memory_auto_append;
+            let extra_tools = extra_tools.clone();
+            let exclude_default_tools = *exclude_default_tools;
+            let context = context.clone();
+
+            let prompt = args.into_iter().next().unwrap_or(Value::Nil);
+            let prompt_str = prompt.display_string();
+
+            // Dispatch based on source kind
+            let result_text = match source_kind {
+                crate::value::BuilderSourceKind::Agent => {
+                    let agent = self.module.agents.get(&source_name).ok_or_else(|| {
+                        RuntimeError::NameError(format!("unknown agent: {}", source_name))
+                    })?.clone();
+
+                    let response_format = schema_name.map(|schema| {
+                        let json_schema = self.module.schemas.get(schema)
+                            .map(|s| s.json_schema.clone())
+                            .unwrap_or(serde_json::json!({}));
+                        crate::provider::ResponseFormat {
+                            format_type: "json_schema".to_string(),
+                            json_schema: Some(json_schema),
+                        }
+                    });
+
+                    let request = self.build_chat_request_full(
+                        &agent,
+                        &prompt_str,
+                        response_format,
+                        memory.as_deref(),
+                        &extra_tools,
+                        exclude_default_tools,
+                    );
+
+                    let provider = self.connection_manager.get_provider(&agent.connection);
+                    let chat_response = provider.chat_completion(request)?;
+                    chat_response.text
+                }
+                crate::value::BuilderSourceKind::Host => {
+                    self.host_registry.execute(
+                        &source_name,
+                        &prompt_str,
+                        context.as_deref(),
+                    )?
+                }
+            };
+
+            // Auto-append to memory if enabled
+            if memory_auto_append {
+                if let Some(ref mem_name) = memory {
+                    self.memory_store.append(mem_name, "user", &prompt_str)?;
+                    self.memory_store.append(mem_name, "assistant", &result_text)?;
+                }
+            }
+
+            // If schema validation requested, validate the response
+            if let Some(sname) = schema_name {
+                if let Some(schema) = self.module.schemas.get(sname) {
+                    let schema = schema.clone();
+                    match SchemaValidator::validate(&result_text, &schema) {
+                        Ok(validated) => Ok(Value::Result {
+                            is_ok: true,
+                            value: Box::new(validated),
+                        }),
+                        Err(_) => Ok(Value::Result {
+                            is_ok: false,
+                            value: Box::new(Value::String(result_text)),
+                        }),
+                    }
+                } else {
+                    Ok(Value::Result {
+                        is_ok: false,
+                        value: Box::new(Value::String(format!("unknown schema: {}", sname))),
+                    })
+                }
+            } else if matches!(source_kind, crate::value::BuilderSourceKind::Host) {
+                // Hosts return Result<String>
+                Ok(Value::Result {
+                    is_ok: true,
+                    value: Box::new(Value::String(result_text)),
+                })
+            } else {
+                // Agents return Response struct
+                let mut fields = std::collections::HashMap::new();
+                fields.insert("text".to_string(), Value::String(result_text));
+                fields.insert("model".to_string(), Value::String(String::new()));
+                fields.insert("tokens_in".to_string(), Value::Int(0));
+                fields.insert("tokens_out".to_string(), Value::Int(0));
+                Ok(Value::Struct {
+                    type_name: "Response".to_string(),
+                    fields,
+                })
+            }
+        } else {
+            Err(RuntimeError::TypeError("expected AgentBuilder".into()))
+        }
+    }
+
+    // ========================================================================
     // Type method dispatch
     // ========================================================================
 
@@ -2091,8 +2564,10 @@ mod tests {
             tools: vec![],
             schemas: vec![],
             connections: vec![],
-            databases: vec![],
+            hashmaps: vec![],
             ledgers: vec![],
+            memories: vec![],
+            hosts: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {
@@ -2114,7 +2589,7 @@ mod tests {
             method: None,
             schema: None,
             tool: None,
-            db_name: None,
+            hashmap_name: None,
             type_name: None,
             argc: None,
             offset: None,
@@ -2350,8 +2825,10 @@ mod tests {
             tools: vec![],
             schemas: vec![],
             connections: vec![],
-            databases: vec![],
+            hashmaps: vec![],
             ledgers: vec![],
+            memories: vec![],
+            hosts: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {
@@ -2831,8 +3308,10 @@ mod tests {
             tools: vec![],
             schemas: vec![],
             connections: vec![],
-            databases: vec![],
+            hashmaps: vec![],
             ledgers: vec![],
+            memories: vec![],
+            hosts: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {

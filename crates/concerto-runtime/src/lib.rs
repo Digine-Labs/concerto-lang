@@ -1,9 +1,11 @@
 pub mod builtins;
 pub mod decorator;
 pub mod error;
+pub mod host;
 pub mod ir_loader;
 pub mod ledger;
 pub mod mcp;
+pub mod memory;
 pub mod provider;
 pub mod providers;
 pub mod schema;

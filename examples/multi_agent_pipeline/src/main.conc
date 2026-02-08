@@ -22,7 +22,7 @@ schema ProcessedDocument {
 }
 
 // Shared memory database for pipeline state
-db store: Database<String, Any> = Database::new();
+hashmap store: HashMap<String, Any> = HashMap::new();
 
 // Agents -- each with a specific role
 @retry(max: 3, backoff: "exponential")

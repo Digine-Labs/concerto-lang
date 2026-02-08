@@ -86,8 +86,8 @@
           }
         },
         {
-          "comment": "Type-level declarations: agent, tool, schema, pipeline, mcp",
-          "match": "\\b(agent|tool|schema|pipeline|mcp)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "comment": "Type-level declarations: agent, tool, schema, pipeline, mcp, host",
+          "match": "\\b(agent|tool|schema|pipeline|mcp|host)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.concerto" },
             "2": { "name": "entity.name.type.concerto" }
@@ -120,8 +120,8 @@
           }
         },
         {
-          "comment": "Database/ledger declaration: db name, ledger name",
-          "match": "\\b(db|ledger)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "comment": "HashMap/ledger/memory declaration: hashmap name, ledger name, memory name",
+          "match": "\\b(hashmap|ledger|memory)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.concerto" },
             "2": { "name": "variable.other.concerto" }
@@ -296,7 +296,7 @@
         {
           "comment": "AI-specific declaration keywords",
           "name": "keyword.declaration.concerto",
-          "match": "\\b(agent|tool|schema|pipeline|stage|db|ledger|mcp)\\b"
+          "match": "\\b(agent|tool|schema|pipeline|stage|hashmap|ledger|memory|host|mcp)\\b"
         },
         {
           "comment": "Control flow",
@@ -361,7 +361,7 @@
         {
           "comment": "Built-in compound and AI types",
           "name": "support.type.concerto",
-          "match": "\\b(Array|Map|Option|Result|Tuple|Prompt|Response|Schema|Message|ToolCall|AgentRef|DatabaseRef|ToolError|Database|Ledger)\\b"
+          "match": "\\b(Array|Map|Option|Result|Tuple|Prompt|Response|Schema|Message|ToolCall|AgentRef|HashMapRef|ToolError|HashMap|Ledger|Memory|MemoryRef|HostRef|AgentBuilder)\\b"
         },
         {
           "comment": "Constructors: Some, None, Ok, Err",

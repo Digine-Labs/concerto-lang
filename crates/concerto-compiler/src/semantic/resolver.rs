@@ -159,8 +159,9 @@ impl Resolver {
             ),
             // Common type constructors (used as namespaces via path expressions)
             ("ToolError", SymbolKind::Struct, Type::Named("ToolError".to_string())),
-            ("Database", SymbolKind::Struct, Type::Named("Database".to_string())),
+            ("HashMap", SymbolKind::Struct, Type::Named("HashMap".to_string())),
             ("Ledger", SymbolKind::Struct, Type::Named("Ledger".to_string())),
+            ("Memory", SymbolKind::Struct, Type::Named("Memory".to_string())),
             ("std", SymbolKind::Module, Type::Any),
         ];
 
@@ -276,10 +277,10 @@ impl Resolver {
                         t.span.clone(),
                     );
                 }
-                Declaration::Db(d) => {
+                Declaration::HashMap(d) => {
                     self.define_symbol(
                         &d.name,
-                        SymbolKind::Database,
+                        SymbolKind::HashMap,
                         Type::from_annotation(&d.type_ann),
                         false,
                         false,
@@ -296,6 +297,16 @@ impl Resolver {
                         l.span.clone(),
                     );
                 }
+                Declaration::Memory(m) => {
+                    self.define_symbol(
+                        &m.name,
+                        SymbolKind::Memory,
+                        Type::MemoryRef,
+                        false,
+                        false,
+                        m.span.clone(),
+                    );
+                }
                 Declaration::Mcp(m) => {
                     self.define_symbol(
                         &m.name,
@@ -304,6 +315,16 @@ impl Resolver {
                         false,
                         false,
                         m.span.clone(),
+                    );
+                }
+                Declaration::Host(h) => {
+                    self.define_symbol(
+                        &h.name,
+                        SymbolKind::Host,
+                        Type::HostRef,
+                        false,
+                        false,
+                        h.span.clone(),
                     );
                 }
                 Declaration::Module(m) => {
@@ -415,9 +436,11 @@ impl Resolver {
                 }
             }
             Declaration::Const(c) => self.resolve_expr(&c.value),
-            Declaration::Db(d) => self.resolve_expr(&d.initializer),
+            Declaration::HashMap(d) => self.resolve_expr(&d.initializer),
             Declaration::Ledger(l) => self.resolve_expr(&l.initializer),
+            Declaration::Memory(m) => self.resolve_expr(&m.initializer),
             Declaration::Mcp(m) => self.resolve_config_fields(&m.fields),
+            Declaration::Host(h) => self.resolve_config_fields(&h.fields),
             Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
         }
     }

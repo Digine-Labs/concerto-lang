@@ -18,6 +18,7 @@ When working in this repository, treat `STATUS.md`, `CLAUDE.md`, `spec/`, and `i
 - Start each task by reading `STATUS.md` (especially **Current Focus** and relevant phase tables) to understand what is complete, in progress, and next.
 - Use `STATUS.md` as a project ledger: after feature work or bug fixes, update statuses, notes, and progress entries in the affected phase.
 - Keep `CLAUDE.md` and `STATUS.md` in sync. If behavior, architecture, semantics, or major implementation details change, update both files in the same change set.
+- For every codebase change or newly added feature, review and update all impacted documentation in the same change set: `README.md`, relevant files in `examples/`, and relevant files in `spec/`. Do not leave outdated docs or examples behind.
 - Follow spec-first development: if semantics change, update or add files in `spec/` before or alongside implementation.
 - While implementing any feature or fix, evaluate whether a language-level improvement is worth proposing; if yes, create an idea doc in `ideas/` (no A/B test required).
 - Before adding a new idea, check whether it is already captured in `ideas/` or promoted into `spec/`; if already covered, link to the existing artifact instead of duplicating it.

@@ -15,7 +15,7 @@ schema JudgeScore {
 }
 
 ledger style_guide: Ledger = Ledger::new();
-db rounds: Database<String, Any> = Database::new();
+hashmap rounds: HashMap<String, Any> = HashMap::new();
 
 agent Writer {
     provider: openai,

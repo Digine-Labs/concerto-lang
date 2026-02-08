@@ -26,9 +26,11 @@ pub trait Visitor {
             Declaration::Module(m) => self.visit_module_decl(m),
             Declaration::Const(c) => self.visit_const_decl(c),
             Declaration::TypeAlias(t) => self.visit_type_alias_decl(t),
-            Declaration::Db(d) => self.visit_db_decl(d),
+            Declaration::HashMap(d) => self.visit_hashmap_decl(d),
             Declaration::Ledger(l) => self.visit_ledger_decl(l),
+            Declaration::Memory(m) => self.visit_memory_decl(m),
             Declaration::Mcp(m) => self.visit_mcp_decl(m),
+            Declaration::Host(h) => self.visit_host_decl(h),
         }
     }
 
@@ -105,7 +107,7 @@ pub trait Visitor {
 
     fn visit_type_alias_decl(&mut self, _decl: &TypeAliasDecl) {}
 
-    fn visit_db_decl(&mut self, decl: &DbDecl) {
+    fn visit_hashmap_decl(&mut self, decl: &HashMapDecl) {
         self.visit_expr(&decl.initializer);
     }
 
@@ -113,7 +115,25 @@ pub trait Visitor {
         self.visit_expr(&decl.initializer);
     }
 
+    fn visit_memory_decl(&mut self, decl: &MemoryDecl) {
+        self.visit_expr(&decl.initializer);
+    }
+
     fn visit_mcp_decl(&mut self, decl: &McpDecl) {
+        for field in &decl.fields {
+            self.visit_expr(&field.value);
+        }
+    }
+
+    fn visit_host_decl(&mut self, decl: &HostDecl) {
+        for decorator in &decl.decorators {
+            for arg in &decorator.args {
+                match arg {
+                    DecoratorArg::Positional(expr) => self.visit_expr(expr),
+                    DecoratorArg::Named { value, .. } => self.visit_expr(value),
+                }
+            }
+        }
         for field in &decl.fields {
             self.visit_expr(&field.value);
         }

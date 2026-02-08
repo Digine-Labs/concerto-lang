@@ -192,7 +192,7 @@ connect openai {
     api_key: env("OPENAI_API_KEY"),
 }
 
-db shared_state: Database<String, Any> = Database::new();
+hashmap shared_state: HashMap<String, Any> = HashMap::new();
 
 agent Classifier { /* ... */ }
 tool FileReader { /* ... */ }

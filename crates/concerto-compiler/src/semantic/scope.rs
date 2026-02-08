@@ -11,6 +11,7 @@ pub enum SymbolKind {
     Function,
     Parameter,
     Agent,
+    Host,
     Tool,
     Schema,
     Struct,
@@ -20,9 +21,10 @@ pub enum SymbolKind {
     TypeAlias,
     Module,
     Connection,
-    Database,
+    HashMap,
     Pipeline,
     Ledger,
+    Memory,
     Mcp,
 }
 

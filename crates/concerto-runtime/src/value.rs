@@ -32,18 +32,40 @@ pub enum Value {
     AgentRef(String),
     /// Reference to a schema.
     SchemaRef(String),
-    /// Reference to a database.
-    DatabaseRef(String),
+    /// Reference to a hashmap.
+    HashMapRef(String),
     /// Reference to a ledger (fault-tolerant knowledge store).
     LedgerRef(String),
     /// Reference to a pipeline.
     PipelineRef(String),
+    /// Reference to a memory (conversation history store).
+    MemoryRef(String),
+    /// Reference to a host (external agent system).
+    HostRef(String),
     /// A deferred computation (function name + captured args).
     /// Created by SpawnAsync, resolved by Await/AwaitAll.
     Thunk {
         function: String,
         args: Vec<Value>,
     },
+    /// Transient builder for Agent/Host execution with chained config.
+    /// Created by Agent.with_memory(), Agent.with_tools(), etc.
+    AgentBuilder {
+        source_name: String,
+        source_kind: BuilderSourceKind,
+        memory: Option<String>,
+        memory_auto_append: bool,
+        extra_tools: Vec<String>,
+        exclude_default_tools: bool,
+        context: Option<Box<Value>>,
+    },
+}
+
+/// Whether an AgentBuilder wraps an Agent or a Host.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BuilderSourceKind {
+    Agent,
+    Host,
 }
 
 // ============================================================================
@@ -336,10 +358,13 @@ impl Value {
             Value::Function(_) => "Function",
             Value::AgentRef(_) => "AgentRef",
             Value::SchemaRef(_) => "SchemaRef",
-            Value::DatabaseRef(_) => "DatabaseRef",
+            Value::HashMapRef(_) => "HashMapRef",
             Value::LedgerRef(_) => "LedgerRef",
             Value::PipelineRef(_) => "PipelineRef",
+            Value::MemoryRef(_) => "MemoryRef",
+            Value::HostRef(_) => "HostRef",
             Value::Thunk { .. } => "Thunk",
+            Value::AgentBuilder { .. } => "AgentBuilder",
         }
     }
 
@@ -395,10 +420,13 @@ impl Value {
             Value::Function(name) => serde_json::json!(format!("<fn {}>", name)),
             Value::AgentRef(name) => serde_json::json!(format!("<agent {}>", name)),
             Value::SchemaRef(name) => serde_json::json!(format!("<schema {}>", name)),
-            Value::DatabaseRef(name) => serde_json::json!(format!("<db {}>", name)),
+            Value::HashMapRef(name) => serde_json::json!(format!("<hashmap {}>", name)),
             Value::LedgerRef(name) => serde_json::json!(format!("<ledger {}>", name)),
             Value::PipelineRef(name) => serde_json::json!(format!("<pipeline {}>", name)),
+            Value::MemoryRef(name) => serde_json::json!(format!("<memory {}>", name)),
+            Value::HostRef(name) => serde_json::json!(format!("<host {}>", name)),
             Value::Thunk { function, .. } => serde_json::json!(format!("<thunk {}>", function)),
+            Value::AgentBuilder { source_name, .. } => serde_json::json!(format!("<builder {}>", source_name)),
         }
     }
 }
@@ -480,10 +508,13 @@ impl fmt::Display for Value {
             Value::Function(name) => write!(f, "<fn {}>", name),
             Value::AgentRef(name) => write!(f, "<agent {}>", name),
             Value::SchemaRef(name) => write!(f, "<schema {}>", name),
-            Value::DatabaseRef(name) => write!(f, "<db {}>", name),
+            Value::HashMapRef(name) => write!(f, "<hashmap {}>", name),
             Value::LedgerRef(name) => write!(f, "<ledger {}>", name),
             Value::PipelineRef(name) => write!(f, "<pipeline {}>", name),
+            Value::MemoryRef(name) => write!(f, "<memory {}>", name),
+            Value::HostRef(name) => write!(f, "<host {}>", name),
             Value::Thunk { function, .. } => write!(f, "<thunk {}>", function),
+            Value::AgentBuilder { source_name, .. } => write!(f, "<builder {}>", source_name),
         }
     }
 }

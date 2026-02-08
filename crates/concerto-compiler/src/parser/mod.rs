@@ -173,8 +173,10 @@ impl Parser {
                 | TokenKind::Mod
                 | TokenKind::Const
                 | TokenKind::Type
-                | TokenKind::Db
+                | TokenKind::HashMap
+                | TokenKind::Memory
                 | TokenKind::Mcp
+                | TokenKind::Host
                 | TokenKind::At
                 | TokenKind::RightBrace => return,
                 _ => {

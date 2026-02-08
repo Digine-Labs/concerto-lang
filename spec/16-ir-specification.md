@@ -21,7 +21,7 @@ IR files use the `.conc-ir` extension and contain a JSON object with the followi
     "mcp_connections": [...],
     "schemas": [...],
     "connections": [...],
-    "databases": [...],
+    "hashmaps": [...],
     "pipelines": [...],
     "source_map": {...},
     "metadata": {...}
@@ -282,13 +282,13 @@ Provider connection configurations.
 }
 ```
 
-### Databases
+### HashMaps
 
-In-memory database declarations.
+In-memory hashmap declarations.
 
 ```json
 {
-    "databases": [
+    "hashmaps": [
         {
             "name": "shared_memory",
             "key_type": "string",
@@ -416,15 +416,15 @@ Pipeline definitions with stage sequences.
 |--------|------|-------------|
 | `CALL_TOOL` | tool, method, argc | Invoke tool method |
 
-### Database Operations
+### HashMap Operations
 
 | Opcode | Args | Description |
 |--------|------|-------------|
-| `DB_GET` | db_name | Get value (key on stack, pushes Option) |
-| `DB_SET` | db_name | Set value (key and value on stack) |
-| `DB_DELETE` | db_name | Delete entry (key on stack) |
-| `DB_HAS` | db_name | Check existence (key on stack, pushes Bool) |
-| `DB_QUERY` | db_name | Query with predicate (closure on stack) |
+| `HASH_MAP_GET` | hashmap_name | Get value (key on stack, pushes Option) |
+| `HASH_MAP_SET` | hashmap_name | Set value (key and value on stack) |
+| `HASH_MAP_DELETE` | hashmap_name | Delete entry (key on stack) |
+| `HASH_MAP_HAS` | hashmap_name | Check existence (key on stack, pushes Bool) |
+| `HASH_MAP_QUERY` | hashmap_name | Query with predicate (closure on stack) |
 
 ### Emit
 

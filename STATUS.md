@@ -4,15 +4,8 @@
 
 ## Current Focus
 
-**Phase 1: Foundation** - COMPLETE. All specs, docs, and examples written.
-**Phase 2: Compiler Implementation** - COMPLETE. All 12 steps done + generic method call fix. All 3 example programs compile end-to-end to IR. 225 tests, clippy clean.
-**Phase 3a: Runtime Core** - COMPLETE. Stack-based VM with all opcodes, mock agent system, database stubs, emit channels. All 3 examples compile AND run end-to-end. 261 tests total, clippy clean.
-**Phase 3b: Agent & Tool System** - COMPLETE. Try/catch exception handling, real LLM providers (OpenAI + Anthropic), schema validation with retry, tool method dispatch. 299 tests total, clippy clean.
-**Phase 3c: Pipeline & Polish** - COMPLETE. Decorator runtime (@retry/@timeout/@log), full pipeline lifecycle events, async foundations (Thunk), MCP client (stdio transport), run_loop_until for nested execution. 320 tests total, clippy clean, all 3 examples run end-to-end.
-**Phase 3d: Ledger System** - COMPLETE. First-class `ledger` keyword across full compiler+runtime stack. LedgerStore with word-containment identifier queries, case-insensitive key queries (single/OR/AND), mutations, scoping. 338 tests total, clippy clean, all 3 examples run end-to-end.
-**Phase 4: Standard Library** - COMPLETE. All 12 std:: modules implemented (math, string, env, time, json, fmt, log, fs, collections, http, crypto, prompt). 102 new stdlib tests. VM dispatch for std:: function calls and collection method calls. 440 tests total (225 compiler + 215 runtime), clippy clean, all 3 examples run end-to-end.
-**Phase 5: Integration and Polish** - COMPLETE. Runtime robustness (replaced 5 unwraps, implemented DbQuery, error on unknown fn, mock provider warning). Compiler error quality (ariadne colored output, --quiet/--emit-ir flags, 7 error suggestions). 15 end-to-end integration tests. CLI polish (help text, long_about). README/docs updates. 458 tests total (228 compiler + 215 runtime + 15 integration), clippy clean.
-**Phase 6: Project Manifest & Scaffolding** - COMPLETE. `Concerto.toml` manifest loader (walk-up discovery, validation). `connect` keyword removed from language. Manifest connections wired into compiler (semantic + codegen) and runtime (provider field, api_key_env, ollama). `concerto init` scaffolding (openai/anthropic/ollama). Examples restructured as proper projects. 472 tests total (10 manifest + 227 compiler + 220 runtime + 15 integration), clippy clean.
+**Phase 1–7**: COMPLETE. See sections below.
+**Phase 7: Agent Memory, Dynamic Tool Binding, and Hosts** - COMPLETE. Three interrelated features extending agent execution: conversation memory (`memory` keyword + `with_memory()` builder + sliding window), dynamic tool binding (`with_tools()`/`without_tools()` + compile-time tool schema generation), and external agent hosts (`host` keyword + stdio subprocess + HostRegistry). 490 tests total (10 manifest + 231 compiler + 230 runtime + 19 integration).
 
 ---
 
@@ -31,6 +24,10 @@
 | Redesign quality loop example with first-class pipeline | Done | `examples/multi_agent_quality_loop/src/main.conc` now uses `pipeline MemoQualityPipeline` (`prepare -> iterate -> finalize`) |
 | Pipeline runtime smoke verification | Done | Compiled+ran `/tmp/pipeline_runtime_smoke.conc` and observed lifecycle emits + final result (`18`) |
 | New idea: iterative pipeline loop primitive | Done | `ideas/pipeline_iterative_loops.md` |
+| New idea: attempt chains and recovery blocks | Done | `ideas/attempt_chains_and_recovery_blocks.md` |
+| New idea: consensus and critic loops | Done | `ideas/consensus_and_critic_loops.md` |
+| New idea: harness contracts and assertions | Done | `ideas/harness_contracts_and_assertions.md` |
+| New idea: checkpoints and human approval gates | Done | `ideas/checkpoints_and_human_approval_gates.md` |
 | Add language positioning/features document | Done | `FEATURES.md` with full feature map + Concerto vs LangChain-style comparison |
 | Expand FEATURES examples with colorful snippets | Done | Added multi-feature code examples in `FEATURES.md` using `rust` fences for rendering |
 
@@ -53,7 +50,7 @@
 | spec/06-functions.md | Done | fn, async fn, closures, defaults, doc comments |
 | spec/07-agents.md | Done | Agent definition, execution, composition |
 | spec/08-tools.md | Done | Tool definition, bindings, permissions |
-| spec/09-memory-and-databases.md | Done | db, Database<K,V>, scoping, queries |
+| spec/09-memory-and-databases.md | Done | hashmap, HashMap<K,V>, scoping, queries |
 | spec/10-emit-system.md | Done | emit(), channels, bidirectional, host API |
 | spec/11-llm-connections.md | Done | connect blocks, providers, streaming |
 | spec/12-schema-validation.md | Done | schema, validation modes, retry |
@@ -81,10 +78,10 @@
 | Compiler CLI (`concertoc`) | Done | --emit-tokens, --emit-ast, --check, -o output. Compiles .conc -> .conc-ir JSON |
 | Compiler test suite (core) | Done | 43 unit tests total, clippy clean, milestone program compiles end-to-end |
 | Lexer - full coverage | Done | String interpolation (mode stack), multi-line strings, raw strings, hex/binary/octal ints, unicode escapes, `mcp` keyword, 42 keywords total, 74 tests |
-| Parser - all declarations | Done | 16 declaration types (fn, connect, agent, tool, schema, pipeline, struct, enum, trait, impl, use, mod, const, type, db, mcp), decorators (@name(args)), self/mut self params, 107 tests total |
+| Parser - all declarations | Done | 16 declaration types (fn, connect, agent, tool, schema, pipeline, struct, enum, trait, impl, use, mod, const, type, hashmap, mcp), decorators (@name(args)), self/mut self params, 107 tests total |
 | Parser - all statements & expressions | Done | for/while/loop, match (all pattern types), try/catch/throw, closures, pipe (|>), ? propagation, ?? nil coalesce, range (.., ..=), cast (as), path (::), .await, tuples, struct literals, string interpolation, break/continue, 143 tests total |
-| Semantic analysis | Done | Name resolution (forward refs, scoping), type checking (operators, conditions, inference), control flow validation (break/continue in loops, return in fns, ?/throw in Result fns, .await in async), mutability checking, declaration validation (agent provider, tool description, @describe), unused variable warnings, built-ins (emit, print, env, Some/None/Ok/Err, ToolError, Database, std), 216 tests total |
-| IR generator - full coverage | Done | All 16 declaration types lowered (agent, tool, schema, connect, pipeline, struct, enum, impl, trait, const, db, mcp). All statement types (break w/ value, continue, throw). All 29 expression types (while/for/loop with break/continue, match with pattern check+bind, try/catch/throw, closures, pipe rewrite, ? propagation, ?? nil coalesce, range, cast, path, .await, tuples, struct literals, string interpolation). Loop result variables, pattern matching (literal/wildcard/identifier/or/range/binding/tuple/struct/enum/array), 216 tests total |
+| Semantic analysis | Done | Name resolution (forward refs, scoping), type checking (operators, conditions, inference), control flow validation (break/continue in loops, return in fns, ?/throw in Result fns, .await in async), mutability checking, declaration validation (agent provider, tool description, @describe), unused variable warnings, built-ins (emit, print, env, Some/None/Ok/Err, ToolError, HashMap, std), 216 tests total |
+| IR generator - full coverage | Done | All 16 declaration types lowered (agent, tool, schema, connect, pipeline, struct, enum, impl, trait, const, hashmap, mcp). All statement types (break w/ value, continue, throw). All 29 expression types (while/for/loop with break/continue, match with pattern check+bind, try/catch/throw, closures, pipe rewrite, ? propagation, ?? nil coalesce, range, cast, path, .await, tuples, struct literals, string interpolation). Loop result variables, pattern matching (literal/wildcard/identifier/or/range/binding/tuple/struct/enum/array), 216 tests total |
 | Integration & polish | Done | All 3 examples compile end-to-end. Parser fixes: prefix `await expr`, `return` as expression (match arms), union types (`"a" \| "b"`). Semantic fixes: tool methods implicitly async, pipeline stages implicitly async with Result return, `self` not warned unused in tools. 222 tests total, clippy clean |
 | Generic method calls | Done | Parser: `method<Type>(args)` parsed as MethodCall with type_args (lookahead disambiguates from comparison). AST: type_args field on MethodCall. Codegen: schema field on CALL_METHOD. 225 compiler tests total |
 
@@ -94,11 +91,11 @@
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Value system | Done | 15 Value variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, DatabaseRef, PipelineRef). Arithmetic with type promotion, string coercion, comparisons, truthiness, field/index access. 16 tests |
-| IR loader/decoder | Done | LoadedModule from JSON IR. Constants conversion, function/agent/tool/schema/connection/database/pipeline tables. Qualified tool method registration. 2 tests |
+| Value system | Done | 15 Value variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, HashMapRef, PipelineRef). Arithmetic with type promotion, string coercion, comparisons, truthiness, field/index access. 16 tests |
+| IR loader/decoder | Done | LoadedModule from JSON IR. Constants conversion, function/agent/tool/schema/connection/hashmap/pipeline tables. Qualified tool method registration. 2 tests |
 | VM execution loop | Done | Stack-based dispatch of all 59 opcodes. CallFrame with locals HashMap. CALL convention (args then callee), CALL_METHOD (object then args). LOAD_LOCAL falls back to globals and function names. Max call depth 1000. 10 tests |
 | Agent mock system | Done | Mock execute() returns Response struct with text/tokens/model. Mock execute_with_schema() populates fields from JSON Schema properties. Schema name passed via CALL_METHOD instruction |
-| Database stubs | Done | In-memory KV (HashMap<String, HashMap<String, Value>>). set/get/has/delete operations via CALL_METHOD and DB_* opcodes |
+| HashMap stubs | Done | In-memory KV (HashMap<String, HashMap<String, Value>>). set/get/has/delete operations via CALL_METHOD and HASHMAP_* opcodes |
 | Emit channel system | Done | EMIT opcode pops channel + payload, invokes handler callback. Custom emit handler via set_emit_handler(). Default prints `[emit:channel] value` |
 | Built-in functions | Done | Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new. Dispatched via $builtin_ prefix. 8 tests |
 | Runtime host API | Done | lib.rs: run_file(path), VM::new(), VM::execute(), VM::set_emit_handler() |
@@ -169,9 +166,9 @@
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Runtime robustness | Done | Replaced 5 unwraps in vm.rs with proper error returns, implemented DbQuery with closure-based filtering, error on unknown functions (was Nil), mock provider fallback warning, removed dead code (stack_base), added call_stack_depth() |
+| Runtime robustness | Done | Replaced 5 unwraps in vm.rs with proper error returns, implemented HashMapQuery with closure-based filtering, error on unknown functions (was Nil), mock provider fallback warning, removed dead code (stack_base), added call_stack_depth() |
 | Compiler error quality | Done | ariadne colored error output (replaces manual eprintln), --quiet flag (compiler + runtime), --emit-ir flag, 7 error suggestions (.with_suggestion on common diagnostics) |
-| Integration test suite | Done | 15 end-to-end compile-to-run tests in tests/integration.rs (arithmetic, strings, if/else, match, for/while loops, functions, pipe, structs, try/catch, Result, database, stdlib, recursion) |
+| Integration test suite | Done | 15 end-to-end compile-to-run tests in tests/integration.rs (arithmetic, strings, if/else, match, for/while loops, functions, pipe, structs, try/catch, Result, hashmap, stdlib, recursion) |
 | CLI polish | Done | Long help text (--help), --emit-ir (print IR JSON to stdout), --quiet (suppress warnings/emits) |
 | README & docs | Done | Installation, getting started, stdlib table, ledger in features, license MIT |
 | Example programs verified | Done | All 3 examples compile and run end-to-end |
@@ -236,13 +233,62 @@ This phase introduces `Concerto.toml` as the mandatory project manifest and adds
 | Update CLAUDE.md | Done | Updated keyword list (41), directory structure, design decisions, manifest in architecture |
 | Update STATUS.md | Done | This update |
 
+## Phase 7: Agent Memory, Dynamic Tool Binding, and Hosts
+
+This phase adds three interrelated features that extend agent execution capabilities. All three share a builder pattern (`with_memory`, `with_tools`, `with_context`) that chains before `.execute()`. See [spec/24-agent-memory.md](spec/24-agent-memory.md), [spec/25-dynamic-tool-binding.md](spec/25-dynamic-tool-binding.md), and [spec/26-hosts.md](spec/26-hosts.md).
+
+### Phase 7a: Agent Memory (COMPLETE)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| spec/24-agent-memory.md | Done | Memory keyword, with_memory() builder, auto-append, sliding window |
+| Compiler: `memory` keyword + parser | Done | Lexer keyword, MemoryDecl AST node, parser, semantic (SymbolKind::Memory, Type::MemoryRef) |
+| Compiler: IR generation | Done | IrMemory struct, `memories` IR section, generate_memory() |
+| Runtime: MemoryRef value + store | Done | Value::MemoryRef, MemoryStore (Vec<ChatMessage> per memory), memory.rs |
+| Runtime: AgentBuilder value | Done | Value::AgentBuilder (shared transient value for all three features) |
+| Runtime: with_memory() + execute() | Done | Builder dispatch, modified build_chat_request with memory injection |
+| Runtime: Memory direct API | Done | append, messages, last, clear, len methods on MemoryRef |
+| Tests + integration | Done | Unit tests for memory store, integration test for agent with memory |
+
+### Phase 7b: Dynamic Tool Binding (COMPLETE)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| spec/25-dynamic-tool-binding.md | Done | with_tools()/without_tools() builder, tool schema generation |
+| Compiler: tool schema generation | Done | Extract @describe/@param decorators → ToolSchemaEntry in codegen |
+| IR: ToolSchemaEntry on IrTool | Done | method_name, description, parameters (JSON Schema) |
+| Runtime: with_tools()/without_tools() | Done | Builder methods, dynamic tool resolution, merged schemas in ChatRequest |
+| Tests + integration | Done | Unit + integration tests |
+
+### Phase 7c: Hosts (COMPLETE)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| spec/26-hosts.md | Done | Host keyword, stdio transport, stateful subprocess, TOML config |
+| TOML manifest: HostConfig | Done | [hosts.*] section in Concerto.toml |
+| Compiler: `host` keyword + parser | Done | Lexer keyword, HostDecl AST node, parser, semantic (SymbolKind::Host, Type::HostRef) |
+| Compiler: IR generation | Done | IrHost struct, `hosts` IR section, generate_host() |
+| Runtime: host.rs + HostRegistry | Done | HostClient (subprocess mgmt, stdio I/O), HostRegistry |
+| Runtime: HostRef value + VM dispatch | Done | Value::HostRef, with_context() builder, execute dispatch |
+| Tests + integration | Done | Unit + integration tests |
+
+### Phase 7d: Documentation Update (COMPLETE)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Update CLAUDE.md | Done | New keywords, types, value variants, design decisions |
+| Update STATUS.md | Done | Phase 7 completion status |
+| Update FEATURES.md | Done | New features documented |
+| Update VS Code extension | Done | memory/host keywords in tmLanguage.json |
+| Update memory files | Done | Project memory updated with Phase 7 details |
+
 ### Future (deferred)
 
 | Task | Status | Notes |
 |------|--------|-------|
 | Performance benchmarks | Not Started | VM execution performance |
 | Documentation site | Not Started | Language guide and API docs |
-| VS Code extension | Not Started | Syntax highlighting for .conc |
+| VS Code extension | Done | Syntax highlighting for .conc |
 | Package registry design | Not Started | Future: sharing .conc packages |
 
 ---
@@ -263,12 +309,16 @@ This phase introduces `Concerto.toml` as the mandatory project manifest and adds
 | 10 | First-class `mcp` construct | 2026-02-07 | MCP tool interfaces declared in source with typed fn signatures; compile-time type checking + runtime schema validation |
 | 11 | Generic method call syntax | 2026-02-08 | `method<Type>(args)` parsed with lookahead disambiguation from comparison operators; type args passed as schema on CALL_METHOD |
 | 12 | Phase 3a mock-first | 2026-02-08 | No async runtime (tokio) in Phase 3a; AWAIT is no-op; agents return mock responses; enables full end-to-end testing without HTTP |
-| 13 | First-class `ledger` keyword | 2026-02-08 | Fault-tolerant knowledge store for AI agents. Separate from `db` (exact-key state). Identifier + Keys + Value model with word-containment similarity and case-insensitive key matching. First-class keyword for compiler integration |
+| 13 | First-class `ledger` keyword | 2026-02-08 | Fault-tolerant knowledge store for AI agents. Separate from `hashmap` (exact-key state). Identifier + Keys + Value model with word-containment similarity and case-insensitive key matching. First-class keyword for compiler integration |
 | 14 | Synchronous LlmProvider trait | 2026-02-08 | Uses reqwest::blocking for Phase 3b simplicity. Async deferred to Phase 3c. tokio added now for CLI + future async needs |
 | 15 | Trait-based provider with MockProvider fallback | 2026-02-08 | MockProvider auto-selected when no API key. Existing tests unchanged. Real providers require env API keys |
 | 16 | Schema type normalization at runtime | 2026-02-08 | Compiler emits Concerto types (String, Int, Array<T>). Runtime normalizes to JSON Schema types (string, integer, array) before validation |
 | 17 | `Concerto.toml` project manifest | 2026-02-08 | Connections defined in TOML (like Cargo.toml), not in source code. Compiler embeds connection config into IR at compile time. `connect` keyword removed |
 | 18 | `concerto init` scaffolding | 2026-02-08 | Creates project structure (Concerto.toml + src/main.conc + .gitignore). Supports openai/anthropic/ollama. Generates working hello-world agent |
+| 19 | Agent Memory with builder pattern | 2026-02-08 | `memory` keyword + `with_memory()` builder. Auto-append by default, opt-out via `auto: false`. Sliding window via `max: N`. Messages injected between system_prompt and user_prompt in ChatRequest |
+| 20 | Dynamic tool binding | 2026-02-08 | `with_tools()` ADDS to agent's static tools, `without_tools()` strips all. Compile-time tool schema generation from `@describe`/`@param` decorators. Tool call execution loop deferred |
+| 21 | Hosts as external agent connectors | 2026-02-08 | `host` keyword for external agent systems (Claude Code, Cursor). Stdio transport, stateful subprocess. TOML `[hosts.*]` config. Same builder interface as agents |
+| 22 | Shared AgentBuilder value type | 2026-02-08 | Transient `Value::AgentBuilder` accumulates config (memory, tools, context) via method chaining. Shared across Agent/Host `.with_*().execute()` pattern |
 
 ## Open Questions
 

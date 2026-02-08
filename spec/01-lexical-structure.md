@@ -118,7 +118,7 @@ The following identifiers are reserved as keywords and cannot be used as variabl
 | `emit` | Output to emit channel |
 | `pipeline` | Pipeline definition |
 | `stage` | Pipeline stage |
-| `db` | Database declaration |
+| `hashmap` | HashMap declaration |
 | `connect` | LLM provider connection |
 | `with` | Attach configuration |
 

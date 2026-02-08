@@ -16,7 +16,7 @@ schema LedgerReview {
 }
 
 ledger knowledge: Ledger = Ledger::new();
-db run_state: Database<String, Any> = Database::new();
+hashmap run_state: HashMap<String, Any> = HashMap::new();
 
 @retry(max: 2, backoff: "linear")
 agent DraftingAgent {

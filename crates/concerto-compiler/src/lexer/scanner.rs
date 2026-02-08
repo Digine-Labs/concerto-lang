@@ -1255,7 +1255,7 @@ fn main() {
 
     #[test]
     fn all_keywords_recognized() {
-        let source = "let mut const fn agent tool pub use mod if else match for while loop break continue return try catch throw emit await async pipeline stage schema db ledger self impl trait enum struct as in with true false nil type mcp";
+        let source = "let mut const fn agent tool pub use mod if else match for while loop break continue return try catch throw emit await async pipeline stage schema hashmap ledger self impl trait enum struct as in with true false nil type mcp";
         let tokens = lex(source);
         // All should be keywords (not Identifier), except true/false/nil which are literals
         for token in &tokens[..tokens.len() - 1] {

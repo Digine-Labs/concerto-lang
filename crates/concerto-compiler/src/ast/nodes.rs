@@ -64,9 +64,11 @@ pub enum Declaration {
     Module(ModuleDecl),
     Const(ConstDecl),
     TypeAlias(TypeAliasDecl),
-    Db(DbDecl),
+    HashMap(HashMapDecl),
     Ledger(LedgerDecl),
+    Memory(MemoryDecl),
     Mcp(McpDecl),
+    Host(HostDecl),
 }
 
 // ============================================================================
@@ -318,12 +320,12 @@ pub struct TypeAliasDecl {
 }
 
 // ============================================================================
-// Db declaration
+// HashMap declaration
 // ============================================================================
 
-/// `db name: Type = expr;`
+/// `hashmap name: Type = expr;`
 #[derive(Debug, Clone)]
-pub struct DbDecl {
+pub struct HashMapDecl {
     pub name: String,
     pub type_ann: TypeAnnotation,
     pub initializer: Expr,
@@ -337,6 +339,19 @@ pub struct DbDecl {
 /// `ledger name: Ledger = Ledger::new();`
 #[derive(Debug, Clone)]
 pub struct LedgerDecl {
+    pub name: String,
+    pub type_ann: TypeAnnotation,
+    pub initializer: Expr,
+    pub span: Span,
+}
+
+// ============================================================================
+// Memory declaration
+// ============================================================================
+
+/// `memory name: Memory = Memory::new();`
+#[derive(Debug, Clone)]
+pub struct MemoryDecl {
     pub name: String,
     pub type_ann: TypeAnnotation,
     pub initializer: Expr,
@@ -359,6 +374,26 @@ pub struct McpDecl {
     pub name: String,
     pub fields: Vec<ConfigField>,
     pub methods: Vec<FunctionDecl>,
+    pub span: Span,
+}
+
+// ============================================================================
+// Host declaration
+// ============================================================================
+
+/// ```concerto
+/// host ClaudeCode {
+///     connector: claude_code,
+///     input_format: "text",
+///     output_format: "json",
+///     timeout: 300,
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct HostDecl {
+    pub name: String,
+    pub decorators: Vec<Decorator>,
+    pub fields: Vec<ConfigField>,
     pub span: Span,
 }
 

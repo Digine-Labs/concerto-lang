@@ -19,8 +19,10 @@ pub struct CodeGenerator {
     tools: Vec<IrTool>,
     schemas: Vec<IrSchema>,
     connections: Vec<IrConnection>,
-    databases: Vec<IrDatabase>,
+    hashmaps: Vec<IrHashMap>,
+    hosts: Vec<IrHost>,
     ledgers: Vec<IrLedger>,
+    memories: Vec<IrMemory>,
     pipelines: Vec<IrPipeline>,
     types: Vec<IrType>,
     closure_counter: usize,
@@ -37,8 +39,10 @@ impl CodeGenerator {
             tools: Vec::new(),
             schemas: Vec::new(),
             connections: Vec::new(),
-            databases: Vec::new(),
+            hashmaps: Vec::new(),
+            hosts: Vec::new(),
             ledgers: Vec::new(),
+            memories: Vec::new(),
             pipelines: Vec::new(),
             types: Vec::new(),
             closure_counter: 0,
@@ -49,6 +53,26 @@ impl CodeGenerator {
     /// Called before `generate()` to embed external connection configs.
     pub fn add_manifest_connections(&mut self, connections: Vec<IrConnection>) {
         self.connections.extend(connections);
+    }
+
+    /// Embed host configs from Concerto.toml manifest into IR hosts.
+    /// Called after `generate()` to merge TOML configs into host declarations.
+    pub fn embed_manifest_hosts(
+        ir: &mut IrModule,
+        manifest_hosts: &std::collections::HashMap<String, concerto_common::manifest::HostConfig>,
+    ) {
+        for host in &mut ir.hosts {
+            if let Some(cfg) = manifest_hosts.get(&host.connector) {
+                host.command = cfg.command.clone();
+                host.args = cfg.args.clone();
+                host.env = cfg.env.clone();
+                host.working_dir = cfg.working_dir.clone();
+                // Use TOML timeout as fallback if not set in source
+                if host.timeout.is_none() {
+                    host.timeout = cfg.timeout;
+                }
+            }
+        }
     }
 
     /// Generate IR from a parsed program.
@@ -68,8 +92,10 @@ impl CodeGenerator {
             tools: self.tools,
             schemas: self.schemas,
             connections: self.connections,
-            databases: self.databases,
+            hashmaps: self.hashmaps,
             ledgers: self.ledgers,
+            memories: self.memories,
+            hosts: self.hosts,
             pipelines: self.pipelines,
             source_map: None,
             metadata: IrMetadata {
@@ -98,9 +124,11 @@ impl CodeGenerator {
             Declaration::Impl(i) => self.generate_impl(i),
             Declaration::Trait(t) => self.generate_trait_decl(t),
             Declaration::Const(c) => self.generate_const(c),
-            Declaration::Db(d) => self.generate_db(d),
+            Declaration::HashMap(d) => self.generate_hashmap(d),
             Declaration::Ledger(l) => self.generate_ledger(l),
+            Declaration::Memory(m) => self.generate_memory(m),
             Declaration::Mcp(m) => self.generate_mcp(m),
+            Declaration::Host(h) => self.generate_host(h),
             // Use, Module, TypeAlias are compile-time only; no IR emitted.
             Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
         }
@@ -2135,11 +2163,119 @@ impl CodeGenerator {
             .filter_map(|m| self.compile_function(m, &m.name))
             .collect();
 
+        // Generate tool schemas from @describe/@param decorators
+        let tool_schemas = self.generate_tool_schemas(&tool.name, &tool.methods);
+
         self.tools.push(IrTool {
             name: tool.name.clone(),
             module: self.module_name.clone(),
             methods,
+            tool_schemas,
         });
+    }
+
+    /// Generate JSON Schema entries for each tool method from @describe/@param decorators.
+    fn generate_tool_schemas(
+        &self,
+        tool_name: &str,
+        methods: &[FunctionDecl],
+    ) -> Vec<ToolSchemaEntry> {
+        methods
+            .iter()
+            .filter_map(|m| {
+                // Extract @describe
+                let description = m.decorators.iter().find_map(|d| {
+                    if d.name == "describe" {
+                        d.args.first().and_then(|a| match a {
+                            DecoratorArg::Positional(expr) => {
+                                if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                    } else {
+                        None
+                    }
+                })?;
+
+                // Extract @param decorators: @param("name", "description")
+                let param_descriptions: Vec<(String, String)> = m
+                    .decorators
+                    .iter()
+                    .filter(|d| d.name == "param")
+                    .filter_map(|d| {
+                        let mut args_iter = d.args.iter();
+                        let name = args_iter.next().and_then(|a| match a {
+                            DecoratorArg::Positional(expr) => {
+                                if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })?;
+                        let desc = args_iter.next().and_then(|a| match a {
+                            DecoratorArg::Positional(expr) => {
+                                if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }).unwrap_or_default();
+                        Some((name, desc))
+                    })
+                    .collect();
+
+                // Build JSON Schema for parameters (skip `self` param)
+                let mut properties = serde_json::Map::new();
+                let mut required = Vec::new();
+                for param in &m.params {
+                    let param_desc = param_descriptions
+                        .iter()
+                        .find(|(n, _)| n == &param.name)
+                        .map(|(_, d)| d.as_str())
+                        .unwrap_or("");
+
+                    let json_type = param
+                        .type_ann
+                        .as_ref()
+                        .map(concerto_type_to_json_schema)
+                        .unwrap_or_else(|| serde_json::json!({ "type": "string" }));
+
+                    let mut prop = json_type;
+                    if !param_desc.is_empty() {
+                        if let Some(obj) = prop.as_object_mut() {
+                            obj.insert(
+                                "description".to_string(),
+                                serde_json::Value::String(param_desc.to_string()),
+                            );
+                        }
+                    }
+                    properties.insert(param.name.clone(), prop);
+                    if param.default.is_none() {
+                        required.push(serde_json::Value::String(param.name.clone()));
+                    }
+                }
+
+                let parameters = serde_json::json!({
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                });
+
+                Some(ToolSchemaEntry {
+                    method_name: format!("{}::{}", tool_name, m.name),
+                    description,
+                    parameters,
+                })
+            })
+            .collect()
     }
 
     fn generate_schema(&mut self, schema: &SchemaDecl) {
@@ -2358,17 +2494,17 @@ impl CodeGenerator {
         });
     }
 
-    fn generate_db(&mut self, db: &DbDecl) {
+    fn generate_hashmap(&mut self, hm: &HashMapDecl) {
         use super::super::ast::types::TypeKind;
-        let (key_type, value_type) = match &db.type_ann.kind {
-            TypeKind::Generic { name, args } if name == "Map" && args.len() == 2 => {
+        let (key_type, value_type) = match &hm.type_ann.kind {
+            TypeKind::Generic { name, args } if (name == "Map" || name == "HashMap") && args.len() == 2 => {
                 (format_type(&args[0]), format_type(&args[1]))
             }
             _ => ("any".to_string(), "any".to_string()),
         };
 
-        self.databases.push(IrDatabase {
-            name: db.name.clone(),
+        self.hashmaps.push(IrHashMap {
+            name: hm.name.clone(),
             key_type,
             value_type,
             persistence: None,
@@ -2379,6 +2515,31 @@ impl CodeGenerator {
         self.ledgers.push(IrLedger {
             name: ledger.name.clone(),
         });
+    }
+
+    fn generate_memory(&mut self, mem: &MemoryDecl) {
+        // Extract max_messages from initializer if it's Memory::new(max: N)
+        let max_messages = self.extract_memory_max(&mem.initializer);
+        self.memories.push(IrMemory {
+            name: mem.name.clone(),
+            max_messages,
+        });
+    }
+
+    /// Try to extract `max` argument from `Memory::new(max: N)` initializer.
+    fn extract_memory_max(&self, expr: &Expr) -> Option<u32> {
+        // The initializer is a Call to Memory::new() possibly with named args
+        if let ExprKind::Call { args, .. } = &expr.kind {
+            for arg in args {
+                // Named args in decorators are parsed differently, but for regular
+                // function calls the parser doesn't produce named args.
+                // For now, if there's a single int arg, treat it as max.
+                if let ExprKind::Literal(Literal::Int(n)) = &arg.kind {
+                    return Some(*n as u32);
+                }
+            }
+        }
+        None
     }
 
     fn generate_mcp(&mut self, mcp: &McpDecl) {
@@ -2414,6 +2575,49 @@ impl CodeGenerator {
         self.connections.push(IrConnection {
             name: mcp.name.clone(),
             config: serde_json::Value::Object(config),
+        });
+    }
+
+    // ========================================================================
+    // Host declaration
+    // ========================================================================
+
+    fn generate_host(&mut self, host: &HostDecl) {
+        let connector = host
+            .fields
+            .iter()
+            .find(|f| f.name == "connector")
+            .map(|f| expr_to_string_value(&f.value))
+            .unwrap_or_default();
+        let input_format = host
+            .fields
+            .iter()
+            .find(|f| f.name == "input_format")
+            .map(|f| expr_to_string_value(&f.value))
+            .unwrap_or_else(|| "text".to_string());
+        let output_format = host
+            .fields
+            .iter()
+            .find(|f| f.name == "output_format")
+            .map(|f| expr_to_string_value(&f.value))
+            .unwrap_or_else(|| "text".to_string());
+        let timeout = host
+            .fields
+            .iter()
+            .find(|f| f.name == "timeout")
+            .and_then(|f| expr_to_u32(&f.value));
+        let decorators = host.decorators.iter().map(lower_decorator).collect();
+        self.hosts.push(IrHost {
+            name: host.name.clone(),
+            connector,
+            input_format,
+            output_format,
+            timeout,
+            decorators,
+            command: None,
+            args: None,
+            env: None,
+            working_dir: None,
         });
     }
 }
@@ -2536,7 +2740,7 @@ fn default_instruction() -> IrInstruction {
         method: None,
         schema: None,
         tool: None,
-        db_name: None,
+        hashmap_name: None,
         type_name: None,
         argc: None,
         offset: None,
@@ -2584,6 +2788,57 @@ fn format_type(ty: &super::super::ast::types::TypeAnnotation) -> String {
     }
 }
 
+/// Convert a Concerto type annotation to a JSON Schema value.
+fn concerto_type_to_json_schema(
+    ty: &super::super::ast::types::TypeAnnotation,
+) -> serde_json::Value {
+    use super::super::ast::types::TypeKind;
+    match &ty.kind {
+        TypeKind::Named(name) => match name.as_str() {
+            "Int" => serde_json::json!({ "type": "integer" }),
+            "Float" => serde_json::json!({ "type": "number" }),
+            "String" => serde_json::json!({ "type": "string" }),
+            "Bool" => serde_json::json!({ "type": "boolean" }),
+            _ => serde_json::json!({ "type": "object" }),
+        },
+        TypeKind::Generic { name, args } => match name.as_str() {
+            "Array" => {
+                let items = args
+                    .first()
+                    .map(concerto_type_to_json_schema)
+                    .unwrap_or(serde_json::json!({ "type": "string" }));
+                serde_json::json!({ "type": "array", "items": items })
+            }
+            "Map" => serde_json::json!({ "type": "object" }),
+            "Option" => {
+                // Optional types are handled at the property level (not in required)
+                args.first()
+                    .map(concerto_type_to_json_schema)
+                    .unwrap_or(serde_json::json!({ "type": "string" }))
+            }
+            _ => serde_json::json!({ "type": "object" }),
+        },
+        TypeKind::Union(variants) => {
+            let enum_vals: Vec<serde_json::Value> = variants
+                .iter()
+                .filter_map(|v| {
+                    if let TypeKind::StringLiteral(s) = &v.kind {
+                        Some(serde_json::Value::String(s.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !enum_vals.is_empty() {
+                serde_json::json!({ "type": "string", "enum": enum_vals })
+            } else {
+                serde_json::json!({ "type": "string" })
+            }
+        }
+        _ => serde_json::json!({ "type": "string" }),
+    }
+}
+
 fn expr_to_json(expr: &Expr) -> serde_json::Value {
     match &expr.kind {
         ExprKind::Literal(lit) => match lit {
@@ -2599,6 +2854,23 @@ fn expr_to_json(expr: &Expr) -> serde_json::Value {
             serde_json::Value::Array(vals)
         }
         _ => serde_json::Value::Null,
+    }
+}
+
+/// Extract a string from a literal String expression or an identifier name.
+fn expr_to_string_value(expr: &Expr) -> String {
+    match &expr.kind {
+        ExprKind::Literal(Literal::String(s)) => s.clone(),
+        ExprKind::Identifier(name) => name.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Extract a u32 from a literal Int expression.
+fn expr_to_u32(expr: &Expr) -> Option<u32> {
+    match &expr.kind {
+        ExprKind::Literal(Literal::Int(n)) => Some(*n as u32),
+        _ => None,
     }
 }
 
@@ -3150,5 +3422,65 @@ mod tests {
             .iter()
             .any(|i| i.op == Opcode::LoadGlobal
                 && i.name.as_deref() == Some("std::io::read")));
+    }
+
+    #[test]
+    fn tool_schema_generation() {
+        let ir = compile(
+            r#"
+            tool Calculator {
+                @describe("Add two numbers")
+                @param("a", "First number")
+                @param("b", "Second number")
+                pub fn add(self, a: Int, b: Int) -> Int {
+                    a + b
+                }
+            }
+            fn main() {}
+        "#,
+        );
+        assert_eq!(ir.tools.len(), 1);
+        let tool = &ir.tools[0];
+        assert_eq!(tool.name, "Calculator");
+        assert_eq!(tool.tool_schemas.len(), 1);
+
+        let schema = &tool.tool_schemas[0];
+        assert_eq!(schema.method_name, "Calculator::add");
+        assert_eq!(schema.description, "Add two numbers");
+
+        let params = schema.parameters.as_object().unwrap();
+        assert_eq!(params["type"], "object");
+        let props = params["properties"].as_object().unwrap();
+        assert!(props.contains_key("a"));
+        assert!(props.contains_key("b"));
+        assert_eq!(props["a"]["type"], "integer");
+        assert_eq!(props["a"]["description"], "First number");
+        assert_eq!(props["b"]["type"], "integer");
+    }
+
+    #[test]
+    fn memory_declaration_ir() {
+        let ir = compile(
+            r#"
+            memory conv: Memory = Memory::new();
+            fn main() {}
+        "#,
+        );
+        assert_eq!(ir.memories.len(), 1);
+        assert_eq!(ir.memories[0].name, "conv");
+        assert!(ir.memories[0].max_messages.is_none());
+    }
+
+    #[test]
+    fn memory_with_max_ir() {
+        let ir = compile(
+            r#"
+            memory conv: Memory = Memory::new(50);
+            fn main() {}
+        "#,
+        );
+        assert_eq!(ir.memories.len(), 1);
+        assert_eq!(ir.memories[0].name, "conv");
+        assert_eq!(ir.memories[0].max_messages, Some(50));
     }
 }

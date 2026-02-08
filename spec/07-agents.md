@@ -2,7 +2,7 @@
 
 ## Overview
 
-Agents are the **core abstraction** of Concerto. An agent encapsulates an LLM-powered entity with a model, provider, system prompt, attached tools, memory database, and execution methods. Agents are defined with a class-like syntax and provide typed interfaces for interacting with LLMs.
+Agents are the **core abstraction** of Concerto. An agent encapsulates an LLM-powered entity with a model, provider, system prompt, attached tools, memory hashmap, and execution methods. Agents are defined with a class-like syntax and provide typed interfaces for interacting with LLMs.
 
 ## Agent Definition
 
@@ -18,7 +18,7 @@ agent AgentName {
     system_prompt: "System prompt text",
 
     // Attachments
-    memory: database_ref,
+    memory: hashmap_ref,
     tools: [Tool1, Tool2],
 
     // Behavior configuration
@@ -35,7 +35,7 @@ connect openai {
     default_model: "gpt-4o",
 }
 
-db shared_memory: Database<String, String> = Database::new();
+hashmap shared_memory: HashMap<String, String> = HashMap::new();
 
 agent DocumentClassifier {
     provider: openai,
@@ -73,7 +73,7 @@ agent DocumentClassifier {
 | `temperature` | Float | Provider default | Sampling temperature (0.0 - 2.0) |
 | `max_tokens` | Int | Provider default | Maximum response tokens |
 | `system_prompt` | String | None | System message prepended to every call |
-| `memory` | DatabaseRef | None | Attached in-memory database |
+| `memory` | HashMapRef | None | Attached in-memory hashmap |
 | `tools` | Array of Tool types | `[]` | Tools available to the agent |
 | `retry_policy` | Object | No retries | Retry configuration |
 | `timeout` | Int | 30 | Timeout in seconds per call |
@@ -336,7 +336,7 @@ agent ProductionClassifier {
 
 ### 2. Initialization Phase (Runtime Start)
 - Connection to LLM provider is established
-- Memory database reference is bound
+- Memory hashmap reference is bound
 - Tool registry is populated
 - Agent instance is ready for execution
 
@@ -344,13 +344,13 @@ agent ProductionClassifier {
 - Methods called on the agent send prompts to LLM
 - Responses are received, parsed, and returned
 - Tools are invoked when the LLM requests them
-- Memory database is read/written during execution
+- Memory hashmap is read/written during execution
 - Emits are produced as configured
 
 ### 4. Teardown Phase (Runtime End)
 - Open connections are closed gracefully
 - Pending async operations are resolved or cancelled
-- Memory databases can be serialized if configured
+- Memory hashmaps can be serialized if configured
 
 ## Dynamic Agent Instantiation
 

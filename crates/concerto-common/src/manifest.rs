@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// The parsed Concerto.toml manifest.
 #[derive(Debug, Clone)]
@@ -9,6 +9,7 @@ pub struct ConcertoManifest {
     pub project: ProjectSection,
     pub connections: HashMap<String, ConnectionConfig>,
     pub mcp: HashMap<String, McpConfig>,
+    pub hosts: HashMap<String, HostConfig>,
     /// The directory containing the Concerto.toml file.
     pub root_dir: PathBuf,
 }
@@ -91,6 +92,21 @@ pub struct McpConfig {
     pub env: Option<HashMap<String, String>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostConfig {
+    pub transport: String,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Option<Vec<String>>,
+    #[serde(default)]
+    pub timeout: Option<u32>,
+    #[serde(default)]
+    pub env: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub working_dir: Option<String>,
+}
+
 /// Raw TOML structure for deserialization.
 #[derive(Deserialize)]
 struct RawManifest {
@@ -99,6 +115,8 @@ struct RawManifest {
     connections: HashMap<String, ConnectionConfig>,
     #[serde(default)]
     mcp: HashMap<String, McpConfig>,
+    #[serde(default)]
+    hosts: HashMap<String, HostConfig>,
 }
 
 /// Errors that can occur when loading a manifest.
@@ -169,6 +187,7 @@ pub fn parse_manifest(
         project: raw.project,
         connections: raw.connections,
         mcp: raw.mcp,
+        hosts: raw.hosts,
         root_dir,
     })
 }

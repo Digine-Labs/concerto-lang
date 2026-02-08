@@ -215,10 +215,10 @@ pipeline RoutingPipeline {
 
 ### Pipeline with Memory
 
-Pipelines can use databases to maintain state across stages:
+Pipelines can use hashmaps to maintain state across stages:
 
 ```concerto
-db pipeline_state: Database<String, Any> = Database::new();
+hashmap pipeline_state: HashMap<String, Any> = HashMap::new();
 
 pipeline StatefulPipeline {
     stage step_one(input: String) -> String {

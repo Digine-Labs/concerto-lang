@@ -2,7 +2,7 @@
 
 ## Overview
 
-AI agents can generate hallucinated or imprecise queries when retrieving stored knowledge. The **Ledger** is a fault-tolerant knowledge store designed to handle this reality. Unlike the standard `db` (a typed key-value store for pipeline state), the Ledger uses a document model with **identifiers** (descriptive sentences), **keys** (tags), and **values** (string content), combined with similarity-based querying on identifiers and case-insensitive exact matching on keys.
+AI agents can generate hallucinated or imprecise queries when retrieving stored knowledge. The **Ledger** is a fault-tolerant knowledge store designed to handle this reality. Unlike the standard `hashmap` (a typed key-value store for pipeline state), the Ledger uses a document model with **identifiers** (descriptive sentences), **keys** (tags), and **values** (string content), combined with similarity-based querying on identifiers and case-insensitive exact matching on keys.
 
 The Ledger is a **first-class language construct** declared with the `ledger` keyword. It is NOT a tool, MCP, or external service -- it is native to Concerto. However, tools CAN be built on top of a Ledger to let agents request knowledge retrieval.
 
@@ -35,7 +35,7 @@ ledger contracts: Ledger = Ledger::new();
 ledger agent_memory: Ledger = Ledger::new();
 ```
 
-The Ledger type is not generic -- all entries use the fixed `(String, Array<String>, String)` data model. This is intentional: the Ledger is designed for string-based knowledge that agents interact with via natural language, not for arbitrary typed data (use `db` for that).
+The Ledger type is not generic -- all entries use the fixed `(String, Array<String>, String)` data model. This is intentional: the Ledger is designed for string-based knowledge that agents interact with via natural language, not for arbitrary typed data (use `hashmap` for that).
 
 ## Insertion
 
@@ -283,7 +283,7 @@ The `knowledge` field on agents binds a scoped Ledger view, allowing agents to h
 ## What Ledger Is Not
 
 - **Not a tool or MCP**: The Ledger is a language construct, not an external service. Agents do not call the Ledger directly -- Concerto code does. Tools can be built as bridges.
-- **Not a replacement for `db`**: The `db` keyword provides typed key-value storage for pipeline state management. The Ledger provides fault-tolerant knowledge retrieval with similarity matching. Use `db` for exact-key state; use `ledger` for knowledge that agents need to query.
+- **Not a replacement for `hashmap`**: The `hashmap` keyword provides typed key-value storage for pipeline state management. The Ledger provides fault-tolerant knowledge retrieval with similarity matching. Use `hashmap` for exact-key state; use `ledger` for knowledge that agents need to query.
 - **Not a vector database**: The Ledger uses word-level containment matching, not embedding-based similarity. It is lightweight and runs in-memory without external dependencies.
 
 ## Compilation

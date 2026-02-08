@@ -125,7 +125,7 @@ agent_decl      = decorator* "pub"? "agent" IDENT "{" agent_fields "}"
 tool_decl       = "pub"? "tool" IDENT ("impl" IDENT)? "{" tool_body "}"
 schema_decl     = "pub"? "schema" IDENT ("<" type_params ">")? "{" schema_fields "}"
 connect_decl    = "connect" IDENT "{" connect_fields "}"
-db_decl         = "db" IDENT ":" type "=" expr ";"
+hashmap_decl    = "hashmap" IDENT ":" type "=" expr ";"
 pipeline_decl   = "pipeline" IDENT "{" stage_decl+ "}"
 struct_decl     = "pub"? "struct" IDENT "{" struct_fields "}"
 enum_decl       = "pub"? "enum" IDENT "{" enum_variants "}"
@@ -213,7 +213,7 @@ enum Declaration {
     Tool(ToolDecl),
     Schema(SchemaDecl),
     Connect(ConnectDecl),
-    Database(DatabaseDecl),
+    HashMap(HashMapDecl),
     Pipeline(PipelineDecl),
     Struct(StructDecl),
     Enum(EnumDecl),

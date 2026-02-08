@@ -98,17 +98,17 @@ pub enum Opcode {
     /// Invoke tool method.
     CallTool,
 
-    // === Database Operations ===
+    // === HashMap Operations ===
     /// Get value (key on stack, pushes Option).
-    DbGet,
+    HashMapGet,
     /// Set value (key and value on stack).
-    DbSet,
+    HashMapSet,
     /// Delete entry (key on stack).
-    DbDelete,
+    HashMapDelete,
     /// Check existence (key on stack, pushes Bool).
-    DbHas,
+    HashMapHas,
     /// Query with predicate (closure on stack).
-    DbQuery,
+    HashMapQuery,
 
     // === Emit ===
     /// Fire-and-forget emit (channel and payload on stack).

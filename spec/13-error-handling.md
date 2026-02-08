@@ -170,7 +170,7 @@ Error (base trait)
   |
   +-- TimeoutError         -- Operation timeout
   |
-  +-- DatabaseError        -- Memory/DB operation failures
+  +-- HashMapError         -- HashMap operation failures
   |     +-- KeyNotFound
   |     +-- TypeMismatch
   |

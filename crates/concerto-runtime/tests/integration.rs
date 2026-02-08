@@ -262,7 +262,7 @@ fn e2e_result_propagation() {
 fn e2e_database() {
     let (_, emits) = run_program(
         r#"
-        db store: Database<String, Int> = Database::new();
+        hashmap store: HashMap<String, Int> = HashMap::new();
 
         fn main() {
             store.set("count", 42);
@@ -275,7 +275,7 @@ fn e2e_database() {
         "#,
     );
     assert_eq!(emits[0].1, "true");
-    // db.get returns Option, so displayed as Some(42)
+    // hashmap.get returns Option, so displayed as Some(42)
     assert_eq!(emits[1].1, "Some(42)");
     assert_eq!(emits[2].1, "false");
 }
@@ -332,4 +332,114 @@ fn e2e_nested_calls() {
         "#,
     );
     assert_eq!(emits[0].1, "720");
+}
+
+#[test]
+fn e2e_memory_declaration() {
+    let (_, emits) = run_program(
+        r#"
+        memory conversation: Memory = Memory::new();
+
+        fn main() {
+            conversation.append("user", "Hello");
+            conversation.append("assistant", "Hi there!");
+            emit("len", conversation.len());
+            let msgs = conversation.messages();
+            emit("count", len(msgs));
+            conversation.clear();
+            emit("after_clear", conversation.len());
+        }
+        "#,
+    );
+    assert_eq!(emits[0].0, "len");
+    assert_eq!(emits[0].1, "2");
+    assert_eq!(emits[1].0, "count");
+    assert_eq!(emits[1].1, "2");
+    assert_eq!(emits[2].0, "after_clear");
+    assert_eq!(emits[2].1, "0");
+}
+
+#[test]
+fn e2e_memory_last() {
+    let (_, emits) = run_program(
+        r#"
+        memory conv: Memory = Memory::new();
+
+        fn main() {
+            conv.append("user", "msg1");
+            conv.append("assistant", "msg2");
+            conv.append("user", "msg3");
+            conv.append("assistant", "msg4");
+            let last2 = conv.last(2);
+            emit("last_count", len(last2));
+        }
+        "#,
+    );
+    assert_eq!(emits[0].1, "2");
+}
+
+#[test]
+fn e2e_memory_sliding_window() {
+    let (_, emits) = run_program(
+        r#"
+        memory conv: Memory = Memory::new(3);
+
+        fn main() {
+            conv.append("user", "msg1");
+            conv.append("assistant", "msg2");
+            conv.append("user", "msg3");
+            conv.append("assistant", "msg4");
+            emit("len", conv.len());
+        }
+        "#,
+    );
+    // After 4 appends with max 3, oldest is dropped
+    assert_eq!(emits[0].1, "3");
+}
+
+#[test]
+fn e2e_host_declaration() {
+    // Host declarations compile and load successfully.
+    // We can't execute without a real subprocess, but verify the pipeline works.
+    let source = r#"
+        host EchoHost {
+            connector: "echo_service",
+            input_format: "text",
+            output_format: "text",
+            timeout: 30,
+        }
+
+        fn main() {
+            emit("has_host", "yes");
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors(), "lexer errors: {:?}", lex_diags.diagnostics());
+
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors(), "semantic errors: {:?}", sem_diags.diagnostics());
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+
+    // Verify host appears in IR
+    assert_eq!(ir.hosts.len(), 1);
+    assert_eq!(ir.hosts[0].name, "EchoHost");
+    assert_eq!(ir.hosts[0].connector, "echo_service");
+    assert_eq!(ir.hosts[0].input_format, "text");
+    assert_eq!(ir.hosts[0].output_format, "text");
+    assert_eq!(ir.hosts[0].timeout, Some(30));
+
+    // Load and execute
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+    let ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    let module = LoadedModule::from_ir(ir_module).expect("IR loading failed");
+
+    let mut vm = VM::new(module);
+    let result = vm.execute();
+    assert!(result.is_ok());
 }

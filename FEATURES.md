@@ -22,7 +22,7 @@ Concerto includes first-class constructs for:
 - `schema`: typed structured outputs for LLM responses.
 - `tool` and `mcp`: typed tool interfaces and external capability integration.
 - `pipeline` / `stage`: declarative multi-step orchestration.
-- `db`: typed state store for workflow state.
+- `hashmap`: typed state store for workflow state.
 - `ledger`: fault-tolerant knowledge store for imprecise AI retrieval queries.
 - `emit`: runtime integration boundary (output + bidirectional host calls).
 
@@ -206,7 +206,7 @@ fn main() {
 | AI Primitives | Agents, schema-constrained execution, typed response objects, tool calling |
 | Tooling Model | Compiler-enforced tool descriptions/params, typed MCP interfaces, permission-aware tool attachment |
 | Orchestration | Pipelines/stages, branching, retries/timeouts, stage-level error handling, pipeline events |
-| Memory | Typed key-value `db` plus semantic/tolerant `ledger` retrieval model |
+| Memory | Typed key-value `hashmap` plus semantic/tolerant `ledger` retrieval model |
 | Error Model | `Result<T,E>`, propagation (`?`), `try/catch`, explicit runtime errors |
 | Interop | Host API, emit bridge, tool FFI patterns, MCP runtime integration |
 | Runtime | IR loader, stack-based VM, schema validator, provider abstraction, observability hooks |
