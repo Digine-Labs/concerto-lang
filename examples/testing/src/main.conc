@@ -6,9 +6,9 @@ schema Greeting {
     language: String,
 }
 
-agent Greeter {
+model Greeter {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     system_prompt: "You are a friendly multilingual greeter. Always respond with valid JSON.",
 }
 

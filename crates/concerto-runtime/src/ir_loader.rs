@@ -15,8 +15,8 @@ pub struct LoadedModule {
     pub constants: Vec<Value>,
     /// Function lookup by name.
     pub functions: HashMap<String, IrFunction>,
-    /// Agent definitions by name.
-    pub agents: HashMap<String, IrAgent>,
+    /// Model definitions by name.
+    pub models: HashMap<String, IrModel>,
     /// Tool definitions by name.
     pub tools: HashMap<String, IrTool>,
     /// Schema definitions by name.
@@ -29,8 +29,8 @@ pub struct LoadedModule {
     pub ledgers: HashMap<String, IrLedger>,
     /// Memory declarations by name.
     pub memories: HashMap<String, IrMemory>,
-    /// Host declarations by name.
-    pub hosts: HashMap<String, IrHost>,
+    /// Agent declarations by name.
+    pub agents: HashMap<String, IrAgent>,
     /// Listen definitions by name.
     pub listens: HashMap<String, IrListen>,
     /// Pipeline definitions by name.
@@ -74,17 +74,17 @@ impl LoadedModule {
             }
         }
 
-        // Register agent methods as qualified functions
-        for agent in &module.agents {
-            for method in &agent.methods {
-                let qualified = format!("{}::{}", agent.name, method.name);
+        // Register model methods as qualified functions
+        for mdl in &module.models {
+            for method in &mdl.methods {
+                let qualified = format!("{}::{}", mdl.name, method.name);
                 functions.insert(qualified, method.clone());
             }
         }
 
-        // Build agent table
-        let agents: HashMap<String, IrAgent> = module
-            .agents
+        // Build model table
+        let models: HashMap<String, IrModel> = module
+            .models
             .into_iter()
             .map(|a| (a.name.clone(), a))
             .collect();
@@ -131,9 +131,9 @@ impl LoadedModule {
             .map(|m| (m.name.clone(), m))
             .collect();
 
-        // Build host table
-        let hosts: HashMap<String, IrHost> = module
-            .hosts
+        // Build agent table
+        let agents: HashMap<String, IrAgent> = module
+            .agents
             .into_iter()
             .map(|h| (h.name.clone(), h))
             .collect();
@@ -173,14 +173,14 @@ impl LoadedModule {
         Ok(LoadedModule {
             constants,
             functions,
-            agents,
+            models,
             tools,
             schemas,
             connections,
             hashmaps,
             ledgers,
             memories,
-            hosts,
+            agents,
             listens,
             pipelines,
             types,
@@ -214,22 +214,22 @@ impl LoadedModule {
             }
         }
 
-        // Register agent methods as qualified functions
-        for agent in &module.agents {
-            for method in &agent.methods {
-                let qualified = format!("{}::{}", agent.name, method.name);
+        // Register model methods as qualified functions
+        for mdl in &module.models {
+            for method in &mdl.methods {
+                let qualified = format!("{}::{}", mdl.name, method.name);
                 functions.insert(qualified, method.clone());
             }
         }
 
-        let agents = module.agents.into_iter().map(|a| (a.name.clone(), a)).collect();
+        let models = module.models.into_iter().map(|a| (a.name.clone(), a)).collect();
         let tools = module.tools.into_iter().map(|t| (t.name.clone(), t)).collect();
         let schemas = module.schemas.into_iter().map(|s| (s.name.clone(), s)).collect();
         let connections = module.connections.into_iter().map(|c| (c.name.clone(), c)).collect();
         let hashmaps = module.hashmaps.into_iter().map(|d| (d.name.clone(), d)).collect();
         let ledgers = module.ledgers.into_iter().map(|l| (l.name.clone(), l)).collect();
         let memories = module.memories.into_iter().map(|m| (m.name.clone(), m)).collect();
-        let hosts = module.hosts.into_iter().map(|h| (h.name.clone(), h)).collect();
+        let agents = module.agents.into_iter().map(|h| (h.name.clone(), h)).collect();
         let listens = module.listens.into_iter().map(|l| (l.name.clone(), l)).collect();
         let pipelines = module.pipelines.into_iter().map(|p| (p.name.clone(), p)).collect();
         let types = module.types.into_iter().map(|t| (t.name.clone(), t)).collect();
@@ -239,14 +239,14 @@ impl LoadedModule {
         Ok(LoadedModule {
             constants,
             functions,
-            agents,
+            models,
             tools,
             schemas,
             connections,
             hashmaps,
             ledgers,
             memories,
-            hosts,
+            agents,
             listens,
             pipelines,
             types,

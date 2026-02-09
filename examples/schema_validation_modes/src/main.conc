@@ -29,16 +29,16 @@ schema CoerceIncident {
     confidence: String,
 }
 
-agent FastExtractor {
+model FastExtractor {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     temperature: 1.1,
     system_prompt: "Return incident summaries.",
 }
 
-agent ReliableExtractor {
+model ReliableExtractor {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     temperature: 0.1,
     system_prompt: "Return strict structured JSON.",
 }

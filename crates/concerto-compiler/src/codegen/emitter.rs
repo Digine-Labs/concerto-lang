@@ -15,12 +15,12 @@ pub struct CodeGenerator {
     source_file: String,
     pool: ConstantPool,
     functions: Vec<IrFunction>,
-    agents: Vec<IrAgent>,
+    models: Vec<IrModel>,
     tools: Vec<IrTool>,
     schemas: Vec<IrSchema>,
     connections: Vec<IrConnection>,
     hashmaps: Vec<IrHashMap>,
-    hosts: Vec<IrHost>,
+    agents: Vec<IrAgent>,
     ledgers: Vec<IrLedger>,
     memories: Vec<IrMemory>,
     pipelines: Vec<IrPipeline>,
@@ -38,12 +38,12 @@ impl CodeGenerator {
             source_file: source_file.into(),
             pool: ConstantPool::new(),
             functions: Vec::new(),
-            agents: Vec::new(),
+            models: Vec::new(),
             tools: Vec::new(),
             schemas: Vec::new(),
             connections: Vec::new(),
             hashmaps: Vec::new(),
-            hosts: Vec::new(),
+            agents: Vec::new(),
             ledgers: Vec::new(),
             memories: Vec::new(),
             pipelines: Vec::new(),
@@ -61,22 +61,22 @@ impl CodeGenerator {
         self.connections.extend(connections);
     }
 
-    /// Embed host configs from Concerto.toml manifest into IR hosts.
-    /// Called after `generate()` to merge TOML configs into host declarations.
-    pub fn embed_manifest_hosts(
+    /// Embed agent configs from Concerto.toml manifest into IR agents.
+    /// Called after `generate()` to merge TOML configs into agent declarations.
+    pub fn embed_manifest_agents(
         ir: &mut IrModule,
-        manifest_hosts: &std::collections::HashMap<String, concerto_common::manifest::HostConfig>,
+        manifest_agents: &std::collections::HashMap<String, concerto_common::manifest::AgentConfig>,
     ) {
-        for host in &mut ir.hosts {
-            if let Some(cfg) = manifest_hosts.get(&host.connector) {
-                host.command = cfg.command.clone();
-                host.args = cfg.args.clone();
-                host.env = cfg.env.clone();
-                host.working_dir = cfg.working_dir.clone();
-                host.params = cfg.params.clone();
+        for ag in &mut ir.agents {
+            if let Some(cfg) = manifest_agents.get(&ag.connector) {
+                ag.command = cfg.command.clone();
+                ag.args = cfg.args.clone();
+                ag.env = cfg.env.clone();
+                ag.working_dir = cfg.working_dir.clone();
+                ag.params = cfg.params.clone();
                 // Use TOML timeout as fallback if not set in source
-                if host.timeout.is_none() {
-                    host.timeout = cfg.timeout;
+                if ag.timeout.is_none() {
+                    ag.timeout = cfg.timeout;
                 }
             }
         }
@@ -95,14 +95,14 @@ impl CodeGenerator {
             constants: self.pool.into_constants(),
             types: self.types,
             functions: self.functions,
-            agents: self.agents,
+            models: self.models,
             tools: self.tools,
             schemas: self.schemas,
             connections: self.connections,
             hashmaps: self.hashmaps,
             ledgers: self.ledgers,
             memories: self.memories,
-            hosts: self.hosts,
+            agents: self.agents,
             pipelines: self.pipelines,
             listens: self.listens,
             tests: self.tests,
@@ -130,7 +130,7 @@ impl CodeGenerator {
                     self.generate_function(f);
                 }
             }
-            Declaration::Agent(a) => self.generate_agent(a),
+            Declaration::Model(a) => self.generate_model(a),
             Declaration::Tool(t) => self.generate_tool(t),
             Declaration::Schema(s) => self.generate_schema(s),
             Declaration::Pipeline(p) => self.generate_pipeline(p),
@@ -143,7 +143,7 @@ impl CodeGenerator {
             Declaration::Ledger(l) => self.generate_ledger(l),
             Declaration::Memory(m) => self.generate_memory(m),
             Declaration::Mcp(m) => self.generate_mcp(m),
-            Declaration::Host(h) => self.generate_host(h),
+            Declaration::Agent(h) => self.generate_agent(h),
             // Use, Module, TypeAlias are compile-time only; no IR emitted.
             Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
         }
@@ -1912,9 +1912,9 @@ impl CodeGenerator {
         ctx: &mut FunctionCtx,
         span: Option<[u32; 2]>,
     ) {
-        // Extract host name and args from the call expression.
-        // Expected: MethodCall { object: Identifier(host), method: "execute", args: [prompt] }
-        let (host_name, args) = match &call.kind {
+        // Extract agent name and args from the call expression.
+        // Expected: MethodCall { object: Identifier(agent), method: "execute", args: [prompt] }
+        let (agent_name, args) = match &call.kind {
             ExprKind::MethodCall {
                 object,
                 method: _,
@@ -1928,7 +1928,7 @@ impl CodeGenerator {
                 (name, args)
             }
             _ => {
-                // Fallback: push the call expression result and use "unknown" host
+                // Fallback: push the call expression result and use "unknown" agent
                 self.generate_expr(call, ctx);
                 ("unknown".to_string(), &vec![] as &Vec<Expr>)
             }
@@ -1987,14 +1987,14 @@ impl CodeGenerator {
 
         self.listens.push(IrListen {
             name: listen_name.clone(),
-            host: host_name.clone(),
+            agent: agent_name.clone(),
             handlers: ir_handlers,
         });
 
         // Emit ListenBegin instruction
         ctx.emit(IrInstruction {
             op: Opcode::ListenBegin,
-            name: Some(host_name),
+            name: Some(agent_name),
             arg: Some(serde_json::Value::String(listen_name)),
             argc: Some(args.len() as u32),
             span,
@@ -2253,9 +2253,9 @@ impl CodeGenerator {
     // Declaration lowering
     // ========================================================================
 
-    fn generate_agent(&mut self, agent: &AgentDecl) {
+    fn generate_model(&mut self, model: &ModelDecl) {
         let mut connection = String::new();
-        let mut model = None;
+        let mut base = None;
         let mut temperature = None;
         let mut max_tokens = None;
         let mut system_prompt = None;
@@ -2263,16 +2263,16 @@ impl CodeGenerator {
         let mut tools = Vec::new();
         let mut memory = None;
 
-        for field in &agent.fields {
+        for field in &model.fields {
             match field.name.as_str() {
                 "provider" => {
                     if let ExprKind::Identifier(name) = &field.value.kind {
                         connection = name.clone();
                     }
                 }
-                "model" => {
+                "base" => {
                     if let ExprKind::Literal(Literal::String(s)) = &field.value.kind {
-                        model = Some(s.clone());
+                        base = Some(s.clone());
                     }
                 }
                 "temperature" => {
@@ -2313,12 +2313,12 @@ impl CodeGenerator {
             }
         }
 
-        self.agents.push(IrAgent {
-            name: agent.name.clone(),
+        self.models.push(IrModel {
+            name: model.name.clone(),
             module: self.module_name.clone(),
             connection,
-            config: IrAgentConfig {
-                model,
+            config: IrModelConfig {
+                base,
                 temperature,
                 max_tokens,
                 system_prompt,
@@ -2326,7 +2326,7 @@ impl CodeGenerator {
             },
             tools,
             memory,
-            decorators: agent.decorators.iter().map(lower_decorator).collect(),
+            decorators: model.decorators.iter().map(lower_decorator).collect(),
             methods: Vec::new(),
         });
     }
@@ -2774,36 +2774,36 @@ impl CodeGenerator {
     }
 
     // ========================================================================
-    // Host declaration
+    // Agent declaration
     // ========================================================================
 
-    fn generate_host(&mut self, host: &HostDecl) {
-        let connector = host
+    fn generate_agent(&mut self, ag: &AgentDecl) {
+        let connector = ag
             .fields
             .iter()
             .find(|f| f.name == "connector")
             .map(|f| expr_to_string_value(&f.value))
             .unwrap_or_default();
-        let input_format = host
+        let input_format = ag
             .fields
             .iter()
             .find(|f| f.name == "input_format")
             .map(|f| expr_to_string_value(&f.value))
             .unwrap_or_else(|| "text".to_string());
-        let output_format = host
+        let output_format = ag
             .fields
             .iter()
             .find(|f| f.name == "output_format")
             .map(|f| expr_to_string_value(&f.value))
             .unwrap_or_else(|| "text".to_string());
-        let timeout = host
+        let timeout = ag
             .fields
             .iter()
             .find(|f| f.name == "timeout")
             .and_then(|f| expr_to_u32(&f.value));
-        let decorators = host.decorators.iter().map(lower_decorator).collect();
-        self.hosts.push(IrHost {
-            name: host.name.clone(),
+        let decorators = ag.decorators.iter().map(lower_decorator).collect();
+        self.agents.push(IrAgent {
+            name: ag.name.clone(),
             connector,
             input_format,
             output_format,
@@ -2892,8 +2892,8 @@ impl CodeGenerator {
         }
 
         ctx.emit(IrInstruction {
-            op: Opcode::MockAgent,
-            name: Some(mock.agent_name.clone()),
+            op: Opcode::MockModel,
+            name: Some(mock.model_name.clone()),
             arg: Some(serde_json::Value::Object(config)),
             span: Some([mock.span.start.line, mock.span.start.column]),
             ..default_instruction()
@@ -3015,7 +3015,7 @@ fn default_instruction() -> IrInstruction {
         op: Opcode::Pop, // will be overwritten
         arg: None,
         name: None,
-        agent: None,
+        model: None,
         method: None,
         schema: None,
         tool: None,
@@ -3545,17 +3545,17 @@ mod tests {
     fn agent_generates_ir_agent() {
         let ir = compile(
             r#"
-            agent MyAgent {
+            model MyAgent {
                 provider: openai,
-                model: "gpt-4o",
+                base: "gpt-4o",
             }
             fn main() {}
         "#,
         );
-        assert_eq!(ir.agents.len(), 1);
-        assert_eq!(ir.agents[0].name, "MyAgent");
-        assert_eq!(ir.agents[0].connection, "openai");
-        assert_eq!(ir.agents[0].config.model, Some("gpt-4o".to_string()));
+        assert_eq!(ir.models.len(), 1);
+        assert_eq!(ir.models[0].name, "MyAgent");
+        assert_eq!(ir.models[0].connection, "openai");
+        assert_eq!(ir.models[0].config.base, Some("gpt-4o".to_string()));
     }
 
     #[test]
@@ -3817,11 +3817,11 @@ mod tests {
     fn listen_generates_ir_listen() {
         let ir = compile(
             r#"
-            host MyHost {
-                connector: "test_host",
+            agent MyAgent {
+                connector: "test_agent",
             }
             fn main() {
-                let result = listen MyHost.execute("do work") {
+                let result = listen MyAgent.execute("do work") {
                     "progress" => |msg| {
                         emit("log", msg);
                     },
@@ -3832,7 +3832,7 @@ mod tests {
         // Should have generated a listen definition
         assert_eq!(ir.listens.len(), 1);
         assert_eq!(ir.listens[0].name, "$listen_0");
-        assert_eq!(ir.listens[0].host, "MyHost");
+        assert_eq!(ir.listens[0].agent, "MyAgent");
         assert_eq!(ir.listens[0].handlers.len(), 1);
         assert_eq!(ir.listens[0].handlers[0].message_type, "progress");
         assert_eq!(ir.listens[0].handlers[0].param.name, "msg");
@@ -3842,11 +3842,11 @@ mod tests {
     fn listen_emits_listen_begin_opcode() {
         let ir = compile(
             r#"
-            host MyHost {
-                connector: "test_host",
+            agent MyAgent {
+                connector: "test_agent",
             }
             fn main() {
-                let result = listen MyHost.execute("prompt") {
+                let result = listen MyAgent.execute("prompt") {
                     "progress" => |msg| {
                         emit("log", msg);
                     },
@@ -3863,7 +3863,7 @@ mod tests {
             .iter()
             .find(|i| i.op == Opcode::ListenBegin)
             .unwrap();
-        assert_eq!(listen_inst.name.as_deref(), Some("MyHost"));
+        assert_eq!(listen_inst.name.as_deref(), Some("MyAgent"));
         assert_eq!(
             listen_inst.arg.as_ref().and_then(|a| a.as_str()),
             Some("$listen_0")
@@ -3875,11 +3875,11 @@ mod tests {
     fn listen_handler_instructions_have_return() {
         let ir = compile(
             r#"
-            host MyHost {
-                connector: "test_host",
+            agent MyAgent {
+                connector: "test_agent",
             }
             fn main() {
-                let result = listen MyHost.execute("prompt") {
+                let result = listen MyAgent.execute("prompt") {
                     "question" => |q| {
                         "answer"
                     },
@@ -3897,11 +3897,11 @@ mod tests {
     fn listen_multiple_handlers_ir() {
         let ir = compile(
             r#"
-            host MyHost {
-                connector: "test_host",
+            agent MyAgent {
+                connector: "test_agent",
             }
             fn main() {
-                let result = listen MyHost.execute("prompt") {
+                let result = listen MyAgent.execute("prompt") {
                     "progress" => |p| {
                         emit("log", p);
                     },

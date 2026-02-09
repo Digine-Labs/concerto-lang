@@ -158,7 +158,7 @@ impl Parser {
                 | TokenKind::Throw
                 | TokenKind::Try
                 | TokenKind::Emit
-                | TokenKind::Agent
+                | TokenKind::Model
                 | TokenKind::Tool
                 | TokenKind::Schema
                 | TokenKind::Pipeline
@@ -173,7 +173,7 @@ impl Parser {
                 | TokenKind::HashMap
                 | TokenKind::Memory
                 | TokenKind::Mcp
-                | TokenKind::Host
+                | TokenKind::Agent
                 | TokenKind::At
                 | TokenKind::RightBrace => return,
                 _ => {

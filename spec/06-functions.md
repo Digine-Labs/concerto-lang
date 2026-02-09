@@ -79,21 +79,21 @@ let result = classify("Some document", temperature: 0.8)?;
 When calling a function, arguments can be passed by name for clarity. Named arguments can appear in any order after positional arguments.
 
 ```concerto
-fn create_agent(
+fn create_model(
     name: String,
     model: String,
     provider: String,
     temperature: Float = 0.7,
     max_tokens: Int = 1000,
-) -> AgentRef {
+) -> ModelRef {
     // ...
 }
 
 // Positional
-let agent = create_agent("Classifier", "gpt-4o", "openai");
+let m = create_model("Classifier", "gpt-4o", "openai");
 
 // Named (clearer for many parameters)
-let agent = create_agent(
+let m = create_model(
     name: "Classifier",
     model: "gpt-4o",
     provider: "openai",
@@ -102,7 +102,7 @@ let agent = create_agent(
 );
 
 // Mixed: positional first, then named
-let agent = create_agent("Classifier", model: "gpt-4o", provider: "openai");
+let m = create_model("Classifier", model: "gpt-4o", provider: "openai");
 ```
 
 ## Closures (Anonymous Functions)
@@ -121,7 +121,7 @@ let greet = |name: String| "Hello, ${name}!";
 
 ```concerto
 let process = |text: String| -> Result<String, AgentError> {
-    let response = agent.execute(text)?;
+    let response = m.execute(text)?;
     let parsed = parse_schema<Output>(response)?;
     Ok(parsed.label)
 };
@@ -157,7 +157,7 @@ Functions that perform asynchronous operations (LLM calls, I/O) use the `async` 
 
 ```concerto
 async fn fetch_classification(text: String) -> Result<Classification, AgentError> {
-    let response = agent.execute(text).await?;
+    let response = m.execute(text).await?;
     let parsed = parse_schema<Classification>(response)?;
     Ok(parsed)
 }
@@ -175,13 +175,13 @@ The `.await` keyword suspends execution until the async operation completes.
 
 ```concerto
 // Sequential await
-let a = agent_a.execute(prompt_a).await?;
-let b = agent_b.execute(prompt_b).await?;  // Waits for a to finish first
+let a = model_a.execute(prompt_a).await?;
+let b = model_b.execute(prompt_b).await?;  // Waits for a to finish first
 
 // Parallel await (both run concurrently)
 let (a, b) = await (
-    agent_a.execute(prompt_a),
-    agent_b.execute(prompt_b),
+    model_a.execute(prompt_a),
+    model_b.execute(prompt_b),
 );
 ```
 
@@ -256,9 +256,9 @@ fn factorial(n: Int) -> Int {
     else { n * factorial(n - 1) }
 }
 
-// Recursive agent conversation
+// Recursive model conversation
 fn multi_turn(
-    agent: AgentRef,
+    m: ModelRef,
     messages: Array<Message>,
     max_turns: Int,
 ) -> Result<String, AgentError> {
@@ -266,7 +266,7 @@ fn multi_turn(
         return Err(AgentError::new("Max turns exceeded"));
     }
 
-    let response = agent.chat(messages)?;
+    let response = m.chat(messages)?;
 
     if response.text.contains("FINAL_ANSWER") {
         Ok(response.text)
@@ -274,7 +274,7 @@ fn multi_turn(
         let mut updated = messages;
         updated.push(Message::assistant(response.text));
         updated.push(Message::user("Continue."));
-        multi_turn(agent, updated, max_turns - 1)
+        multi_turn(m, updated, max_turns - 1)
     }
 }
 ```

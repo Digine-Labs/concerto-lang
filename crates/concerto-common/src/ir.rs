@@ -16,7 +16,7 @@ pub struct IrModule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub functions: Vec<IrFunction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<IrAgent>,
+    pub models: Vec<IrModel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<IrTool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -32,7 +32,7 @@ pub struct IrModule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memories: Vec<IrMemory>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hosts: Vec<IrHost>,
+    pub agents: Vec<IrAgent>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub listens: Vec<IrListen>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -108,13 +108,13 @@ pub struct IrInstruction {
     /// Local variable name (for LOAD_LOCAL, STORE_LOCAL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Agent name (for CALL_AGENT).
+    /// Model name (for CALL_MODEL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    /// Method name (for CALL_METHOD, CALL_AGENT).
+    pub model: Option<String>,
+    /// Method name (for CALL_METHOD, CALL_MODEL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
-    /// Schema name (for CALL_AGENT_SCHEMA).
+    /// Schema name (for CALL_MODEL_SCHEMA).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     /// Tool name (for CALL_TOOL).
@@ -140,13 +140,13 @@ pub struct IrInstruction {
     pub span: Option<[u32; 2]>,
 }
 
-/// An agent definition in the IR.
+/// A model definition in the IR (LLM endpoint with configuration).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IrAgent {
+pub struct IrModel {
     pub name: String,
     pub module: String,
     pub connection: String,
-    pub config: IrAgentConfig,
+    pub config: IrModelConfig,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,9 +158,9 @@ pub struct IrAgent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IrAgentConfig {
+pub struct IrModelConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub base: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,9 +240,9 @@ pub struct IrMemory {
     pub max_messages: Option<u32>,
 }
 
-/// A host definition (external host/connector).
+/// An agent definition (external agent/connector).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IrHost {
+pub struct IrAgent {
     pub name: String,
     pub connector: String,
     #[serde(default = "default_text")]
@@ -262,7 +262,7 @@ pub struct IrHost {
     pub env: Option<std::collections::HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
-    /// Initialization params from [hosts.<name>.params] in Concerto.toml.
+    /// Initialization params from [agents.<name>.params] in Concerto.toml.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Value>,
 }
@@ -296,11 +296,11 @@ pub struct IrPipelineStage {
     pub instructions: Vec<IrInstruction>,
 }
 
-/// A listen expression definition (bidirectional host streaming).
+/// A listen expression definition (bidirectional agent streaming).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IrListen {
     pub name: String,
-    pub host: String,
+    pub agent: String,
     pub handlers: Vec<IrListenHandler>,
 }
 

@@ -72,7 +72,7 @@ fn main() {
     // === Manifest ===
     // Find and load Concerto.toml from the source file's directory (walks up).
     let abs_input = fs::canonicalize(&cli.input).unwrap_or_else(|_| cli.input.clone());
-    let (connection_names, ir_connections, manifest_hosts) =
+    let (connection_names, ir_connections, manifest_agents) =
         match manifest::find_and_load_manifest(&abs_input) {
             Ok(m) => {
                 let names: Vec<String> = m.connections.keys().cloned().collect();
@@ -84,8 +84,8 @@ fn main() {
                         config: cfg.to_ir_config(),
                     })
                     .collect();
-                let hosts = m.hosts.clone();
-                (names, ir_conns, hosts)
+                let agents = m.agents.clone();
+                (names, ir_conns, agents)
             }
             Err(manifest::ManifestError::NotFound(_)) => {
                 // No Concerto.toml found — that's OK, compile without manifest
@@ -181,9 +181,9 @@ fn main() {
     codegen.add_manifest_connections(ir_connections);
     let mut ir = codegen.generate(&program);
 
-    // Embed host configs from manifest into IR hosts
-    if !manifest_hosts.is_empty() {
-        CodeGenerator::embed_manifest_hosts(&mut ir, &manifest_hosts);
+    // Embed agent configs from manifest into IR agents
+    if !manifest_agents.is_empty() {
+        CodeGenerator::embed_manifest_agents(&mut ir, &manifest_agents);
     }
 
     let json = match serde_json::to_string_pretty(&ir) {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Every Concerto project has a **Concerto.toml** manifest file at its root. This file declares project metadata, LLM provider connections, and MCP server configurations. It replaces inline `connect` blocks in `.conc` source files, cleanly separating infrastructure concerns (API keys, endpoints, models) from application logic (agents, tools, pipelines).
+Every Concerto project has a **Concerto.toml** manifest file at its root. This file declares project metadata, LLM provider connections, and MCP server configurations. It replaces inline `connect` blocks in `.conc` source files, cleanly separating infrastructure concerns (API keys, endpoints, models) from application logic (models, agents, tools, pipelines).
 
 ## Motivation
 
@@ -86,7 +86,7 @@ default_model = "llama3.1"
 | `provider` | String | Yes | -- | Provider type: `"openai"`, `"anthropic"`, `"google"`, `"ollama"`, `"custom"` |
 | `api_key_env` | String | No* | -- | Name of the environment variable holding the API key |
 | `base_url` | String | No | Provider default | API endpoint URL |
-| `default_model` | String | No | Provider default | Default model for agents using this connection |
+| `default_model` | String | No | Provider default | Default model for models using this connection |
 | `timeout` | Integer | No | 30 | Request timeout in seconds |
 | `organization` | String | No | -- | Organization ID (OpenAI) |
 | `project` | String | No | -- | Project ID (OpenAI) |
@@ -138,7 +138,7 @@ smart = "gpt-4o"
 reasoning = "o1"
 ```
 
-When an agent specifies `model: "fast"`, the runtime resolves it to `"gpt-4o-mini"` via this mapping.
+When a model specifies `model: "fast"`, the runtime resolves it to `"gpt-4o-mini"` via this mapping.
 
 ### [mcp.*] Sections (Optional)
 
@@ -192,14 +192,14 @@ connect openai {
 // AFTER: nothing — connections come from Concerto.toml
 ```
 
-### Agent provider: Field Unchanged
+### Model provider: Field Unchanged
 
-Agents still reference connections by name. The name resolves from `Concerto.toml` instead of a source-level `connect` block:
+Models still reference connections by name. The name resolves from `Concerto.toml` instead of a source-level `connect` block:
 
 ```concerto
-agent Classifier {
+model Classifier {
     provider: openai,           // resolves from [connections.openai]
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     system_prompt: "You are a classifier.",
 }
 ```
@@ -241,7 +241,7 @@ The compiler (`concertoc`) now:
 3. Validates `[project]` section (name, version, entry)
 4. Validates `[connections.*]` sections (required fields per provider type)
 5. Validates `[mcp.*]` sections (transport-specific required fields)
-6. Resolves agent `provider:` names against known connections — error if not found
+6. Resolves model `provider:` names against known connections — error if not found
 7. Resolves `mcp` block names against `[mcp.*]` sections — warning if no matching config (may be provided at runtime)
 
 ### IR Embedding
@@ -273,7 +273,7 @@ MCP connection details from TOML are merged into the IR `mcp_connections` sectio
 
 ### Semantic Analysis Changes
 
-The resolver no longer registers `connect` block names in the scope. Instead, it loads connection names from the parsed `Concerto.toml` and registers those. Agent `provider:` validation checks against TOML connection names.
+The resolver no longer registers `connect` block names in the scope. Instead, it loads connection names from the parsed `Concerto.toml` and registers those. Model `provider:` validation checks against TOML connection names.
 
 ## Runtime Changes
 
@@ -301,7 +301,7 @@ error: invalid Concerto.toml: missing required field 'provider' in [connections.
 ### Unknown Provider Reference
 
 ```
-error: agent `Classifier` references unknown connection `openai`
+error: model `Classifier` references unknown connection `openai`
   --> src/main.conc:5:15
    |
  5 |     provider: openai,
@@ -358,16 +358,16 @@ schema Classification {
     confidence: Float,
 }
 
-agent Classifier {
+model Classifier {
     provider: openai,
-    model: "fast",              // Resolves to "gpt-4o-mini" via [connections.openai.models]
+    base: "fast",              // Resolves to "gpt-4o-mini" via [connections.openai.models]
     temperature: 0.1,
     system_prompt: "Classify documents. Respond with valid JSON.",
 }
 
-agent Analyst {
+model Analyst {
     provider: anthropic,
-    model: "claude-sonnet-4-20250514",
+    base: "claude-sonnet-4-20250514",
     temperature: 0.3,
     system_prompt: "Analyze documents in detail.",
 }
@@ -482,7 +482,7 @@ This is a **breaking change**. Existing programs using `connect` blocks will fai
 ## Relationship to Other Specs
 
 - **Replaces**: spec/11 (LLM Connections) — connection declarations move from source to TOML
-- **Modifies**: spec/07 (Agents) — `provider:` still works, resolves from TOML
+- **Modifies**: spec/07 (Models) — `provider:` still works, resolves from TOML
 - **Modifies**: spec/20 (Interop) — MCP connection config moves to TOML
 - **Modifies**: spec/16 (IR) — `connections` section populated from TOML at compile time
 - **Modifies**: spec/18 (Compiler) — new TOML loading stage before semantic analysis

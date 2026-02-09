@@ -100,9 +100,9 @@ schema FileAnalysis {
 // Agent with both local tools and MCP tools attached uniformly
 @log(channel: "agent_debug")
 @timeout(seconds: 60)
-agent FileAnalyzer {
+model FileAnalyzer {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.3,
     max_tokens: 2000,
     system_prompt: """
@@ -147,7 +147,7 @@ fn main() {
         },
         Err(e) => {
             emit("error", {
-                "message": e.message,
+                "message": e,
                 "hint": "Make sure ANALYSIS_DIR is set and the host handles tool:file:* emits",
             });
         },

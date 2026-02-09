@@ -1,10 +1,10 @@
-# 24 - Agent Memory
+# 24 - Model Memory
 
 ## Overview
 
-Concerto agents are stateless by default: each `.execute(prompt)` call sends only the system prompt and current user prompt to the LLM. For multi-turn conversations, iterative refinement, and context accumulation, agents need **memory** -- a persistent conversation history that is included in subsequent LLM requests.
+Concerto models are stateless by default: each `.execute(prompt)` call sends only the system prompt and current user prompt to the LLM. For multi-turn conversations, iterative refinement, and context accumulation, models need **memory** -- a persistent conversation history that is included in subsequent LLM requests.
 
-**Memory** is a first-class language construct declared with the `memory` keyword. It stores an ordered list of chat messages (role + content pairs) and is attached to agent executions via the builder pattern.
+**Memory** is a first-class language construct declared with the `memory` keyword. It stores an ordered list of chat messages (role + content pairs) and is attached to model executions via the builder pattern.
 
 ## Declaration
 
@@ -20,23 +20,23 @@ The `memory` keyword declares a named conversation history store. Like `hashmap`
 - `Memory::new()` -- empty memory with no size limit
 - `Memory::new(N)` -- empty memory with sliding window of N messages. When exceeded, oldest messages are dropped.
 
-## Usage with Agents
+## Usage with Models
 
 ### Builder Pattern
 
-Memory is attached to agent execution via `with_memory()`, which returns an intermediate **AgentBuilder** value:
+Memory is attached to model execution via `with_memory()`, which returns an intermediate **ModelBuilder** value:
 
 ```concerto
 // Auto-append mode (default): prompt + response saved to memory after execution
-let result = Agent.with_memory(conversation).execute(prompt);
+let result = Model.with_memory(conversation).execute(prompt);
 
 // Manual mode: nothing is auto-appended, user controls memory contents
-let result = Agent.with_memory(conversation, auto: false).execute(prompt);
+let result = Model.with_memory(conversation, auto: false).execute(prompt);
 ```
 
 ### Execution Semantics
 
-When `Agent.with_memory(m).execute(prompt)` runs:
+When `Model.with_memory(m).execute(prompt)` runs:
 
 1. Retrieve stored messages from memory `m`
 2. Build `ChatRequest.messages` as: `[system_prompt] + [memory_messages] + [user_prompt]`
@@ -51,7 +51,7 @@ If the memory has a `max` limit and appending would exceed it, the oldest messag
 ### With Schema Validation
 
 ```concerto
-let result = Agent.with_memory(conversation).execute_with_schema<OutputType>(prompt);
+let result = Model.with_memory(conversation).execute_with_schema<OutputType>(prompt);
 ```
 
 Memory works identically with schema validation. On retry (schema mismatch), the retry prompt replaces the last user message -- memory is not corrupted by failed validation attempts.
@@ -59,7 +59,7 @@ Memory works identically with schema validation. On retry (schema mismatch), the
 ### Chaining with Other Builders
 
 ```concerto
-let result = Agent
+let result = Model
     .with_memory(conversation)
     .with_tools([Calculator])
     .execute(prompt);
@@ -106,24 +106,24 @@ emit("content", msg.content);  // "Hello"
 | `MemoryRef` | Runtime reference to a named memory store |
 | `Message` | Chat message struct `{ role: String, content: String }` |
 
-## AgentBuilder Value
+## ModelBuilder Value
 
-The `with_memory()` method (and `with_tools()`, `with_context()`) returns an **AgentBuilder** -- a transient value that accumulates execution configuration before the final `.execute()` call.
+The `with_memory()` method (and `with_tools()`, `with_context()`) returns a **ModelBuilder** -- a transient value that accumulates execution configuration before the final `.execute()` call.
 
 ```concerto
 // This is the builder chain:
-Agent                           // AgentRef
-    .with_memory(conversation)  // -> AgentBuilder { memory: "conversation", ... }
-    .with_tools([T])            // -> AgentBuilder { memory: "conversation", tools: ["T"], ... }
+Model                           // ModelRef
+    .with_memory(conversation)  // -> ModelBuilder { memory: "conversation", ... }
+    .with_tools([T])            // -> ModelBuilder { memory: "conversation", tools: ["T"], ... }
     .execute(prompt)            // -> Result<Response, String>
 ```
 
-AgentBuilder methods:
+ModelBuilder methods:
 - `with_memory(memory_ref)` -- attach memory (auto-append: true)
 - `with_memory(memory_ref, auto: false)` -- attach memory without auto-append
 - `with_tools(tool_array)` -- add dynamic tools (see spec/25)
-- `without_tools()` -- exclude agent's default tools (see spec/25)
-- `with_context(value)` -- pass context data for hosts (see spec/26)
+- `without_tools()` -- exclude model's default tools (see spec/25)
+- `with_context(value)` -- pass context data for agents (see spec/26)
 - `execute(prompt)` -- execute and return `Result<Response, String>`
 - `execute_with_schema<T>(prompt)` -- execute with schema validation
 
@@ -177,9 +177,9 @@ Methods: `init`, `append`, `get_messages`, `last_n`, `len`, `clear`.
 ### VM Integration
 
 - `Value::MemoryRef(name)` -- reference to a memory store
-- `Value::AgentBuilder { ... }` -- transient builder with accumulated config
+- `Value::ModelBuilder { ... }` -- transient builder with accumulated config
 - Memory methods dispatched via `exec_call_method` on `MemoryRef`
-- Builder methods dispatched via `exec_call_method` on `AgentRef` and `AgentBuilder`
+- Builder methods dispatched via `exec_call_method` on `ModelRef` and `ModelBuilder`
 - `build_chat_request` extended to inject memory messages between system prompt and user prompt
 
 ## Examples
@@ -189,9 +189,9 @@ Methods: `init`, `append`, `get_messages`, `last_n`, `len`, `clear`.
 ```concerto
 memory chat: Memory = Memory::new();
 
-agent Assistant {
+model Assistant {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     system_prompt: "You are a helpful assistant.",
 }
 
@@ -215,7 +215,7 @@ context.append("user", "I have a Vec<String> that I need to sort.");
 context.append("assistant", "You can use .sort() for in-place sorting.");
 
 // Continue conversation with pre-seeded context
-let result = Agent.with_memory(context).execute("Now how do I deduplicate it?");
+let result = Model.with_memory(context).execute("Now how do I deduplicate it?");
 ```
 
 ### Sliding Window
@@ -225,7 +225,7 @@ memory recent: Memory = Memory::new(20);  // keep last 20 messages
 
 // After many calls, only the last 20 messages are sent to the LLM
 for i in 0..100 {
-    Agent.with_memory(recent).execute("Question ${i}");
+    Model.with_memory(recent).execute("Question ${i}");
 }
 emit("memory_size", recent.len());  // 20
 ```

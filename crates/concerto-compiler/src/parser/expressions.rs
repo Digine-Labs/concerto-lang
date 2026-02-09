@@ -455,7 +455,7 @@ impl Parser {
                 Some(Expr::new(ExprKind::Return(value), span))
             }
 
-            // Listen expression: listen Host.execute("prompt") { "type" => |param| { ... }, ... }
+            // Listen expression: listen Agent.execute("prompt") { "type" => |param| { ... }, ... }
             TokenKind::Listen => self.parse_listen_expr(),
 
             // Closure: |params| expr
@@ -862,12 +862,12 @@ impl Parser {
     // ========================================================================
 
     /// Parse a listen expression:
-    /// `listen Host.execute("prompt") { "type" => |param| { body }, ... }`
+    /// `listen Agent.execute("prompt") { "type" => |param| { body }, ... }`
     fn parse_listen_expr(&mut self) -> Option<Expr> {
         let start = self.current_span();
         self.advance(); // consume 'listen'
 
-        // Parse the host call expression (e.g., ClaudeCode.execute("prompt"))
+        // Parse the agent call expression (e.g., ClaudeCode.execute("prompt"))
         let call = self.parse_expression()?;
 
         self.expect(TokenKind::LeftBrace)?;
@@ -2877,7 +2877,7 @@ mod tests {
         let prog = parse(
             r#"
             fn main() {
-                let result = listen MyHost.execute("prompt") {
+                let result = listen MyAgent.execute("prompt") {
                     "progress" => |msg| {
                         emit("log", msg);
                     },
@@ -2890,10 +2890,10 @@ mod tests {
         match &b.stmts[0] {
             Stmt::Let(l) => match &l.initializer.as_ref().unwrap().kind {
                 ExprKind::Listen { call, handlers } => {
-                    // Verify it's a method call on the host
+                    // Verify it's a method call on the agent
                     match &call.kind {
                         ExprKind::MethodCall { object, method, args, .. } => {
-                            assert!(matches!(&object.kind, ExprKind::Identifier(name) if name == "MyHost"));
+                            assert!(matches!(&object.kind, ExprKind::Identifier(name) if name == "MyAgent"));
                             assert_eq!(method, "execute");
                             assert_eq!(args.len(), 1);
                         }
@@ -2914,7 +2914,7 @@ mod tests {
         let prog = parse(
             r#"
             fn main() {
-                let result = listen Host.execute("do work") {
+                let result = listen Agent.execute("do work") {
                     "progress" => |p| {
                         emit("prog", p);
                     },
@@ -2952,8 +2952,8 @@ mod tests {
         let prog = parse(
             r#"
             fn main() {
-                let result = listen Host.execute("prompt") {
-                    "question" => |q: HostQuestion| {
+                let result = listen Agent.execute("prompt") {
+                    "question" => |q: AgentQuestion| {
                         "answer"
                     },
                 };
@@ -2981,7 +2981,7 @@ mod tests {
         let prog = parse(
             r#"
             fn main() {
-                let result = listen Host.execute("prompt") {
+                let result = listen Agent.execute("prompt") {
                     "progress" => |msg| {
                         emit("log", msg);
                     }

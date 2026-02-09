@@ -5,9 +5,9 @@
 
 memory transcript: Memory = Memory::new(12);
 
-agent Assistant {
+model Assistant {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     temperature: 0.3,
     system_prompt: "Respond with short implementation guidance.",
 }

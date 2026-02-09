@@ -9,7 +9,7 @@ pub struct ConcertoManifest {
     pub project: ProjectSection,
     pub connections: HashMap<String, ConnectionConfig>,
     pub mcp: HashMap<String, McpConfig>,
-    pub hosts: HashMap<String, HostConfig>,
+    pub agents: HashMap<String, AgentConfig>,
     /// The directory containing the Concerto.toml file.
     pub root_dir: PathBuf,
 }
@@ -93,7 +93,7 @@ pub struct McpConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HostConfig {
+pub struct AgentConfig {
     pub transport: String,
     #[serde(default)]
     pub command: Option<String>,
@@ -105,8 +105,8 @@ pub struct HostConfig {
     pub env: Option<HashMap<String, String>>,
     #[serde(default)]
     pub working_dir: Option<String>,
-    /// Named initialization parameters sent to the host middleware at spawn time.
-    /// Populated from `[hosts.<name>.params]` in Concerto.toml.
+    /// Named initialization parameters sent to the agent middleware at spawn time.
+    /// Populated from `[agents.<name>.params]` in Concerto.toml.
     #[serde(default)]
     pub params: Option<serde_json::Value>,
 }
@@ -120,7 +120,7 @@ struct RawManifest {
     #[serde(default)]
     mcp: HashMap<String, McpConfig>,
     #[serde(default)]
-    hosts: HashMap<String, HostConfig>,
+    agents: HashMap<String, AgentConfig>,
 }
 
 /// Errors that can occur when loading a manifest.
@@ -192,7 +192,7 @@ pub fn parse_manifest(content: &str, root_dir: PathBuf) -> Result<ConcertoManife
         project: raw.project,
         connections: raw.connections,
         mcp: raw.mcp,
-        hosts: raw.hosts,
+        agents: raw.agents,
         root_dir,
     })
 }
@@ -551,30 +551,30 @@ transport = "websocket"
     }
 
     #[test]
-    fn host_params_deserialized() {
+    fn agent_params_deserialized() {
         let toml = r#"
 [project]
 name = "test"
 version = "0.1.0"
 entry = "src/main.conc"
 
-[hosts.my_host]
+[agents.my_agent]
 transport = "stdio"
 command = "python3"
-args = ["host.py"]
+args = ["agent.py"]
 
-[hosts.my_host.params]
+[agents.my_agent.params]
 model = "gpt-4o"
 temperature = 0.7
 tags = ["research", "code"]
 "#;
         let manifest = parse_manifest(toml, PathBuf::from("/project")).unwrap();
-        assert_eq!(manifest.hosts.len(), 1);
-        let host = &manifest.hosts["my_host"];
-        assert_eq!(host.transport, "stdio");
-        assert_eq!(host.command.as_deref(), Some("python3"));
+        assert_eq!(manifest.agents.len(), 1);
+        let agent_cfg = &manifest.agents["my_agent"];
+        assert_eq!(agent_cfg.transport, "stdio");
+        assert_eq!(agent_cfg.command.as_deref(), Some("python3"));
 
-        let params = host.params.as_ref().expect("params should be Some");
+        let params = agent_cfg.params.as_ref().expect("params should be Some");
         assert_eq!(params["model"], "gpt-4o");
         assert_eq!(params["temperature"], 0.7);
         let tags = params["tags"].as_array().unwrap();
@@ -583,20 +583,20 @@ tags = ["research", "code"]
     }
 
     #[test]
-    fn host_without_params_ok() {
+    fn agent_without_params_ok() {
         let toml = r#"
 [project]
 name = "test"
 version = "0.1.0"
 entry = "src/main.conc"
 
-[hosts.simple]
+[agents.simple]
 transport = "stdio"
 command = "echo"
 "#;
         let manifest = parse_manifest(toml, PathBuf::from("/project")).unwrap();
-        let host = &manifest.hosts["simple"];
-        assert!(host.params.is_none());
+        let agent_cfg = &manifest.agents["simple"];
+        assert!(agent_cfg.params.is_none());
     }
 
     #[test]

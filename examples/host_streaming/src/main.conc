@@ -12,13 +12,13 @@ schema HostQuestion {
     context: String,
 }
 
-agent Architect {
+model Architect {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     system_prompt: "You are a software architect. Answer technical questions concisely.",
 }
 
-host ClaudeCode {
+agent ClaudeCode {
     connector: "claude_code",
     output_format: "json",
     timeout: 600,

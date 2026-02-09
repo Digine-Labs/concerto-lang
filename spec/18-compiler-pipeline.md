@@ -56,7 +56,7 @@ enum TokenKind {
     // Identifiers and Keywords
     Identifier,          // variable_name, TypeName
     // Keywords (one variant per keyword):
-    Let, Mut, Const, Fn, Agent, Tool, Pub, Use, Mod,
+    Let, Mut, Const, Fn, Model, Agent, Tool, Pub, Use, Mod,
     If, Else, Match, For, While, Loop, Break, Continue, Return,
     Try, Catch, Throw, Emit, Await, Async,
     Pipeline, Stage, Schema, Db, Connect,
@@ -116,12 +116,12 @@ Recursive descent with **Pratt parsing** for expression precedence.
 
 ```
 program         = declaration*
-declaration     = connect_decl | db_decl | agent_decl | tool_decl | schema_decl
+declaration     = connect_decl | db_decl | model_decl | agent_decl | tool_decl | schema_decl
                 | pipeline_decl | fn_decl | struct_decl | enum_decl | trait_decl
                 | impl_decl | use_decl | mod_decl | const_decl | type_alias
 
 fn_decl         = decorator* "pub"? "async"? "fn" IDENT "(" params? ")" ("->" type)? block
-agent_decl      = decorator* "pub"? "agent" IDENT "{" agent_fields "}"
+model_decl      = decorator* "pub"? "model" IDENT "{" model_fields "}"
 tool_decl       = "pub"? "tool" IDENT ("impl" IDENT)? "{" tool_body "}"
 schema_decl     = "pub"? "schema" IDENT ("<" type_params ">")? "{" schema_fields "}"
 connect_decl    = "connect" IDENT "{" connect_fields "}"
@@ -209,7 +209,7 @@ Program { declarations: Vec<Declaration> }
 
 enum Declaration {
     Function(FunctionDecl),
-    Agent(AgentDecl),
+    Model(ModelDecl),
     Tool(ToolDecl),
     Schema(SchemaDecl),
     Connect(ConnectDecl),
@@ -288,7 +288,7 @@ Transforms the untyped AST into a **typed AST** by resolving names, checking typ
 - Check that expressions match expected types
 - Verify function parameter and return types
 - Check operator type compatibility
-- Verify agent field types
+- Verify model field types
 - Check schema field types
 - Validate generic type parameters
 
@@ -301,10 +301,10 @@ Transforms the untyped AST into a **typed AST** by resolving names, checking typ
 - Check `return` inside functions
 - Check `?` inside functions returning Result/Option
 
-#### 4. Agent / Tool / Schema Validation
-- Verify agents reference valid connections
-- Verify agents reference valid tools
-- Verify agents reference valid databases
+#### 4. Model / Agent / Tool / Schema Validation
+- Verify models reference valid connections
+- Verify models reference valid tools
+- Verify models reference valid databases
 - Validate schema fields are valid types
 - Verify tool method signatures
 - Check pipeline stage type compatibility (output of N matches input of N+1)
@@ -341,7 +341,7 @@ Transforms the typed AST into IR instructions.
 
 1. **Constant extraction**: Collect all literals into the constant pool
 2. **Function lowering**: Convert each function body to IR instructions
-3. **Agent registration**: Serialize agent definitions to IR agent section
+3. **Model registration**: Serialize model definitions to IR model section
 4. **Tool registration**: Serialize tool definitions with JSON schemas
 5. **Schema compilation**: Convert schemas to JSON Schema format
 6. **Pipeline lowering**: Convert pipeline stages to function-like instruction sequences

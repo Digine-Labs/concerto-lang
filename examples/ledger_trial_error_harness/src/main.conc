@@ -19,18 +19,18 @@ ledger knowledge: Ledger = Ledger::new();
 hashmap run_state: HashMap<String, Any> = HashMap::new();
 
 @retry(max: 2, backoff: "linear")
-agent DraftingAgent {
+model DraftingAgent {
     provider: openai,
-    model: "fast",
+    base: "fast",
     temperature: 0.9,
     max_tokens: 900,
     system_prompt: "You draft concise but evidence-aware answers. Return valid JSON only.",
 }
 
 @retry(max: 3, backoff: "exponential")
-agent LedgerReviewer {
+model LedgerReviewer {
     provider: openai,
-    model: "strong",
+    base: "strong",
     temperature: 0.2,
     max_tokens: 1000,
     system_prompt: "You are a strict reviewer. Score answers against provided ledger evidence.",
@@ -169,20 +169,20 @@ fn main() {
                         }
                     },
                     Err(e) => {
-                        feedback = "Review stage failed: ${e.message}";
+                        feedback = "Review stage failed: ${e}";
                         emit("review_error", {
                             "attempt": attempt,
-                            "message": e.message,
+                            "message": e,
                         });
                         attempt = attempt + 1;
                     },
                 }
             },
             Err(e) => {
-                feedback = "Draft stage failed: ${e.message}";
+                feedback = "Draft stage failed: ${e}";
                 emit("draft_error", {
                     "attempt": attempt,
-                    "message": e.message,
+                    "message": e,
                 });
                 attempt = attempt + 1;
             },

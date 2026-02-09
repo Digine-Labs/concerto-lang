@@ -16,7 +16,7 @@ IR files use the `.conc-ir` extension and contain a JSON object with the followi
     "constants": [...],
     "types": [...],
     "functions": [...],
-    "agents": [...],
+    "models": [...],
     "tools": [...],
     "mcp_connections": [...],
     "schemas": [...],
@@ -110,7 +110,7 @@ Compiled function bodies containing IR instructions.
             "locals": ["response", "result"],
             "instructions": [
                 { "op": "LOAD_CONST", "arg": 5, "span": [1, 0] },
-                { "op": "CALL_AGENT", "agent": "Classifier", "method": "execute", "argc": 1, "span": [2, 0] },
+                { "op": "CALL_MODEL", "model": "Classifier", "method": "execute", "argc": 1, "span": [2, 0] },
                 { "op": "STORE_LOCAL", "name": "response", "span": [2, 0] },
                 { "op": "LOAD_LOCAL", "name": "response", "span": [3, 0] },
                 { "op": "LOAD_CONST", "arg": 0, "span": [3, 0] },
@@ -132,13 +132,13 @@ Compiled function bodies containing IR instructions.
 }
 ```
 
-### Agents
+### Models
 
-Agent definitions with their configuration.
+Model definitions with their configuration.
 
 ```json
 {
-    "agents": [
+    "models": [
         {
             "name": "Classifier",
             "module": "main",
@@ -401,14 +401,14 @@ Pipeline definitions with stage sequences.
 | `CALL_METHOD` | name, argc | Call method on stack-top object |
 | `CALL_NATIVE` | name, argc | Call native/built-in function |
 
-### Agent Operations
+### Model Operations
 
 | Opcode | Args | Description |
 |--------|------|-------------|
-| `CALL_AGENT` | agent, method, argc | Call agent method (prompt on stack) |
-| `CALL_AGENT_SCHEMA` | agent, schema, argc | Call agent with schema validation |
-| `CALL_AGENT_STREAM` | agent, argc | Call agent in streaming mode |
-| `CALL_AGENT_CHAT` | agent, argc | Call agent with message history |
+| `CALL_MODEL` | model, method, argc | Call model method (prompt on stack) |
+| `CALL_MODEL_SCHEMA` | model, schema, argc | Call model with schema validation |
+| `CALL_MODEL_STREAM` | model, argc | Call model in streaming mode |
+| `CALL_MODEL_CHAT` | model, argc | Call model with message history |
 
 ### Tool Operations
 

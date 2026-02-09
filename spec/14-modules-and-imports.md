@@ -12,10 +12,10 @@ Every `.conc` file is automatically a module. The module name is derived from th
 project/
   main.conc              -> module: main (entry point)
   classifier.conc        -> module: classifier
-  agents/
-    mod.conc             -> module: agents
-    document.conc        -> module: agents::document
-    research.conc        -> module: agents::research
+  models/
+    mod.conc             -> module: models
+    document.conc        -> module: models::document
+    research.conc        -> module: models::research
   tools/
     mod.conc             -> module: tools
     file_connector.conc  -> module: tools::file_connector
@@ -32,9 +32,9 @@ project/
 A directory becomes a module when it contains a `mod.conc` file. The `mod.conc` file declares the submodules:
 
 ```concerto
-// agents/mod.conc
-pub mod document;    // Re-exports agents/document.conc as agents::document
-pub mod research;    // Re-exports agents/research.conc as agents::research
+// models/mod.conc
+pub mod document;    // Re-exports models/document.conc as models::document
+pub mod research;    // Re-exports models/research.conc as models::research
 ```
 
 ### Inline Module Declaration
@@ -57,7 +57,7 @@ let prompt = helpers::format_prompt(template, vars);
 ### Basic Import
 
 ```concerto
-use agents::document::DocumentClassifier;
+use models::document::DocumentClassifier;
 use schemas::classification::Classification;
 use tools::file_connector::FileConnector;
 ```
@@ -65,7 +65,7 @@ use tools::file_connector::FileConnector;
 ### Multiple Imports from Same Module
 
 ```concerto
-use agents::document::{DocumentClassifier, DocumentExtractor};
+use models::document::{DocumentClassifier, DocumentExtractor};
 use schemas::classification::{Classification, Category, Confidence};
 ```
 
@@ -74,7 +74,7 @@ use schemas::classification::{Classification, Category, Confidence};
 Import all public items from a module:
 
 ```concerto
-use agents::document::*;
+use models::document::*;
 // DocumentClassifier, DocumentExtractor, etc. are now in scope
 ```
 
@@ -85,8 +85,8 @@ use agents::document::*;
 Rename an import to avoid conflicts or improve clarity:
 
 ```concerto
-use agents::document::DocumentClassifier as DocClassifier;
-use agents::research::ResearchAgent as Researcher;
+use models::document::DocumentClassifier as DocClassifier;
+use models::research::ResearchModel as Researcher;
 
 // Usage
 let result = DocClassifier.execute(prompt)?;
@@ -105,14 +105,14 @@ use std::{
 
 ## Visibility
 
-Items (functions, agents, tools, schemas, structs, enums, constants) are **private by default**. Use `pub` to make them accessible from other modules.
+Items (functions, models, agents, tools, schemas, structs, enums, constants) are **private by default**. Use `pub` to make them accessible from other modules.
 
 ### Public Items
 
 ```concerto
-// agents/classifier.conc
+// models/classifier.conc
 
-pub agent Classifier {
+pub model Classifier {
     // ...
 }
 
@@ -136,7 +136,7 @@ pub const DEFAULT_MODEL: String = "gpt-4o";  // Public constant
 
 ### Public Fields
 
-Struct and agent fields can individually be marked as public:
+Struct and model fields can individually be marked as public:
 
 ```concerto
 pub struct Config {
@@ -194,7 +194,7 @@ connect openai {
 
 hashmap shared_state: HashMap<String, Any> = HashMap::new();
 
-agent Classifier { /* ... */ }
+model Classifier { /* ... */ }
 tool FileReader { /* ... */ }
 schema Output { /* ... */ }
 
@@ -210,7 +210,7 @@ The program entry point is the `main` function in the root module:
 ```concerto
 // main.conc
 
-use agents::classifier::Classifier;
+use models::classifier::Classifier;
 use schemas::output::ClassificationOutput;
 
 fn main() {
@@ -234,11 +234,11 @@ The `main` function:
 Modules can re-export items from submodules:
 
 ```concerto
-// agents/mod.conc
+// models/mod.conc
 pub mod document;
 pub mod research;
 
-// Re-export commonly used items at the agents:: level
+// Re-export commonly used items at the models:: level
 pub use document::DocumentClassifier;
 pub use research::ResearchAgent;
 ```
@@ -246,10 +246,10 @@ pub use research::ResearchAgent;
 This allows:
 ```concerto
 // Instead of:
-use agents::document::DocumentClassifier;
+use models::document::DocumentClassifier;
 
 // Users can write:
-use agents::DocumentClassifier;
+use models::DocumentClassifier;
 ```
 
 ## Circular Dependencies
@@ -258,7 +258,7 @@ Circular module dependencies are not allowed. The compiler will error if module 
 
 ```
 // ERROR: Circular dependency detected:
-// agents::classifier -> tools::validator -> agents::classifier
+// models::classifier -> tools::validator -> models::classifier
 ```
 
 Solution: extract shared types into a separate module that both can import.

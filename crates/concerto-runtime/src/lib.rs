@@ -1,7 +1,7 @@
 pub mod builtins;
 pub mod decorator;
 pub mod error;
-pub mod host;
+pub mod agent;
 pub mod ir_loader;
 pub mod ledger;
 pub mod mcp;

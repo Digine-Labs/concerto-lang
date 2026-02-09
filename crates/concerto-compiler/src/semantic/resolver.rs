@@ -250,11 +250,11 @@ impl Resolver {
                         self.declare_function_symbol(f);
                     }
                 }
-                Declaration::Agent(a) => {
+                Declaration::Model(a) => {
                     self.define_symbol(
                         &a.name,
-                        SymbolKind::Agent,
-                        Type::AgentRef,
+                        SymbolKind::Model,
+                        Type::ModelRef,
                         false,
                         false,
                         a.span.clone(),
@@ -381,11 +381,11 @@ impl Resolver {
                         m.span.clone(),
                     );
                 }
-                Declaration::Host(h) => {
+                Declaration::Agent(h) => {
                     self.define_symbol(
                         &h.name,
-                        SymbolKind::Host,
-                        Type::HostRef,
+                        SymbolKind::Agent,
+                        Type::AgentRef,
                         false,
                         false,
                         h.span.clone(),
@@ -465,7 +465,7 @@ impl Resolver {
                 }
                 self.resolve_function(f);
             }
-            Declaration::Agent(a) => self.resolve_config_fields(&a.fields),
+            Declaration::Model(a) => self.resolve_config_fields(&a.fields),
             Declaration::Tool(t) => {
                 self.resolve_config_fields(&t.fields);
                 for method in &t.methods {
@@ -520,7 +520,7 @@ impl Resolver {
             Declaration::Ledger(l) => self.resolve_expr(&l.initializer),
             Declaration::Memory(m) => self.resolve_expr(&m.initializer),
             Declaration::Mcp(m) => self.resolve_config_fields(&m.fields),
-            Declaration::Host(h) => self.resolve_config_fields(&h.fields),
+            Declaration::Agent(h) => self.resolve_config_fields(&h.fields),
             Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
         }
     }
@@ -708,20 +708,20 @@ impl Resolver {
             );
         }
         // Verify the agent name refers to a known agent
-        if let Some(sym) = self.scopes.lookup_mut(&mock.agent_name) {
+        if let Some(sym) = self.scopes.lookup_mut(&mock.model_name) {
             sym.used = true;
-            if sym.kind != SymbolKind::Agent {
+            if sym.kind != SymbolKind::Model {
                 self.diagnostics.error(
                     format!(
-                        "`mock` can only be used with agents, but `{}` is a {:?}",
-                        mock.agent_name, sym.kind
+                        "`mock` can only be used with models, but `{}` is a {:?}",
+                        mock.model_name, sym.kind
                     ),
                     mock.span.clone(),
                 );
             }
         } else {
             self.diagnostics.error(
-                format!("undefined agent `{}` in mock statement", mock.agent_name),
+                format!("undefined model `{}` in mock statement", mock.model_name),
                 mock.span.clone(),
             );
         }
@@ -1886,8 +1886,8 @@ mod tests {
         "#,
         );
         assert!(
-            errs.iter().any(|e| e.contains("undefined agent")),
-            "expected 'undefined agent' error, got: {:?}",
+            errs.iter().any(|e| e.contains("undefined model")),
+            "expected 'undefined model' error, got: {:?}",
             errs
         );
     }
@@ -1953,9 +1953,9 @@ mod tests {
     fn mock_outside_test_error() {
         let errs = errors(
             r#"
-            agent MyAgent {
+            model MyAgent {
                 provider: "openai",
-                model: "gpt-4o",
+                base: "gpt-4o",
             }
 
             fn main() {

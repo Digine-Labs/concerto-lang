@@ -4,9 +4,9 @@
 memory chat: Memory = Memory::new(6);
 memory pinned_context: Memory = Memory::new();
 
-agent Assistant {
+model Assistant {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     temperature: 0.3,
     system_prompt: "You are a concise assistant that maintains context across turns.",
 }

@@ -85,15 +85,15 @@ Assignment operators require a `mut` binding on the left side.
 
 ## Pipe Operator (`|>`)
 
-The pipe operator passes the result of the left expression as the **first argument** to the right function call. This is one of Concerto's most important operators for readable agent pipelines.
+The pipe operator passes the result of the left expression as the **first argument** to the right function call. This is one of Concerto's most important operators for readable model pipelines.
 
 ```concerto
 // Without pipe:
-let result = emit("result", parse_schema(agent.execute(prompt)?)?);
+let result = emit("result", parse_schema(model.execute(prompt)?)?);
 
 // With pipe (much more readable):
 let result = prompt
-    |> agent.execute()
+    |> model.execute()
     |> parse_schema<Classification>()
     |> emit("result");
 ```
@@ -109,7 +109,7 @@ x |> obj.method() // Equivalent to: obj.method(x)
 ### Chaining
 
 ```concerto
-// Multi-step agent pipeline
+// Multi-step model pipeline
 let output = document
     |> extract_text()
     |> Classifier.execute_with_schema<Classification>()
@@ -135,7 +135,7 @@ The `?` operator unwraps a `Result<T, E>` or `Option<T>`:
 
 ```concerto
 fn process() -> Result<String, AgentError> {
-    let response = agent.execute(prompt)?;   // Returns Err early if execution fails
+    let response = model.execute(prompt)?;   // Returns Err early if execution fails
     let parsed = parse_schema(response)?;    // Returns Err early if parsing fails
     Ok(parsed.label)                         // Return success
 }
@@ -149,7 +149,7 @@ If the function's error type differs from the expression's error type, automatic
 
 ```concerto
 fn process() -> Result<String, ProcessError> {
-    let response = agent.execute(prompt)?;  // AgentError -> ProcessError (via From)
+    let response = model.execute(prompt)?;  // AgentError -> ProcessError (via From)
     Ok(response.text)
 }
 ```
@@ -277,7 +277,7 @@ let result = {
 
 ```concerto
 let result = process(input);                       // Regular call
-let result = agent.execute(prompt);                // Method call
+let result = model.execute(prompt);                // Method call
 let result = Classifier.execute_with_schema<T>(p); // Generic method
 let result = std::json::parse(text);              // Qualified call
 ```

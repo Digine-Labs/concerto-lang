@@ -1,18 +1,18 @@
-# 07 - Agents
+# 07 - Models
 
 ## Overview
 
-Agents are the **core abstraction** of Concerto. An agent encapsulates an LLM-powered entity with a model, provider, system prompt, attached tools, memory hashmap, and execution methods. Agents are defined with a class-like syntax and provide typed interfaces for interacting with LLMs.
+Models are the **core abstraction** of Concerto. A model encapsulates an LLM-powered entity with a base model, provider, system prompt, attached tools, memory hashmap, and execution methods. Models are defined with a class-like syntax and provide typed interfaces for interacting with LLMs.
 
-## Agent Definition
+## Model Definition
 
 ```concerto
-agent AgentName {
+model ModelName {
     // Required fields
     provider: connection_name,
 
     // Optional configuration fields
-    model: "model-id",
+    base: "model-id",
     temperature: 0.7,
     max_tokens: 1000,
     system_prompt: "System prompt text",
@@ -37,9 +37,9 @@ connect openai {
 
 hashmap shared_memory: HashMap<String, String> = HashMap::new();
 
-agent DocumentClassifier {
+model DocumentClassifier {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.2,
     max_tokens: 500,
     system_prompt: """
@@ -57,7 +57,7 @@ agent DocumentClassifier {
 }
 ```
 
-## Agent Fields
+## Model Fields
 
 ### Required Fields
 
@@ -69,12 +69,12 @@ agent DocumentClassifier {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `model` | String | Provider's default | LLM model ID |
+| `base` | String | Provider's default | LLM model ID |
 | `temperature` | Float | Provider default | Sampling temperature (0.0 - 2.0) |
 | `max_tokens` | Int | Provider default | Maximum response tokens |
 | `system_prompt` | String | None | System message prepended to every call |
 | `memory` | HashMapRef | None | Attached in-memory hashmap |
-| `tools` | Array of Tool types | `[]` | Tools available to the agent |
+| `tools` | Array of Tool types | `[]` | Tools available to the model |
 | `retry_policy` | Object | No retries | Retry configuration |
 | `timeout` | Int | 30 | Timeout in seconds per call |
 | `top_p` | Float | Provider default | Nucleus sampling parameter |
@@ -82,7 +82,7 @@ agent DocumentClassifier {
 
 ## Execution Methods
 
-Agents have built-in methods for interacting with the LLM.
+Models have built-in methods for interacting with the LLM.
 
 ### `execute(prompt)` -- Single Prompt
 
@@ -180,9 +180,9 @@ for chunk in chunks.await {
 emit("stream_complete", full_response);
 ```
 
-## Custom Agent Methods
+## Custom Model Methods
 
-Agents can define custom methods via `impl` blocks:
+Models can define custom methods via `impl` blocks:
 
 ```concerto
 impl DocumentClassifier {
@@ -219,26 +219,26 @@ impl DocumentClassifier {
 }
 ```
 
-## Agent Composition
+## Model Composition
 
-Agents can call other agents, enabling complex orchestration patterns.
+Models can call other models, enabling complex orchestration patterns.
 
 ```concerto
-agent Orchestrator {
+model Orchestrator {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     system_prompt: "You coordinate document processing workflows.",
 }
 
-agent Extractor {
+model Extractor {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     system_prompt: "You extract key information from documents.",
 }
 
-agent Summarizer {
+model Summarizer {
     provider: anthropic,
-    model: "claude-sonnet-4-20250514",
+    base: "claude-sonnet-4-20250514",
     system_prompt: "You write concise summaries.",
 }
 
@@ -261,15 +261,15 @@ impl Orchestrator {
 
 ## Decorators
 
-Decorators modify agent behavior without changing the agent definition.
+Decorators modify model behavior without changing the model definition.
 
 ### `@retry`
 
 ```concerto
 @retry(max: 5, backoff: "exponential", delay_ms: 1000)
-agent UnreliableClassifier {
+model UnreliableClassifier {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     // ...
 }
 ```
@@ -278,25 +278,25 @@ agent UnreliableClassifier {
 
 ```concerto
 @timeout(seconds: 60)
-agent LongRunningAgent {
+model LongRunningModel {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     // ...
 }
 ```
 
 ### `@log`
 
-Logs all agent calls (prompt, response, timing) to the emit system.
+Logs all model calls (prompt, response, timing) to the emit system.
 
 ```concerto
-@log(channel: "agent_log")
-agent Classifier {
+@log(channel: "model_log")
+model Classifier {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     // ...
 }
-// Every call emits to "agent_log" channel with full request/response details
+// Every call emits to "model_log" channel with full request/response details
 ```
 
 ### `@cache`
@@ -305,9 +305,9 @@ Caches responses for identical prompts during execution.
 
 ```concerto
 @cache(ttl_seconds: 300)
-agent CachedLookup {
+model CachedLookup {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     // ...
 }
 // Identical prompts within 5 minutes return cached response
@@ -319,18 +319,18 @@ agent CachedLookup {
 @retry(max: 3)
 @timeout(seconds: 30)
 @log(channel: "debug")
-agent ProductionClassifier {
+model ProductionClassifier {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.1,
     system_prompt: "You are a production document classifier.",
 }
 ```
 
-## Agent Lifecycle
+## Model Lifecycle
 
 ### 1. Definition Phase (Compile Time)
-- Agent struct is defined with fields and methods
+- Model struct is defined with fields and methods
 - Type checking validates field types and method signatures
 - Tool compatibility is verified
 
@@ -338,10 +338,10 @@ agent ProductionClassifier {
 - Connection to LLM provider is established
 - Memory hashmap reference is bound
 - Tool registry is populated
-- Agent instance is ready for execution
+- Model instance is ready for execution
 
 ### 3. Execution Phase (Runtime)
-- Methods called on the agent send prompts to LLM
+- Methods called on the model send prompts to LLM
 - Responses are received, parsed, and returned
 - Tools are invoked when the LLM requests them
 - Memory hashmap is read/written during execution
@@ -352,33 +352,33 @@ agent ProductionClassifier {
 - Pending async operations are resolved or cancelled
 - Memory hashmaps can be serialized if configured
 
-## Dynamic Agent Instantiation
+## Dynamic Model Instantiation
 
-For cases where agent configuration is determined at runtime:
+For cases where model configuration is determined at runtime:
 
 ```concerto
-fn create_agent(model: String, temperature: Float) -> AgentRef {
-    agent DynamicAgent {
+fn create_model(base_model: String, temperature: Float) -> ModelRef {
+    model DynamicModel {
         provider: openai,
-        model: model,
+        base: base_model,
         temperature: temperature,
         system_prompt: "You are a flexible assistant.",
     }
 
-    DynamicAgent.spawn()
+    DynamicModel.spawn()
 }
 
-let agent = create_agent("gpt-4o", 0.5);
-let response = agent.execute("Hello")?;
-agent.shutdown();
+let m = create_model("gpt-4o", 0.5);
+let response = m.execute("Hello")?;
+m.shutdown();
 ```
 
-## Agent Best Practices
+## Model Best Practices
 
-1. **Use specific system prompts** -- Tell the agent exactly what role it plays
+1. **Use specific system prompts** -- Tell the model exactly what role it plays
 2. **Prefer `execute_with_schema`** -- Structured output is more reliable than parsing raw text
 3. **Set low temperature for classification** -- Use 0.1-0.3 for deterministic tasks
 4. **Use `@retry` for production** -- LLM calls can fail intermittently
 5. **Attach only needed tools** -- More tools = more confusion for the LLM
-6. **Use different models for different tasks** -- Fast model for simple tasks, powerful model for complex reasoning
+6. **Use different base models for different tasks** -- Fast model for simple tasks, powerful model for complex reasoning
 7. **Set timeouts** -- Prevent hanging on slow LLM responses

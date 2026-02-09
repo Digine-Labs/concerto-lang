@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `connect` block defines how Concerto's runtime communicates with LLM providers. Connections are declared at module scope and referenced by agents. The runtime handles the actual HTTP communication, authentication, retry logic, and rate limiting.
+The `connect` block defines how Concerto's runtime communicates with LLM providers. Connections are declared at module scope and referenced by models. The runtime handles the actual HTTP communication, authentication, retry logic, and rate limiting.
 
 ## Connection Declaration
 
@@ -62,7 +62,7 @@ connect local_ollama {
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `base_url` | String | Provider default | API endpoint URL |
-| `default_model` | String | Provider default | Default model for agents using this connection |
+| `default_model` | String | Provider default | Default model for models using this connection |
 | `timeout` | Int | 30 | Request timeout in seconds |
 | `retry` | Object | No retries | Retry policy configuration |
 | `rate_limit` | Object | No limit | Rate limiting configuration |
@@ -172,15 +172,15 @@ connect openai {
     default_model: "gpt-4o",
 }
 
-agent FastClassifier {
+model FastClassifier {
     provider: openai,           // References the connection above
-    model: "gpt-4o-mini",      // Override the connection's default model
+    base: "gpt-4o-mini",      // Override the connection's default model
     temperature: 0.1,
 }
 
-agent DeepAnalyzer {
+model DeepAnalyzer {
     provider: openai,           // Same connection, different model
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.7,
     max_tokens: 4000,
 }
@@ -200,14 +200,14 @@ connect openai {
     },
 }
 
-agent Classifier {
+model Classifier {
     provider: openai,
-    model: "fast",              // Resolves to "gpt-4o-mini"
+    base: "fast",              // Resolves to "gpt-4o-mini"
 }
 
-agent Researcher {
+model Researcher {
     provider: openai,
-    model: "smart",             // Resolves to "gpt-4o"
+    base: "smart",             // Resolves to "gpt-4o"
 }
 ```
 
@@ -234,9 +234,9 @@ This is essential for:
 Connections support streaming responses for real-time output:
 
 ```concerto
-agent StreamingAssistant {
+model StreamingAssistant {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
 }
 
 // Stream response chunks
@@ -251,15 +251,15 @@ emit("stream_complete", full_text);
 
 ## Token Tracking
 
-The runtime automatically tracks token usage per connection and per agent:
+The runtime automatically tracks token usage per connection and per model:
 
 ```concerto
-// After agent calls, token usage is tracked automatically
+// After model calls, token usage is tracked automatically
 let response = Classifier.execute(prompt)?;
 
 // Access via runtime metrics (host API)
 // runtime.get_metrics().tokens_by_connection("openai")
-// runtime.get_metrics().tokens_by_agent("Classifier")
+// runtime.get_metrics().tokens_by_model("Classifier")
 // runtime.get_metrics().estimated_cost("openai")
 
 // Or emit token info from within Concerto
@@ -286,14 +286,14 @@ connect anthropic {
 }
 
 // Use the best model for each task
-agent QuickClassifier {
+model QuickClassifier {
     provider: openai,
-    model: "gpt-4o-mini",       // Fast, cheap
+    base: "gpt-4o-mini",       // Fast, cheap
 }
 
-agent DeepAnalyzer {
+model DeepAnalyzer {
     provider: anthropic,
-    model: "claude-sonnet-4-20250514",  // Thorough analysis
+    base: "claude-sonnet-4-20250514",  // Thorough analysis
 }
 
 fn main() {

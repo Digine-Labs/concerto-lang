@@ -17,33 +17,33 @@ schema JudgeScore {
 ledger style_guide: Ledger = Ledger::new();
 hashmap rounds: HashMap<String, Any> = HashMap::new();
 
-agent Writer {
+model Writer {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     temperature: 0.8,
     max_tokens: 1200,
     system_prompt: "You write crisp launch communications. Return strict JSON.",
 }
 
-agent AccuracyJudge {
+model AccuracyJudge {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.1,
     max_tokens: 800,
     system_prompt: "You grade factual consistency and correctness from 0 to 10.",
 }
 
-agent StyleJudge {
+model StyleJudge {
     provider: anthropic,
-    model: "claude-sonnet-4-20250514",
+    base: "claude-sonnet-4-20250514",
     temperature: 0.2,
     max_tokens: 800,
     system_prompt: "You grade clarity and style quality from 0 to 10.",
 }
 
-agent ProductJudge {
+model ProductJudge {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.2,
     max_tokens: 800,
     system_prompt: "You grade actionability and decision usefulness from 0 to 10.",
@@ -84,6 +84,27 @@ fn build_style_context(topic: String) -> String {
     context
 }
 
+fn round_int(key: String, fallback: Int) -> Int {
+    match rounds.get(key) {
+        Some(value) => value,
+        _ => fallback,
+    }
+}
+
+fn round_bool(key: String, fallback: Bool) -> Bool {
+    match rounds.get(key) {
+        Some(value) => value,
+        _ => fallback,
+    }
+}
+
+fn round_string(key: String, fallback: String) -> String {
+    match rounds.get(key) {
+        Some(value) => value,
+        _ => fallback,
+    }
+}
+
 pipeline MemoQualityPipeline {
     stage prepare(topic: String) -> String {
         let style_context = build_style_context(topic);
@@ -96,9 +117,9 @@ pipeline MemoQualityPipeline {
 
     @retry(max: 2, backoff: "linear")
     stage iterate(style_context: String) -> String {
-        let topic = rounds.get("topic") ?? "";
-        let target_total = rounds.get("target_total") ?? 24;
-        let max_rounds = rounds.get("max_rounds") ?? 5;
+        let topic = round_string("topic", "");
+        let target_total = round_int("target_total", 24);
+        let max_rounds = round_int("max_rounds", 5);
 
         let mut round = 1;
         let mut accepted = false;
@@ -191,47 +212,47 @@ pipeline MemoQualityPipeline {
                                             }
                                         },
                                         Err(e) => {
-                                            current_feedback = "Product judge failed: ${e.message}";
+                                            current_feedback = "Product judge failed: ${e}";
                                             rounds.set("latest_feedback", current_feedback);
                                             emit("judge_error", {
                                                 "round": round,
                                                 "judge": "ProductJudge",
-                                                "message": e.message,
+                                                "message": e,
                                             });
                                             round = round + 1;
                                         },
                                     }
                                 },
                                 Err(e) => {
-                                    current_feedback = "Style judge failed: ${e.message}";
+                                    current_feedback = "Style judge failed: ${e}";
                                     rounds.set("latest_feedback", current_feedback);
                                     emit("judge_error", {
                                         "round": round,
                                         "judge": "StyleJudge",
-                                        "message": e.message,
+                                        "message": e,
                                     });
                                     round = round + 1;
                                 },
                             }
                         },
                         Err(e) => {
-                            current_feedback = "Accuracy judge failed: ${e.message}";
+                            current_feedback = "Accuracy judge failed: ${e}";
                             rounds.set("latest_feedback", current_feedback);
                             emit("judge_error", {
                                 "round": round,
                                 "judge": "AccuracyJudge",
-                                "message": e.message,
+                                "message": e,
                             });
                             round = round + 1;
                         },
                     }
                 },
                 Err(e) => {
-                    current_feedback = "Writer failed: ${e.message}";
+                    current_feedback = "Writer failed: ${e}";
                     rounds.set("latest_feedback", current_feedback);
                     emit("writer_error", {
                         "round": round,
-                        "message": e.message,
+                        "message": e,
                     });
                     round = round + 1;
                 },
@@ -252,11 +273,11 @@ pipeline MemoQualityPipeline {
     }
 
     stage finalize(memo_text: String) -> String {
-        let accepted = rounds.get("accepted") ?? false;
+        let accepted = round_bool("accepted", false);
         if accepted {
             "APPROVED MEMO\n\n${memo_text}"
         } else {
-            let feedback = rounds.get("latest_feedback") ?? "No feedback captured.";
+            let feedback = round_string("latest_feedback", "No feedback captured.");
             "MAX ROUNDS REACHED\n\n${memo_text}\n\nLatest feedback:\n${feedback}"
         }
     }
@@ -271,16 +292,16 @@ fn main() {
     match result {
         Ok(final_text) => {
             emit("final_output", {
-                "accepted": rounds.get("accepted") ?? false,
-                "round_counter": rounds.get("round_counter") ?? 0,
-                "total_score": rounds.get("final_total") ?? 0,
-                "title": rounds.get("final_title") ?? "",
+                "accepted": round_bool("accepted", false),
+                "round_counter": round_int("round_counter", 0),
+                "total_score": round_int("final_total", 0),
+                "title": round_string("final_title", ""),
                 "memo": final_text,
             });
         },
         Err(e) => {
             emit("pipeline_error", {
-                "message": e.message,
+                "message": e,
                 "topic": topic,
             });
         },

@@ -223,7 +223,7 @@ let timestamp = time::now();              // ISO 8601 string
 let epoch_ms = time::now_ms();            // Unix timestamp in milliseconds
 time::sleep(1000);                        // Sleep 1000ms
 let elapsed = time::measure(|| {          // Measure execution time
-    agent.execute(prompt)
+    model.execute(prompt)
 });  // Returns duration in ms
 ```
 
@@ -323,7 +323,7 @@ use std::log;
 
 log::info("Processing started");
 log::warn("Low confidence: ${confidence}");
-log::error("Agent call failed: ${error}");
+log::error("Model call failed: ${error}");
 log::debug("Response tokens: ${response.tokens_out}");
 ```
 

@@ -162,7 +162,7 @@ fn compile_source(path: &Path, quiet: bool) -> Result<LoadedModule, String> {
 
     // Find and load Concerto.toml
     let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let (connection_names, ir_connections, manifest_hosts) =
+    let (connection_names, ir_connections, manifest_agents) =
         match manifest::find_and_load_manifest(&abs_path) {
             Ok(m) => {
                 let names: Vec<String> = m.connections.keys().cloned().collect();
@@ -174,8 +174,8 @@ fn compile_source(path: &Path, quiet: bool) -> Result<LoadedModule, String> {
                         config: cfg.to_ir_config(),
                     })
                     .collect();
-                let hosts = m.hosts.clone();
-                (names, ir_conns, hosts)
+                let agents = m.agents.clone();
+                (names, ir_conns, agents)
             }
             Err(manifest::ManifestError::NotFound(_)) => {
                 (Vec::new(), Vec::new(), std::collections::HashMap::new())
@@ -239,8 +239,8 @@ fn compile_source(path: &Path, quiet: bool) -> Result<LoadedModule, String> {
     codegen.add_manifest_connections(ir_connections);
     let mut ir = codegen.generate(&program);
 
-    if !manifest_hosts.is_empty() {
-        CodeGenerator::embed_manifest_hosts(&mut ir, &manifest_hosts);
+    if !manifest_agents.is_empty() {
+        CodeGenerator::embed_manifest_agents(&mut ir, &manifest_agents);
     }
 
     // Convert IR to LoadedModule in-memory (no file I/O)
@@ -434,7 +434,7 @@ fn compile_source_for_tests(path: &Path, quiet: bool) -> Result<LoadedModule, St
         .to_string();
 
     let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let (connection_names, ir_connections, manifest_hosts) =
+    let (connection_names, ir_connections, manifest_agents) =
         match manifest::find_and_load_manifest(&abs_path) {
             Ok(m) => {
                 let names: Vec<String> = m.connections.keys().cloned().collect();
@@ -446,8 +446,8 @@ fn compile_source_for_tests(path: &Path, quiet: bool) -> Result<LoadedModule, St
                         config: cfg.to_ir_config(),
                     })
                     .collect();
-                let hosts = m.hosts.clone();
-                (names, ir_conns, hosts)
+                let agents = m.agents.clone();
+                (names, ir_conns, agents)
             }
             Err(manifest::ManifestError::NotFound(_)) => {
                 (Vec::new(), Vec::new(), std::collections::HashMap::new())
@@ -507,8 +507,8 @@ fn compile_source_for_tests(path: &Path, quiet: bool) -> Result<LoadedModule, St
     codegen.add_manifest_connections(ir_connections);
     let mut ir = codegen.generate(&program);
 
-    if !manifest_hosts.is_empty() {
-        CodeGenerator::embed_manifest_hosts(&mut ir, &manifest_hosts);
+    if !manifest_agents.is_empty() {
+        CodeGenerator::embed_manifest_agents(&mut ir, &manifest_agents);
     }
 
     let json = serde_json::to_string(&ir)

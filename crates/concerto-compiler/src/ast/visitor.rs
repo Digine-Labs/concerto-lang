@@ -14,7 +14,7 @@ pub trait Visitor {
     fn visit_declaration(&mut self, decl: &Declaration) {
         match decl {
             Declaration::Function(f) => self.visit_function_decl(f),
-            Declaration::Agent(a) => self.visit_agent_decl(a),
+            Declaration::Model(a) => self.visit_model_decl(a),
             Declaration::Tool(t) => self.visit_tool_decl(t),
             Declaration::Schema(s) => self.visit_schema_decl(s),
             Declaration::Pipeline(p) => self.visit_pipeline_decl(p),
@@ -30,7 +30,7 @@ pub trait Visitor {
             Declaration::Ledger(l) => self.visit_ledger_decl(l),
             Declaration::Memory(m) => self.visit_memory_decl(m),
             Declaration::Mcp(m) => self.visit_mcp_decl(m),
-            Declaration::Host(h) => self.visit_host_decl(h),
+            Declaration::Agent(h) => self.visit_agent_decl(h),
         }
     }
 
@@ -40,7 +40,7 @@ pub trait Visitor {
         }
     }
 
-    fn visit_agent_decl(&mut self, decl: &AgentDecl) {
+    fn visit_model_decl(&mut self, decl: &ModelDecl) {
         for field in &decl.fields {
             self.visit_expr(&field.value);
         }
@@ -125,7 +125,7 @@ pub trait Visitor {
         }
     }
 
-    fn visit_host_decl(&mut self, decl: &HostDecl) {
+    fn visit_agent_decl(&mut self, decl: &AgentDecl) {
         for decorator in &decl.decorators {
             for arg in &decorator.args {
                 match arg {

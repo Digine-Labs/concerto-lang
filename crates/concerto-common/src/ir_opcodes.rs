@@ -84,15 +84,15 @@ pub enum Opcode {
     /// Call native/built-in function.
     CallNative,
 
-    // === Agent Operations ===
-    /// Call agent method (prompt on stack).
-    CallAgent,
-    /// Call agent with schema validation.
-    CallAgentSchema,
-    /// Call agent in streaming mode.
-    CallAgentStream,
-    /// Call agent with message history.
-    CallAgentChat,
+    // === Model Operations ===
+    /// Call model method (prompt on stack).
+    CallModel,
+    /// Call model with schema validation.
+    CallModelSchema,
+    /// Call model in streaming mode.
+    CallModelStream,
+    /// Call model with message history.
+    CallModelChat,
 
     // === Tool Operations ===
     /// Invoke tool method.
@@ -158,13 +158,13 @@ pub enum Opcode {
     /// Spawn async task from closure on stack.
     SpawnAsync,
 
-    // === Host Streaming ===
-    /// Begin listen loop on host. Pops argc args from stack.
-    /// name: host name, arg: listen definition reference.
+    // === Agent Streaming ===
+    /// Begin listen loop on agent. Pops argc args from stack.
+    /// name: agent name, arg: listen definition reference.
     ListenBegin,
 
     // === Testing ===
-    /// Install a mock response for an agent during test execution.
-    /// name: agent name, arg: mock config JSON (response/error fields).
-    MockAgent,
+    /// Install a mock response for a model during test execution.
+    /// name: model name, arg: mock config JSON (response/error fields).
+    MockModel,
 }

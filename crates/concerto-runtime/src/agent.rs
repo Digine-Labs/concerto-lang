@@ -3,47 +3,47 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
-use concerto_common::ir::IrHost;
+use concerto_common::ir::IrAgent;
 
 use crate::error::{Result, RuntimeError};
 use crate::value::Value;
 
-/// Format for host I/O.
+/// Format for agent I/O.
 #[derive(Debug, Clone, PartialEq)]
-pub enum HostFormat {
+pub enum AgentFormat {
     Text,
     Json,
 }
 
-impl HostFormat {
+impl AgentFormat {
     fn from_str(s: &str) -> Self {
         match s {
-            "json" => HostFormat::Json,
-            _ => HostFormat::Text,
+            "json" => AgentFormat::Json,
+            _ => AgentFormat::Text,
         }
     }
 }
 
 /// A client that manages communication with an external agent system via stdio.
-pub struct HostClient {
+pub struct AgentClient {
     name: String,
     command: String,
     args: Vec<String>,
     env: HashMap<String, String>,
     working_dir: Option<String>,
-    input_format: HostFormat,
-    output_format: HostFormat,
+    input_format: AgentFormat,
+    output_format: AgentFormat,
     timeout: Duration,
     child: Option<Child>,
     /// Persistent buffered reader for streaming (taken from child.stdout).
     stdout_reader: Option<BufReader<ChildStdout>>,
-    /// Initialization params from [hosts.<name>.params] in Concerto.toml.
+    /// Initialization params from [agents.<name>.params] in Concerto.toml.
     params: Option<serde_json::Value>,
 }
 
-impl std::fmt::Debug for HostClient {
+impl std::fmt::Debug for AgentClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HostClient")
+        f.debug_struct("AgentClient")
             .field("name", &self.name)
             .field("command", &self.command)
             .field("input_format", &self.input_format)
@@ -54,22 +54,22 @@ impl std::fmt::Debug for HostClient {
     }
 }
 
-impl HostClient {
-    /// Create from an IrHost (which has embedded TOML config).
-    pub fn from_ir(ir_host: &IrHost) -> Self {
-        let timeout_secs = ir_host.timeout.unwrap_or(120);
+impl AgentClient {
+    /// Create from an IrAgent (which has embedded TOML config).
+    pub fn from_ir(ir_agent: &IrAgent) -> Self {
+        let timeout_secs = ir_agent.timeout.unwrap_or(120);
         Self {
-            name: ir_host.name.clone(),
-            command: ir_host.command.clone().unwrap_or_default(),
-            args: ir_host.args.clone().unwrap_or_default(),
-            env: ir_host.env.clone().unwrap_or_default(),
-            working_dir: ir_host.working_dir.clone(),
-            input_format: HostFormat::from_str(&ir_host.input_format),
-            output_format: HostFormat::from_str(&ir_host.output_format),
+            name: ir_agent.name.clone(),
+            command: ir_agent.command.clone().unwrap_or_default(),
+            args: ir_agent.args.clone().unwrap_or_default(),
+            env: ir_agent.env.clone().unwrap_or_default(),
+            working_dir: ir_agent.working_dir.clone(),
+            input_format: AgentFormat::from_str(&ir_agent.input_format),
+            output_format: AgentFormat::from_str(&ir_agent.output_format),
             timeout: Duration::from_secs(timeout_secs as u64),
             child: None,
             stdout_reader: None,
-            params: ir_host.params.clone(),
+            params: ir_agent.params.clone(),
         }
     }
 
@@ -91,7 +91,7 @@ impl HostClient {
 
         if self.command.is_empty() {
             return Err(RuntimeError::CallError(format!(
-                "Host '{}' has no command configured (check Concerto.toml [hosts.{}])",
+                "Agent '{}' has no command configured (check Concerto.toml [agents.{}])",
                 self.name, self.name
             )));
         }
@@ -111,14 +111,14 @@ impl HostClient {
 
         let mut child = cmd.spawn().map_err(|e| {
             RuntimeError::CallError(format!(
-                "Failed to spawn host '{}' (command: {}): {}",
+                "Failed to spawn agent '{}' (command: {}): {}",
                 self.name, self.command, e
             ))
         })?;
 
         // Take stdout for the persistent BufReader
         let stdout = child.stdout.take().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' stdout not available", self.name))
+            RuntimeError::CallError(format!("Agent '{}' stdout not available", self.name))
         })?;
         self.stdout_reader = Some(BufReader::new(stdout));
         self.child = Some(child);
@@ -140,18 +140,18 @@ impl HostClient {
 
         // Write init message as first NDJSON line
         let child = self.child.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' not connected for init", self.name))
+            RuntimeError::CallError(format!("Agent '{}' not connected for init", self.name))
         })?;
         let stdin = child.stdin.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' stdin not available for init", self.name))
+            RuntimeError::CallError(format!("Agent '{}' stdin not available for init", self.name))
         })?;
         let line = format!("{}\n", init_msg);
         stdin.write_all(line.as_bytes()).map_err(|e| {
-            RuntimeError::CallError(format!("Failed to write init to host '{}': {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to write init to agent '{}': {}", self.name, e))
         })?;
         stdin.flush().map_err(|e| {
             RuntimeError::CallError(format!(
-                "Failed to flush init to host '{}': {}",
+                "Failed to flush init to agent '{}': {}",
                 self.name, e
             ))
         })?;
@@ -159,21 +159,21 @@ impl HostClient {
         // Read init_ack response
         let reader = self.stdout_reader.as_mut().ok_or_else(|| {
             RuntimeError::CallError(format!(
-                "Host '{}' stdout not available for init_ack",
+                "Agent '{}' stdout not available for init_ack",
                 self.name
             ))
         })?;
         let mut response_line = String::new();
         reader.read_line(&mut response_line).map_err(|e| {
             RuntimeError::CallError(format!(
-                "Host '{}' failed to read init_ack: {}",
+                "Agent '{}' failed to read init_ack: {}",
                 self.name, e
             ))
         })?;
 
         if response_line.is_empty() {
             return Err(RuntimeError::CallError(format!(
-                "Host '{}' exited before acknowledging initialization",
+                "Agent '{}' exited before acknowledging initialization",
                 self.name
             )));
         }
@@ -181,7 +181,7 @@ impl HostClient {
         let parsed: serde_json::Value =
             serde_json::from_str(response_line.trim_end()).map_err(|e| {
                 RuntimeError::CallError(format!(
-                    "Host '{}' invalid init response: {}",
+                    "Agent '{}' invalid init response: {}",
                     self.name, e
                 ))
             })?;
@@ -194,36 +194,36 @@ impl HostClient {
                     .and_then(|m| m.as_str())
                     .unwrap_or("unknown error");
                 Err(RuntimeError::CallError(format!(
-                    "Host '{}' init failed: {}",
+                    "Agent '{}' init failed: {}",
                     self.name, msg
                 )))
             }
             _ => Err(RuntimeError::CallError(format!(
-                "Host '{}' did not acknowledge initialization",
+                "Agent '{}' did not acknowledge initialization",
                 self.name
             ))),
         }
     }
 
-    /// Execute a prompt on the host and return the response.
+    /// Execute a prompt on the agent and return the response.
     pub fn execute(&mut self, prompt: &str, context: Option<&Value>) -> Result<String> {
         self.ensure_connected()?;
 
         let child = self.child.as_mut().unwrap();
         let stdin = child.stdin.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' stdin not available", self.name))
+            RuntimeError::CallError(format!("Agent '{}' stdin not available", self.name))
         })?;
 
         // Write input
         let input = match self.input_format {
-            HostFormat::Text => {
+            AgentFormat::Text => {
                 if let Some(ctx) = context {
                     format!("{}\nContext: {}\n", prompt, ctx)
                 } else {
                     format!("{}\n", prompt)
                 }
             }
-            HostFormat::Json => {
+            AgentFormat::Json => {
                 let mut payload = serde_json::json!({ "prompt": prompt });
                 if let Some(ctx) = context {
                     payload["context"] = ctx.to_json();
@@ -233,27 +233,27 @@ impl HostClient {
         };
 
         stdin.write_all(input.as_bytes()).map_err(|e| {
-            RuntimeError::CallError(format!("Failed to write to host '{}': {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to write to agent '{}': {}", self.name, e))
         })?;
         stdin.flush().map_err(|e| {
-            RuntimeError::CallError(format!("Failed to flush host '{}' stdin: {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to flush agent '{}' stdin: {}", self.name, e))
         })?;
 
         // Read output (one line, blocking)
         let reader = self.stdout_reader.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' stdout not available", self.name))
+            RuntimeError::CallError(format!("Agent '{}' stdout not available", self.name))
         })?;
 
         let mut line = String::new();
 
         reader.read_line(&mut line).map_err(|e| {
-            RuntimeError::CallError(format!("Host '{}' read error: {}", self.name, e))
+            RuntimeError::CallError(format!("Agent '{}' read error: {}", self.name, e))
         })?;
 
         if line.is_empty() {
             self.child = None;
             return Err(RuntimeError::CallError(format!(
-                "Host '{}' process exited unexpectedly",
+                "Agent '{}' process exited unexpectedly",
                 self.name
             )));
         }
@@ -262,8 +262,8 @@ impl HostClient {
 
         // Parse based on output format
         match self.output_format {
-            HostFormat::Text => Ok(response),
-            HostFormat::Json => {
+            AgentFormat::Text => Ok(response),
+            AgentFormat::Json => {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {
                     if let Some(text) = json.get("text").and_then(|t| t.as_str()) {
                         Ok(text.to_string())
@@ -283,18 +283,18 @@ impl HostClient {
 
         let child = self.child.as_mut().unwrap();
         let stdin = child.stdin.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' stdin not available", self.name))
+            RuntimeError::CallError(format!("Agent '{}' stdin not available", self.name))
         })?;
 
         let input = match self.input_format {
-            HostFormat::Text => {
+            AgentFormat::Text => {
                 if let Some(ctx) = context {
                     format!("{}\nContext: {}\n", prompt, ctx)
                 } else {
                     format!("{}\n", prompt)
                 }
             }
-            HostFormat::Json => {
+            AgentFormat::Json => {
                 let mut payload = serde_json::json!({ "prompt": prompt });
                 if let Some(ctx) = context {
                     payload["context"] = ctx.to_json();
@@ -304,22 +304,22 @@ impl HostClient {
         };
 
         stdin.write_all(input.as_bytes()).map_err(|e| {
-            RuntimeError::CallError(format!("Failed to write to host '{}': {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to write to agent '{}': {}", self.name, e))
         })?;
         stdin.flush().map_err(|e| {
-            RuntimeError::CallError(format!("Failed to flush host '{}' stdin: {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to flush agent '{}' stdin: {}", self.name, e))
         })?;
 
         Ok(())
     }
 
-    /// Read one NDJSON message from host stdout.
-    /// Returns None on EOF (host exited).
+    /// Read one NDJSON message from agent stdout.
+    /// Returns None on EOF (agent exited).
     /// Non-JSON lines are wrapped as `{"type": "result", "text": "<line>"}`.
     pub fn read_message(&mut self) -> Result<Option<serde_json::Value>> {
         loop {
             let reader = self.stdout_reader.as_mut().ok_or_else(|| {
-                RuntimeError::CallError(format!("Host '{}' not connected", self.name))
+                RuntimeError::CallError(format!("Agent '{}' not connected", self.name))
             })?;
 
             let mut line = String::new();
@@ -355,7 +355,7 @@ impl HostClient {
                     self.child = None;
                     self.stdout_reader = None;
                     return Err(RuntimeError::CallError(format!(
-                        "Host '{}' read error: {}",
+                        "Agent '{}' read error: {}",
                         self.name, e
                     )));
                 }
@@ -363,28 +363,28 @@ impl HostClient {
         }
     }
 
-    /// Write a response JSON line to host stdin.
+    /// Write a response JSON line to agent stdin.
     pub fn write_response(&mut self, response: &serde_json::Value) -> Result<()> {
         let child = self.child.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' not connected", self.name))
+            RuntimeError::CallError(format!("Agent '{}' not connected", self.name))
         })?;
 
         let stdin = child.stdin.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Host '{}' stdin not available", self.name))
+            RuntimeError::CallError(format!("Agent '{}' stdin not available", self.name))
         })?;
 
         let line = format!("{}\n", serde_json::to_string(response).unwrap_or_default());
         stdin.write_all(line.as_bytes()).map_err(|e| {
-            RuntimeError::CallError(format!("Failed to write response to host '{}': {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to write response to agent '{}': {}", self.name, e))
         })?;
         stdin.flush().map_err(|e| {
-            RuntimeError::CallError(format!("Failed to flush host '{}' stdin: {}", self.name, e))
+            RuntimeError::CallError(format!("Failed to flush agent '{}' stdin: {}", self.name, e))
         })?;
 
         Ok(())
     }
 
-    /// Shutdown the host process.
+    /// Shutdown the agent process.
     pub fn shutdown(&mut self) {
         if let Some(ref mut child) = self.child {
             let _ = child.kill();
@@ -395,49 +395,49 @@ impl HostClient {
     }
 }
 
-impl Drop for HostClient {
+impl Drop for AgentClient {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
 
-/// Registry that manages named host clients.
+/// Registry that manages named agent clients.
 #[derive(Debug, Default)]
-pub struct HostRegistry {
-    clients: HashMap<String, HostClient>,
+pub struct AgentRegistry {
+    clients: HashMap<String, AgentClient>,
 }
 
-impl HostRegistry {
+impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             clients: HashMap::new(),
         }
     }
 
-    /// Register a host from an IrHost (which contains embedded TOML config).
-    pub fn register(&mut self, ir_host: &IrHost) {
-        let client = HostClient::from_ir(ir_host);
-        self.clients.insert(ir_host.name.clone(), client);
+    /// Register an agent from an IrAgent (which contains embedded TOML config).
+    pub fn register(&mut self, ir_agent: &IrAgent) {
+        let client = AgentClient::from_ir(ir_agent);
+        self.clients.insert(ir_agent.name.clone(), client);
     }
 
-    /// Execute a prompt on a named host.
+    /// Execute a prompt on a named agent.
     pub fn execute(&mut self, name: &str, prompt: &str, context: Option<&Value>) -> Result<String> {
         let client = self
             .clients
             .get_mut(name)
-            .ok_or_else(|| RuntimeError::CallError(format!("Host '{}' not registered", name)))?;
+            .ok_or_else(|| RuntimeError::CallError(format!("Agent '{}' not registered", name)))?;
         client.execute(prompt, context)
     }
 
-    /// Get a mutable reference to a named host client.
-    pub fn get_client_mut(&mut self, name: &str) -> Result<&mut HostClient> {
+    /// Get a mutable reference to a named agent client.
+    pub fn get_client_mut(&mut self, name: &str) -> Result<&mut AgentClient> {
         self.clients
             .get_mut(name)
-            .ok_or_else(|| RuntimeError::CallError(format!("Host '{}' not registered", name)))
+            .ok_or_else(|| RuntimeError::CallError(format!("Agent '{}' not registered", name)))
     }
 
-    /// Check if a host is registered.
-    pub fn has_host(&self, name: &str) -> bool {
+    /// Check if an agent is registered.
+    pub fn has_agent(&self, name: &str) -> bool {
         self.clients.contains_key(name)
     }
 }
@@ -447,23 +447,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn host_format_from_str() {
-        assert_eq!(HostFormat::from_str("text"), HostFormat::Text);
-        assert_eq!(HostFormat::from_str("json"), HostFormat::Json);
-        assert_eq!(HostFormat::from_str("other"), HostFormat::Text);
+    fn agent_format_from_str() {
+        assert_eq!(AgentFormat::from_str("text"), AgentFormat::Text);
+        assert_eq!(AgentFormat::from_str("json"), AgentFormat::Json);
+        assert_eq!(AgentFormat::from_str("other"), AgentFormat::Text);
     }
 
     #[test]
-    fn host_registry_empty() {
-        let registry = HostRegistry::new();
-        assert!(!registry.has_host("nonexistent"));
+    fn agent_registry_empty() {
+        let registry = AgentRegistry::new();
+        assert!(!registry.has_agent("nonexistent"));
     }
 
     #[test]
-    fn host_registry_register() {
-        let mut registry = HostRegistry::new();
-        let ir_host = IrHost {
-            name: "TestHost".to_string(),
+    fn agent_registry_register() {
+        let mut registry = AgentRegistry::new();
+        let ir_agent = IrAgent {
+            name: "TestAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -475,16 +475,16 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        registry.register(&ir_host);
-        assert!(registry.has_host("TestHost"));
-        assert!(!registry.has_host("Other"));
+        registry.register(&ir_agent);
+        assert!(registry.has_agent("TestAgent"));
+        assert!(!registry.has_agent("Other"));
     }
 
     #[test]
-    fn host_execute_echo() {
-        let mut registry = HostRegistry::new();
-        let ir_host = IrHost {
-            name: "EchoHost".to_string(),
+    fn agent_execute_echo() {
+        let mut registry = AgentRegistry::new();
+        let ir_agent = IrAgent {
+            name: "EchoAgent".to_string(),
             connector: "echo".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -496,19 +496,19 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        registry.register(&ir_host);
+        registry.register(&ir_agent);
 
         // `echo` just outputs its args and exits, so we read one line
-        let result = registry.execute("EchoHost", "ignored", None);
+        let result = registry.execute("EchoAgent", "ignored", None);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "hello world");
     }
 
     #[test]
-    fn host_get_client_mut() {
-        let mut registry = HostRegistry::new();
-        let ir_host = IrHost {
-            name: "TestHost".to_string(),
+    fn agent_get_client_mut() {
+        let mut registry = AgentRegistry::new();
+        let ir_agent = IrAgent {
+            name: "TestAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -520,16 +520,16 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        registry.register(&ir_host);
-        assert!(registry.get_client_mut("TestHost").is_ok());
+        registry.register(&ir_agent);
+        assert!(registry.get_client_mut("TestAgent").is_ok());
         assert!(registry.get_client_mut("NonExistent").is_err());
     }
 
     #[test]
-    fn host_read_message_ndjson() {
+    fn agent_read_message_ndjson() {
         // Use printf to output NDJSON lines, then EOF
-        let ir_host = IrHost {
-            name: "NdjsonHost".to_string(),
+        let ir_agent = IrAgent {
+            name: "NdjsonAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "json".to_string(),
@@ -544,7 +544,7 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        let mut client = HostClient::from_ir(&ir_host);
+        let mut client = AgentClient::from_ir(&ir_agent);
         client.ensure_connected().unwrap();
 
         // First message: progress
@@ -563,10 +563,10 @@ mod tests {
     }
 
     #[test]
-    fn host_init_sends_params_and_receives_ack() {
+    fn agent_init_sends_params_and_receives_ack() {
         // Use bash to read init message, echo init_ack, then echo result for execute
-        let ir_host = IrHost {
-            name: "InitHost".to_string(),
+        let ir_agent = IrAgent {
+            name: "InitAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -582,7 +582,7 @@ mod tests {
             working_dir: None,
             params: Some(serde_json::json!({"model": "gpt-4o", "temperature": 0.5})),
         };
-        let mut client = HostClient::from_ir(&ir_host);
+        let mut client = AgentClient::from_ir(&ir_agent);
         // ensure_connected should send init and get init_ack
         let result = client.ensure_connected();
         assert!(result.is_ok(), "init handshake failed: {:?}", result.err());
@@ -594,10 +594,10 @@ mod tests {
     }
 
     #[test]
-    fn host_init_error_propagates() {
-        // Host responds with error instead of init_ack
-        let ir_host = IrHost {
-            name: "FailHost".to_string(),
+    fn agent_init_error_propagates() {
+        // Agent responds with error instead of init_ack
+        let ir_agent = IrAgent {
+            name: "FailAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -612,7 +612,7 @@ mod tests {
             working_dir: None,
             params: Some(serde_json::json!({"invalid": true})),
         };
-        let mut client = HostClient::from_ir(&ir_host);
+        let mut client = AgentClient::from_ir(&ir_agent);
         let result = client.ensure_connected();
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
@@ -620,11 +620,11 @@ mod tests {
     }
 
     #[test]
-    fn host_no_params_skips_init() {
-        // Host without params should NOT send init message
+    fn agent_no_params_skips_init() {
+        // Agent without params should NOT send init message
         // Use echo which outputs immediately and exits — if init were sent, it would fail
-        let ir_host = IrHost {
-            name: "NoInitHost".to_string(),
+        let ir_agent = IrAgent {
+            name: "NoInitAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -636,7 +636,7 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        let mut client = HostClient::from_ir(&ir_host);
+        let mut client = AgentClient::from_ir(&ir_agent);
         assert!(client.params.is_none());
         // This should succeed without any init handshake
         let result = client.ensure_connected();
@@ -644,10 +644,10 @@ mod tests {
     }
 
     #[test]
-    fn host_read_message_plain_text_fallback() {
+    fn agent_read_message_plain_text_fallback() {
         // Non-JSON lines should be wrapped as {"type": "result", "text": "..."}
-        let ir_host = IrHost {
-            name: "PlainHost".to_string(),
+        let ir_agent = IrAgent {
+            name: "PlainAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -659,7 +659,7 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        let mut client = HostClient::from_ir(&ir_host);
+        let mut client = AgentClient::from_ir(&ir_agent);
         client.ensure_connected().unwrap();
 
         let msg = client.read_message().unwrap().unwrap();
@@ -668,10 +668,10 @@ mod tests {
     }
 
     #[test]
-    fn host_write_response_format() {
-        // Use `cat` as a pass-through host to verify response format
-        let ir_host = IrHost {
-            name: "CatHost".to_string(),
+    fn agent_write_response_format() {
+        // Use `cat` as a pass-through agent to verify response format
+        let ir_agent = IrAgent {
+            name: "CatAgent".to_string(),
             connector: "test".to_string(),
             input_format: "text".to_string(),
             output_format: "text".to_string(),
@@ -683,7 +683,7 @@ mod tests {
             working_dir: None,
             params: None,
         };
-        let mut client = HostClient::from_ir(&ir_host);
+        let mut client = AgentClient::from_ir(&ir_agent);
         client.ensure_connected().unwrap();
 
         // Write a response — it should be JSON serialized

@@ -52,7 +52,7 @@ pub enum DecoratorArg {
 #[derive(Debug, Clone)]
 pub enum Declaration {
     Function(FunctionDecl),
-    Agent(AgentDecl),
+    Model(ModelDecl),
     Tool(ToolDecl),
     Schema(SchemaDecl),
     Pipeline(PipelineDecl),
@@ -68,7 +68,7 @@ pub enum Declaration {
     Ledger(LedgerDecl),
     Memory(MemoryDecl),
     Mcp(McpDecl),
-    Host(HostDecl),
+    Agent(AgentDecl),
 }
 
 // ============================================================================
@@ -117,14 +117,14 @@ pub struct Param {
 
 /// ```concerto
 /// @log(channel: "debug")
-/// agent Name {
+/// model Name {
 ///     provider: openai,
-///     model: "gpt-4o",
+///     base: "gpt-4o",
 ///     tools: [Tool1, Tool2],
 /// }
 /// ```
 #[derive(Debug, Clone)]
-pub struct AgentDecl {
+pub struct ModelDecl {
     pub name: String,
     pub decorators: Vec<Decorator>,
     pub fields: Vec<ConfigField>,
@@ -382,11 +382,11 @@ pub struct McpDecl {
 }
 
 // ============================================================================
-// Host declaration
+// Agent declaration
 // ============================================================================
 
 /// ```concerto
-/// host ClaudeCode {
+/// agent ClaudeCode {
 ///     connector: claude_code,
 ///     input_format: "text",
 ///     output_format: "json",
@@ -394,7 +394,7 @@ pub struct McpDecl {
 /// }
 /// ```
 #[derive(Debug, Clone)]
-pub struct HostDecl {
+pub struct AgentDecl {
     pub name: String,
     pub decorators: Vec<Decorator>,
     pub fields: Vec<ConfigField>,
@@ -405,7 +405,7 @@ pub struct HostDecl {
 // Shared field types
 // ============================================================================
 
-/// A key-value config field: `name: expr` (used in agent, tool, mcp).
+/// A key-value config field: `name: expr` (used in model, tool, mcp).
 #[derive(Debug, Clone)]
 pub struct ConfigField {
     pub name: String,
@@ -599,11 +599,11 @@ pub struct ThrowStmt {
     pub span: Span,
 }
 
-/// A mock statement: `mock AgentName { response: "...", }`.
+/// A mock statement: `mock ModelName { response: "...", }`.
 /// Only valid inside test blocks.
 #[derive(Debug, Clone)]
 pub struct MockStmt {
-    pub agent_name: String,
+    pub model_name: String,
     pub fields: Vec<ConfigField>,
     pub span: Span,
 }
@@ -763,7 +763,7 @@ pub enum ExprKind {
     /// Return expression: `return expr` (used in expression position, e.g., match arms)
     Return(Option<Box<Expr>>),
 
-    /// Listen expression: `listen Host.execute("prompt") { "type" => |p| { ... }, ... }`
+    /// Listen expression: `listen Agent.execute("prompt") { "type" => |p| { ... }, ... }`
     Listen {
         call: Box<Expr>,
         handlers: Vec<ListenHandler>,

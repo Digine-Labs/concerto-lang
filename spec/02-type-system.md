@@ -178,7 +178,7 @@ match success {
 
 // Error propagation with ?
 fn process() -> Result<String, AgentError> {
-    let response = agent.execute(prompt)?;  // Returns early if Err
+    let response = model.execute(prompt)?;  // Returns early if Err
     let parsed = parse_response(response)?;
     Ok(parsed)
 }
@@ -207,7 +207,7 @@ let configured = Prompt::new("Classify this document: ${doc}")
     .with_max_tokens(500);
 
 // String automatically coerces to Prompt where expected:
-let response = agent.execute("What is your name?")?;
+let response = model.execute("What is your name?")?;
 ```
 
 ### Response
@@ -215,7 +215,7 @@ let response = agent.execute("What is your name?")?;
 LLM response containing the raw text, parsed content, and metadata.
 
 ```concerto
-let response: Response = agent.execute(prompt)?;
+let response: Response = model.execute(prompt)?;
 
 let text = response.text;             // Raw response string
 let tokens_in = response.tokens_in;   // Input token count
@@ -237,7 +237,7 @@ schema Classification {
 }
 
 // Usage:
-let result: Classification = agent.execute_with_schema<Classification>(prompt)?;
+let result: Classification = model.execute_with_schema<Classification>(prompt)?;
 // result is typed as Classification -- runtime validated the response
 ```
 
@@ -263,7 +263,7 @@ let assistant_msg = Message::assistant("2 + 2 equals 4.");
 Represents a tool invocation request from an LLM.
 
 ```concerto
-// Typically received in agent hook methods:
+// Typically received in model hook methods:
 fn on_tool_call(call: ToolCall) -> Result<String, ToolError> {
     let name = call.name;            // Tool function name
     let args = call.arguments;       // Map<String, Any>
@@ -272,19 +272,19 @@ fn on_tool_call(call: ToolCall) -> Result<String, ToolError> {
 }
 ```
 
-### AgentRef
+### ModelRef
 
-Reference to a running agent instance. Used when agents are dynamically instantiated.
+Reference to a running model instance. Used when models are dynamically instantiated.
 
 ```concerto
-let agent_ref: AgentRef = Classifier.spawn();
-let response = agent_ref.execute(prompt)?;
-agent_ref.shutdown();
+let model_ref: ModelRef = Classifier.spawn();
+let response = model_ref.execute(prompt)?;
+model_ref.shutdown();
 ```
 
 ### HashMapRef
 
-Reference to an in-memory hashmap. Used for passing hashmap references to agents.
+Reference to an in-memory hashmap. Used for passing hashmap references to models.
 
 ```concerto
 hashmap my_db: HashMap<String, String> = HashMap::new();
@@ -404,7 +404,7 @@ fn print_description<T: Describable>(item: T) {
 
 ## Type Inference
 
-Concerto uses **local type inference** -- types can be inferred within function bodies but must be explicitly annotated in function signatures and struct/agent definitions.
+Concerto uses **local type inference** -- types can be inferred within function bodies but must be explicitly annotated in function signatures and struct/model definitions.
 
 ```concerto
 // Inferred:

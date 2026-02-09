@@ -11,18 +11,18 @@ schema IncidentReport {
 }
 
 @retry(max: 2, backoff: "none")
-agent NoisyExtractor {
+model NoisyExtractor {
     provider: openai,
-    model: "cheap",
+    base: "cheap",
     temperature: 1.3,
     max_tokens: 700,
     system_prompt: "Extract incident data, but model quality is intentionally limited.",
 }
 
 @retry(max: 2, backoff: "linear")
-agent ReliableExtractor {
+model ReliableExtractor {
     provider: openai,
-    model: "robust",
+    base: "robust",
     temperature: 0.1,
     max_tokens: 900,
     system_prompt: "Return strict JSON matching the schema exactly.",
@@ -52,11 +52,11 @@ fn extract_with_recovery(ticket: String) -> Result<IncidentReport, String> {
                 return Ok(report);
             },
             Err(e) => {
-                last_noisy_error = e.message;
+                last_noisy_error = e;
                 emit("noisy_failure", {
                     "attempt": attempt,
                     "model": "cheap",
-                    "error": e.message,
+                    "error": e,
                 });
                 attempt = attempt + 1;
             },
@@ -83,7 +83,7 @@ fn extract_with_recovery(ticket: String) -> Result<IncidentReport, String> {
     match fallback_result {
         Ok(report) => Ok(report),
         Err(e) => Err(
-            "Fallback extractor failed. Last noisy error: ${last_noisy_error}. Fallback error: ${e.message}"
+            "Fallback extractor failed. Last noisy error: ${last_noisy_error}. Fallback error: ${e}"
         ),
     }
 }

@@ -2,9 +2,9 @@
 
 ## Overview
 
-AI agents can generate hallucinated or imprecise queries when retrieving stored knowledge. The **Ledger** is a fault-tolerant knowledge store designed to handle this reality. Unlike the standard `hashmap` (a typed key-value store for pipeline state), the Ledger uses a document model with **identifiers** (descriptive sentences), **keys** (tags), and **values** (string content), combined with similarity-based querying on identifiers and case-insensitive exact matching on keys.
+AI models can generate hallucinated or imprecise queries when retrieving stored knowledge. The **Ledger** is a fault-tolerant knowledge store designed to handle this reality. Unlike the standard `hashmap` (a typed key-value store for pipeline state), the Ledger uses a document model with **identifiers** (descriptive sentences), **keys** (tags), and **values** (string content), combined with similarity-based querying on identifiers and case-insensitive exact matching on keys.
 
-The Ledger is a **first-class language construct** declared with the `ledger` keyword. It is NOT a tool, MCP, or external service -- it is native to Concerto. However, tools CAN be built on top of a Ledger to let agents request knowledge retrieval.
+The Ledger is a **first-class language construct** declared with the `ledger` keyword. It is NOT a tool, MCP, or external service -- it is native to Concerto. However, tools CAN be built on top of a Ledger to let models request knowledge retrieval.
 
 ## Data Model
 
@@ -35,7 +35,7 @@ ledger contracts: Ledger = Ledger::new();
 ledger agent_memory: Ledger = Ledger::new();
 ```
 
-The Ledger type is not generic -- all entries use the fixed `(String, Array<String>, String)` data model. This is intentional: the Ledger is designed for string-based knowledge that agents interact with via natural language, not for arbitrary typed data (use `hashmap` for that).
+The Ledger type is not generic -- all entries use the fixed `(String, Array<String>, String)` data model. This is intentional: the Ledger is designed for string-based knowledge that models interact with via natural language, not for arbitrary typed data (use `hashmap` for that).
 
 ## Insertion
 
@@ -202,7 +202,7 @@ let ids = knowledge.identifiers();    // Array<String> -- all identifiers
 
 ## Scoping
 
-Like databases, Ledgers support scoped views for multi-agent isolation:
+Like databases, Ledgers support scoped views for multi-model isolation:
 
 ```concerto
 ledger shared_knowledge: Ledger = Ledger::new();
@@ -228,9 +228,9 @@ defi_scope.query().from_key("Uniswap");  // Returns the Uniswap entry
 nft_scope.query().from_key("Uniswap");   // Returns [] -- not in this scope
 ```
 
-## Integration with Agents
+## Integration with Models
 
-The Ledger is a Concerto-level construct, not an agent tool. However, you can build tools that expose Ledger queries to agents:
+The Ledger is a Concerto-level construct, not a model tool. However, you can build tools that expose Ledger queries to models:
 
 ```concerto
 ledger knowledge: Ledger = Ledger::new();
@@ -252,38 +252,38 @@ tool KnowledgeLookup {
     }
 }
 
-agent ResearchAgent {
+model ResearchModel {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     tools: [KnowledgeLookup],
     system_prompt: "You are a research assistant. Use the KnowledgeLookup tool to find relevant information.",
 }
 ```
 
 In this pattern:
-1. The Ledger is populated by Concerto code (not the agent)
-2. The agent can request lookups via the tool
-3. The tool bridges the agent's natural language to the Ledger's query API
-4. The Ledger's fault-tolerant matching handles imprecise agent queries
+1. The Ledger is populated by Concerto code (not the model)
+2. The model can request lookups via the tool
+3. The tool bridges the model's natural language to the Ledger's query API
+4. The Ledger's fault-tolerant matching handles imprecise model queries
 
-### Assigning Ledger Scopes to Agents
+### Assigning Ledger Scopes to Models
 
 ```concerto
 ledger harness_knowledge: Ledger = Ledger::new();
 
-agent Analyst {
+model Analyst {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     knowledge: harness_knowledge.scope("analyst"),
 }
 ```
 
-The `knowledge` field on agents binds a scoped Ledger view, allowing agents to have isolated knowledge namespaces.
+The `knowledge` field on models binds a scoped Ledger view, allowing models to have isolated knowledge namespaces.
 
 ## What Ledger Is Not
 
-- **Not a tool or MCP**: The Ledger is a language construct, not an external service. Agents do not call the Ledger directly -- Concerto code does. Tools can be built as bridges.
-- **Not a replacement for `hashmap`**: The `hashmap` keyword provides typed key-value storage for pipeline state management. The Ledger provides fault-tolerant knowledge retrieval with similarity matching. Use `hashmap` for exact-key state; use `ledger` for knowledge that agents need to query.
+- **Not a tool or MCP**: The Ledger is a language construct, not an external service. Models do not call the Ledger directly -- Concerto code does. Tools can be built as bridges.
+- **Not a replacement for `hashmap`**: The `hashmap` keyword provides typed key-value storage for pipeline state management. The Ledger provides fault-tolerant knowledge retrieval with similarity matching. Use `hashmap` for exact-key state; use `ledger` for knowledge that models need to query.
 - **Not a vector database**: The Ledger uses word-level containment matching, not embedding-based similarity. It is lightweight and runs in-memory without external dependencies.
 
 ## Compilation

@@ -4,7 +4,7 @@
 
 Concerto provides a `@test` decorator for writing tests within `.conc` source files. Test functions are automatically skipped during normal execution (`concerto run`) and only run when explicitly requested (`concerto test`). This design ensures zero runtime overhead and seamless integration with the language's existing decorator system (`@retry`, `@timeout`, `@log`).
 
-Testing AI agent programs requires deterministic behavior. The `mock` keyword allows replacing agent execution with fixed responses, enabling reliable, repeatable tests without requiring API keys or network access.
+Testing AI model programs requires deterministic behavior. The `mock` keyword allows replacing model execution with fixed responses, enabling reliable, repeatable tests without requiring API keys or network access.
 
 ## Test Functions
 
@@ -107,16 +107,16 @@ assertion failed: length should be 5   // custom message
 
 ## Mock Declarations
 
-The `mock` keyword creates a mock override for an agent within a test function. When a mocked agent's `execute()` or `execute_with_schema()` is called, it returns the configured response instead of making a real LLM API call.
+The `mock` keyword creates a mock override for a model within a test function. When a mocked model's `execute()` or `execute_with_schema()` is called, it returns the configured response instead of making a real LLM API call.
 
 ```concerto
 @test
-fn agent_returns_greeting() {
-    mock AgentName {
+fn model_returns_greeting() {
+    mock ModelName {
         response: '{"message": "Hello!"}',
     }
 
-    let result = AgentName.execute("Say hello");
+    let result = ModelName.execute("Say hello");
     // result is Ok(Response { text: '{"message": "Hello!"}', ... })
 }
 ```
@@ -125,12 +125,12 @@ fn agent_returns_greeting() {
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `response` | String | The text response the agent returns |
+| `response` | String | The text response the model returns |
 | `error` | String | Simulate an error (returns Err) |
 
 ### Mock with Schema Validation
 
-When `execute_with_schema<T>()` is called on a mocked agent, the mock response string is parsed as JSON and converted to the schema type:
+When `execute_with_schema<T>()` is called on a mocked model, the mock response string is parsed as JSON and converted to the schema type:
 
 ```concerto
 schema Greeting {
@@ -138,9 +138,9 @@ schema Greeting {
     language: String,
 }
 
-agent Greeter {
+model Greeter {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     system_prompt: "You are a greeter.",
 }
 
@@ -165,12 +165,12 @@ fn structured_greeting() {
 
 ```concerto
 @test
-fn handles_agent_error() {
-    mock MyAgent {
+fn handles_model_error() {
+    mock MyModel {
         error: "API rate limit exceeded",
     }
 
-    let result = MyAgent.execute("do something");
+    let result = MyModel.execute("do something");
     assert(result.is_err());
 }
 ```
@@ -178,8 +178,8 @@ fn handles_agent_error() {
 ### Rules
 
 - `mock` is only valid inside `@test` functions (compile-time error otherwise).
-- The mocked name must reference a declared agent.
-- Multiple agents can be mocked in the same test.
+- The mocked name must reference a declared model.
+- Multiple models can be mocked in the same test.
 - Mocks are scoped to their test — they do not leak between tests.
 
 ## Emit Capture
@@ -246,14 +246,14 @@ running 5 tests
 
   PASS  basic_arithmetic
   PASS  string_operations
-  FAIL  agent_returns_greeting
+  FAIL  model_returns_greeting
   PASS  emit_capture
   PASS  panicking_test (expected failure)
 
 test result: FAILED. 4 passed, 1 failed
 
 failures:
-  agent_returns_greeting -- assertion failed: "Hi!" != "Hello!"
+  model_returns_greeting -- assertion failed: "Hi!" != "Hello!"
 ```
 
 ## Interaction with `concerto run`
@@ -312,7 +312,7 @@ fn process_emits_correct_events() {
 }
 ```
 
-### Testing Agent Pipelines
+### Testing Model Pipelines
 
 ```concerto
 @test

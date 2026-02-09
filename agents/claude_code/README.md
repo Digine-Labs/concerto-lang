@@ -1,6 +1,6 @@
-# claude_code host middleware
+# claude_code agent middleware
 
-Reference host project that bridges Concerto host protocol to Claude Code CLI.
+Reference agent project that bridges Concerto agent protocol to Claude Code CLI.
 
 It translates:
 
@@ -10,28 +10,28 @@ It translates:
 
 ## Why this exists
 
-Concerto hosts are protocol adapters. This project demonstrates a practical adapter layer for Claude Code without changing Concerto runtime internals.
+Concerto agents are protocol adapters. This project demonstrates a practical adapter layer for Claude Code without changing Concerto runtime internals.
 
 ## Files
 
-- `claude_code_host.py`: middleware process used by `[hosts.*]` manifest config
-- `Concerto.toml.example`: sample host connector config
-- `main.conc.example`: sample `listen` program using this host
+- `claude_code_host.py`: middleware process used by `[agents.*]` manifest config
+- `Concerto.toml.example`: sample agent connector config
+- `main.conc.example`: sample `listen` program using this agent
 
 ## Quick smoke tests
 
-One-shot mode (safe default for `Host.execute()`):
+One-shot mode (safe default for `Agent.execute()`):
 
 ```bash
 printf 'Write a Rust function that reverses a string\n' \
-  | python3 hosts/claude_code/claude_code_host.py --mode oneshot --mock
+  | python3 agents/claude_code/claude_code_host.py --mode oneshot --mock
 ```
 
 Streaming mode with supervisor responses (`listen` workflows):
 
 ```bash
 cat <<'EOF' \
-  | python3 hosts/claude_code/claude_code_host.py --mode stream --interactive --mock
+  | python3 agents/claude_code/claude_code_host.py --mode stream --interactive --mock
 Delete old migration files and regenerate schema
 {"type":"response","in_reply_to":"question","value":"Run full tests and keep a rollback plan."}
 {"type":"response","in_reply_to":"approval","value":"yes"}
@@ -40,14 +40,14 @@ EOF
 
 ## Concerto integration
 
-Use the middleware as a host command in `Concerto.toml`:
+Use the middleware as an agent command in `Concerto.toml`:
 
 ```toml
-[hosts.claude_code]
+[agents.claude_code]
 transport = "stdio"
 command = "python3"
 args = [
-  "hosts/claude_code/claude_code_host.py",
+  "agents/claude_code/claude_code_host.py",
   "--mode", "stream",
   "--interactive",
   "--claude-command", "claude",
@@ -60,7 +60,7 @@ timeout = 900
 Then reference it from Concerto source:
 
 ```concerto
-host ClaudeCode {
+agent ClaudeCode {
     connector: "claude_code",
     output_format: "json",
     timeout: 900,
@@ -96,7 +96,7 @@ All options can be passed as CLI args (recommended for `Concerto.toml`) or env v
 
 ## Notes
 
-- `oneshot` mode is the safest default because `Host.execute()` reads only one output line.
+- `oneshot` mode is the safest default because `Agent.execute()` reads only one output line.
 - `stream` mode is intended for `listen` expressions.
 - `interactive` mode can pause waiting for responses; keep handlers for `question` and `approval` in your `listen` block.
 - Claude output schemas can vary across versions; this middleware extracts text with best-effort heuristics.

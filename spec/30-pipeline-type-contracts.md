@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pipelines are first-class constructs for multi-step agent workflows (see [spec 15](15-concurrency-and-pipelines.md)). Each stage receives the previous stage's output as input and produces a new output. Currently, the compiler does not enforce type compatibility between adjacent stages — mismatches survive compilation and fail at runtime.
+Pipelines are first-class constructs for multi-step model workflows (see [spec 15](15-concurrency-and-pipelines.md)). Each stage receives the previous stage's output as input and produces a new output. Currently, the compiler does not enforce type compatibility between adjacent stages — mismatches survive compilation and fail at runtime.
 
 This spec introduces strict compile-time type checking for pipeline stage adjacency, required stage return types, and an optional pipeline-level signature syntax.
 

@@ -220,9 +220,9 @@ schema ValidatedOutput;
 When `execute_with_schema` receives a response that doesn't match the schema, it can automatically retry with error feedback:
 
 ```concerto
-agent Classifier {
+model Classifier {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     retry_policy: { max_attempts: 3 },
 }
 
@@ -262,7 +262,7 @@ When the LLM provider supports native structured output (e.g., OpenAI JSON mode,
 // - Others: Includes schema description in the prompt text
 
 let result = Classifier.execute_with_schema<Classification>(prompt)?;
-// Runtime picks the best strategy based on the agent's provider
+// Runtime picks the best strategy based on the model's provider
 ```
 
 ## Schema Composition
@@ -292,7 +292,7 @@ schema ApiResponse<T> {
 }
 
 // Usage
-let result = agent.execute_with_schema<ApiResponse<Classification>>(prompt)?;
+let result = model.execute_with_schema<ApiResponse<Classification>>(prompt)?;
 if result.success {
     emit("data", result.data);
 } else {

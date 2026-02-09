@@ -1,4 +1,4 @@
-host ClaudeCode {
+agent ClaudeCode {
     connector: "claude_code",
     output_format: "json",
     timeout: 900,

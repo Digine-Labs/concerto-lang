@@ -229,8 +229,8 @@ struct RuntimeConfig {
     // Maximum memory for databases
     max_db_memory: usize,
 
-    // Maximum concurrent agent calls
-    max_concurrent_agents: usize,
+    // Maximum concurrent model calls
+    max_concurrent_models: usize,
 }
 ```
 
@@ -347,12 +347,12 @@ Runtime error: MCP server 'GitHubServer' does not provide tool 'create_issue'
 
 ### MCP + Local Tools on Agents
 
-Both local tools and MCP tools are interchangeable on agent `tools:` arrays:
+Both local tools and MCP tools are interchangeable on model `tools:` arrays:
 
 ```concerto
-agent Researcher {
+model Researcher {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     tools: [
         FileConnector,     // Local tool (defined with `tool`)
         Calculator,        // Local tool (defined with `tool`)
@@ -361,7 +361,7 @@ agent Researcher {
 }
 ```
 
-The agent doesn't distinguish between local and MCP tools -- both produce the same function schemas for the LLM. The runtime handles routing:
+The model doesn't distinguish between local and MCP tools -- both produce the same function schemas for the LLM. The runtime handles routing:
 - Local tool calls -> execute Concerto method
 - MCP tool calls -> forward to MCP server via configured transport
 

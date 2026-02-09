@@ -24,9 +24,9 @@ tool Formatter {
     }
 }
 
-agent Analyst {
+model Analyst {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     system_prompt: "Use tools when they are available and relevant.",
     tools: [Calculator],
 }

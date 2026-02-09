@@ -20,7 +20,7 @@ schema HostApproval {
     risk_level: String,
 }
 
-host ExternalWorker {
+agent ExternalWorker {
     connector: "mock_external_agent",
     input_format: "text",
     output_format: "json",

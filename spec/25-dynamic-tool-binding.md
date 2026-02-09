@@ -2,24 +2,24 @@
 
 ## Overview
 
-Concerto agents declare their tools statically at definition time via the `tools` field. However, many orchestration patterns require **dynamic tool binding** -- adding or removing tools for specific executions without modifying the agent definition.
+Concerto models declare their tools statically at definition time via the `tools` field. However, many orchestration patterns require **dynamic tool binding** -- adding or removing tools for specific executions without modifying the model definition.
 
-Dynamic tool binding uses the **AgentBuilder** pattern (shared with agent memory and hosts) to temporarily modify which tools are available to an agent for a single execution.
+Dynamic tool binding uses the **ModelBuilder** pattern (shared with model memory and agents) to temporarily modify which tools are available to a model for a single execution.
 
 ## Syntax
 
 ```concerto
-// Add tools for this execution only (in addition to agent's static tools)
-let result = Agent.with_tools([Calculator, FileManager]).execute(prompt);
+// Add tools for this execution only (in addition to model's static tools)
+let result = Model.with_tools([Calculator, FileManager]).execute(prompt);
 
-// Remove agent's default tools for this execution
-let result = Agent.without_tools().execute(prompt);
+// Remove model's default tools for this execution
+let result = Model.without_tools().execute(prompt);
 
 // Compose with memory
-let result = Agent.with_memory(m).with_tools([Calculator]).execute(prompt);
+let result = Model.with_memory(m).with_tools([Calculator]).execute(prompt);
 
 // Compose multiple builder calls
-let result = Agent
+let result = Model
     .with_memory(conversation)
     .with_tools([SearchTool, DatabaseTool])
     .execute(prompt);
@@ -29,7 +29,7 @@ let result = Agent
 
 ### `with_tools(tools: Array<ToolRef | McpRef>)`
 
-Adds the specified tools' schemas to the `ChatRequest.tools` for this execution **in addition to** the agent's statically-defined tools.
+Adds the specified tools' schemas to the `ChatRequest.tools` for this execution **in addition to** the model's statically-defined tools.
 
 Accepts an array containing:
 - **Concerto Tool references** -- tools defined with the `tool` keyword
@@ -43,9 +43,9 @@ tool Calculator {
     }
 }
 
-agent Assistant {
+model Assistant {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     tools: [WebSearch],  // static MCP tool
 }
 
@@ -55,18 +55,18 @@ let result = Assistant.with_tools([Calculator]).execute("What is 2+2?");
 
 ### `without_tools()`
 
-Excludes the agent's statically-defined tools from this execution. The agent runs without any tool schemas in the request.
+Excludes the model's statically-defined tools from this execution. The model runs without any tool schemas in the request.
 
 ```concerto
-// Agent has tools: [WebSearch, FileManager] but run without them
-let result = Agent.without_tools().execute("Just answer from your knowledge.");
+// Model has tools: [WebSearch, FileManager] but run without them
+let result = Model.without_tools().execute("Just answer from your knowledge.");
 ```
 
 ### Tool Resolution Order
 
-When `AgentBuilder.execute()` runs:
+When `ModelBuilder.execute()` runs:
 
-1. **Static tools** (from agent definition) -- included unless `without_tools()` was called
+1. **Static tools** (from model definition) -- included unless `without_tools()` was called
 2. **Dynamic tools** (from `with_tools()`) -- always included
 3. All tool schemas are merged into `ChatRequest.tools`
 
@@ -182,7 +182,7 @@ The `generate_tool()` function in `emitter.rs` is extended to:
 
 - `with_tools()` argument must be an array of tool/MCP references
 - `without_tools()` takes no arguments
-- Both return `AgentBuilder`
+- Both return `ModelBuilder`
 
 ## Runtime
 
@@ -191,12 +191,12 @@ The `generate_tool()` function in `emitter.rs` is extended to:
 When building a `ChatRequest` with dynamic tools:
 
 ```
-build_chat_request_with_builder(agent, prompt, builder, response_format):
+build_chat_request_with_builder(model, prompt, builder, response_format):
     tool_schemas = []
 
     if !builder.exclude_default_tools:
-        // Agent's static MCP tools
-        for tool_ref in agent.tools:
+        // Model's static MCP tools
+        for tool_ref in model.tools:
             tool_schemas += mcp_registry.get_tool_schemas(tool_ref)
 
     // Dynamic tools from with_tools()
@@ -214,10 +214,10 @@ build_chat_request_with_builder(agent, prompt, builder, response_format):
 
 ### VM Dispatch
 
-- `AgentRef.with_tools(array)` -> creates `AgentBuilder` with `extra_tools` set
-- `AgentRef.without_tools()` -> creates `AgentBuilder` with `exclude_default_tools: true`
-- `AgentBuilder.with_tools(array)` -> extends `extra_tools` on existing builder
-- `AgentBuilder.without_tools()` -> sets `exclude_default_tools: true` on existing builder
+- `ModelRef.with_tools(array)` -> creates `ModelBuilder` with `extra_tools` set
+- `ModelRef.without_tools()` -> creates `ModelBuilder` with `exclude_default_tools: true`
+- `ModelBuilder.with_tools(array)` -> extends `extra_tools` on existing builder
+- `ModelBuilder.without_tools()` -> sets `exclude_default_tools: true` on existing builder
 
 ## Examples
 
@@ -234,9 +234,9 @@ tool Summarizer {
     }
 }
 
-agent Researcher {
+model Researcher {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     tools: [WebSearch],
 }
 
@@ -247,9 +247,9 @@ let result = Researcher.with_tools([Summarizer]).execute("Research quantum compu
 ### Tool-Free Execution
 
 ```concerto
-agent Writer {
+model Writer {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     tools: [WebSearch, Calculator],
 }
 

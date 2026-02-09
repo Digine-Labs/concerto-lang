@@ -422,9 +422,9 @@ fn e2e_agent_with_memory_builder_auto_and_manual_modes() {
         const openai: Int = 0;
         memory conv: Memory = Memory::new(3);
 
-        agent Assistant {
+        model Assistant {
             provider: openai,
-            model: "gpt-4o-mini",
+            base: "gpt-4o-mini",
             system_prompt: "You are a concise assistant.",
         }
 
@@ -484,9 +484,9 @@ fn e2e_dynamic_tool_binding_builder_paths() {
             }
         }
 
-        agent Worker {
+        model Worker {
             provider: openai,
-            model: "gpt-4o-mini",
+            base: "gpt-4o-mini",
             system_prompt: "Use tools if needed.",
             tools: [Calculator],
         }
@@ -519,11 +519,11 @@ fn e2e_dynamic_tool_binding_builder_paths() {
 }
 
 #[test]
-fn e2e_host_declaration() {
-    // Host declarations compile and load successfully.
+fn e2e_agent_declaration() {
+    // Agent declarations compile and load successfully.
     // We can't execute without a real subprocess, but verify the pipeline works.
     let source = r#"
-        host EchoHost {
+        agent EchoAgent {
             connector: "echo_service",
             input_format: "text",
             output_format: "text",
@@ -531,7 +531,7 @@ fn e2e_host_declaration() {
         }
 
         fn main() {
-            emit("has_host", "yes");
+            emit("has_agent", "yes");
         }
     "#;
 
@@ -558,13 +558,13 @@ fn e2e_host_declaration() {
 
     let ir = CodeGenerator::new("test", "test.conc").generate(&program);
 
-    // Verify host appears in IR
-    assert_eq!(ir.hosts.len(), 1);
-    assert_eq!(ir.hosts[0].name, "EchoHost");
-    assert_eq!(ir.hosts[0].connector, "echo_service");
-    assert_eq!(ir.hosts[0].input_format, "text");
-    assert_eq!(ir.hosts[0].output_format, "text");
-    assert_eq!(ir.hosts[0].timeout, Some(30));
+    // Verify agent appears in IR
+    assert_eq!(ir.agents.len(), 1);
+    assert_eq!(ir.agents[0].name, "EchoAgent");
+    assert_eq!(ir.agents[0].connector, "echo_service");
+    assert_eq!(ir.agents[0].input_format, "text");
+    assert_eq!(ir.agents[0].output_format, "text");
+    assert_eq!(ir.agents[0].timeout, Some(30));
 
     // Load and execute
     let json = serde_json::to_string(&ir).expect("IR serialization failed");
@@ -585,11 +585,11 @@ fn e2e_host_declaration() {
 fn e2e_listen_compiles_and_loads() {
     // Test that a listen expression compiles to valid IR and loads correctly
     let source = r#"
-        host StreamHost {
-            connector: "stream_host",
+        agent StreamAgent {
+            connector: "stream_agent",
         }
         fn main() {
-            let result = listen StreamHost.execute("do work") {
+            let result = listen StreamAgent.execute("do work") {
                 "progress" => |msg| {
                     emit("log", msg);
                 },
@@ -619,7 +619,7 @@ fn e2e_listen_compiles_and_loads() {
 
     // Verify listen IR structure
     assert_eq!(ir.listens.len(), 1);
-    assert_eq!(ir.listens[0].host, "StreamHost");
+    assert_eq!(ir.listens[0].agent, "StreamAgent");
     assert_eq!(ir.listens[0].handlers.len(), 2);
     assert_eq!(ir.listens[0].handlers[0].message_type, "progress");
     assert_eq!(ir.listens[0].handlers[1].message_type, "question");
@@ -636,14 +636,14 @@ fn e2e_listen_compiles_and_loads() {
 
 #[test]
 fn e2e_listen_vm_execution() {
-    // Test actual VM execution with a mock host that outputs NDJSON.
+    // Test actual VM execution with a mock agent that outputs NDJSON.
     // Uses printf to output progress + result messages.
     let source = r#"
-        host MockHost {
+        agent MockAgent {
             connector: "mock",
         }
         fn main() {
-            let result = listen MockHost.execute("do work") {
+            let result = listen MockAgent.execute("do work") {
                 "progress" => |msg| {
                     emit("progress_received", msg);
                 },
@@ -662,12 +662,12 @@ fn e2e_listen_vm_execution() {
     let ir = CodeGenerator::new("test", "test.conc").generate(&program);
     let json = serde_json::to_string(&ir).expect("IR serialization failed");
 
-    // Patch the host command to use printf for mock NDJSON output
+    // Patch the agent command to use printf for mock NDJSON output
     let mut ir_module: concerto_common::ir::IrModule =
         serde_json::from_str(&json).expect("IR deserialization failed");
-    // Set the host command to printf which outputs NDJSON
-    ir_module.hosts[0].command = Some("printf".to_string());
-    ir_module.hosts[0].args = Some(vec![
+    // Set the agent command to printf which outputs NDJSON
+    ir_module.agents[0].command = Some("printf".to_string());
+    ir_module.agents[0].args = Some(vec![
         r#"{"type":"progress","message":"Working on it..."}\n{"type":"result","text":"All done"}\n"#.to_string(),
     ]);
 
@@ -697,14 +697,14 @@ fn e2e_listen_vm_execution() {
 
 #[test]
 fn e2e_listen_bidirectional() {
-    // Test bidirectional communication: host sends question, handler responds.
+    // Test bidirectional communication: agent sends question, handler responds.
     // Uses a bash script via `bash -c` that reads stdin and writes to stdout.
     let source = r#"
-        host BidiHost {
+        agent BidiAgent {
             connector: "bidi",
         }
         fn main() {
-            let result = listen BidiHost.execute("start") {
+            let result = listen BidiAgent.execute("start") {
                 "question" => |q| {
                     emit("got_question", q);
                     "yes"
@@ -727,8 +727,8 @@ fn e2e_listen_bidirectional() {
     let mut ir_module: concerto_common::ir::IrModule =
         serde_json::from_str(&json).expect("IR deserialization failed");
     // Script: read prompt, send question, read response, send result
-    ir_module.hosts[0].command = Some("bash".to_string());
-    ir_module.hosts[0].args = Some(vec![
+    ir_module.agents[0].command = Some("bash".to_string());
+    ir_module.agents[0].args = Some(vec![
         "-c".to_string(),
         // Read the prompt line, emit a question, read back response, emit result
         r#"read prompt; echo '{"type":"question","question":"Approve?"}'; read response; echo '{"type":"result","text":"completed"}';"#.to_string(),
@@ -834,9 +834,9 @@ fn e2e_direct_run_with_stdlib() {
 fn e2e_direct_run_with_agent_mock() {
     // Verify agent execution works through direct run path (uses MockProvider)
     let source = r#"
-        agent TestBot {
+        model TestBot {
             provider: openai,
-            model: "gpt-4o-mini",
+            base: "gpt-4o-mini",
             system_prompt: "You are a test bot.",
         }
 
@@ -1004,9 +1004,9 @@ fn e2e_test_emit_capture() {
 fn e2e_test_mock_agent() {
     let module = compile_for_tests_with_connections(
         r#"
-        agent Greeter {
+        model Greeter {
             provider: openai,
-            model: "gpt-4o",
+            base: "gpt-4o",
             system_prompt: "You greet people.",
         }
 
@@ -1034,9 +1034,9 @@ fn e2e_test_mock_agent() {
 fn e2e_test_mock_agent_error() {
     let module = compile_for_tests_with_connections(
         r#"
-        agent MyAgent {
+        model MyAgent {
             provider: openai,
-            model: "gpt-4o",
+            base: "gpt-4o",
             system_prompt: "test",
         }
 
@@ -1186,14 +1186,14 @@ fn e2e_test_description_from_decorator() {
 }
 
 // =========================================================================
-// Spec 29: Host initialization params in IR
+// Spec 29: Agent initialization params in IR
 // =========================================================================
 
 #[test]
-fn e2e_host_params_none_without_manifest() {
-    // Host declaration without manifest should have params: None in IR
+fn e2e_agent_params_none_without_manifest() {
+    // Agent declaration without manifest should have params: None in IR
     let source = r#"
-        host MyHost {
+        agent MyAgent {
             connector: "test_service",
             input_format: "json",
             output_format: "json",
@@ -1213,9 +1213,9 @@ fn e2e_host_params_none_without_manifest() {
     assert!(!sem_diags.has_errors());
 
     let ir = CodeGenerator::new("test", "test.conc").generate(&program);
-    assert_eq!(ir.hosts.len(), 1);
-    assert_eq!(ir.hosts[0].name, "MyHost");
-    assert!(ir.hosts[0].params.is_none(), "params should be None without manifest");
+    assert_eq!(ir.agents.len(), 1);
+    assert_eq!(ir.agents[0].name, "MyAgent");
+    assert!(ir.agents[0].params.is_none(), "params should be None without manifest");
 }
 
 // =========================================================================

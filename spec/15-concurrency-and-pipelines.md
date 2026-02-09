@@ -2,11 +2,11 @@
 
 ## Overview
 
-AI orchestration requires concurrent execution -- LLM calls are inherently async and often independent tasks can run in parallel. Concerto provides `async`/`await` for asynchronous execution, parallel await for concurrent resolution, and first-class `pipeline`/`stage` constructs for declarative multi-agent workflows.
+AI orchestration requires concurrent execution -- LLM calls are inherently async and often independent tasks can run in parallel. Concerto provides `async`/`await` for asynchronous execution, parallel await for concurrent resolution, and first-class `pipeline`/`stage` constructs for declarative multi-model workflows.
 
 ## Async / Await
 
-All LLM-related operations (agent calls, tool executions, bidirectional emits) are async. The `async`/`await` model prevents blocking the runtime.
+All LLM-related operations (model calls, tool executions, bidirectional emits) are async. The `async`/`await` model prevents blocking the runtime.
 
 ### Async Functions
 
@@ -87,8 +87,8 @@ Wait for the first of several async operations to complete:
 ```concerto
 async fn fastest_response(prompt: String) -> Result<Response, AgentError> {
     let winner = race (
-        FastAgent.execute(prompt),
-        ReliableAgent.execute(prompt),
+        FastModel.execute(prompt),
+        ReliableModel.execute(prompt),
     );
     winner
 }
@@ -98,7 +98,7 @@ async fn fastest_response(prompt: String) -> Result<Response, AgentError> {
 
 ## Pipeline Construct
 
-Pipelines are first-class constructs for defining multi-step agent workflows. They provide structure, automatic data passing between stages, and per-stage error handling.
+Pipelines are first-class constructs for defining multi-step model workflows. They provide structure, automatic data passing between stages, and per-stage error handling.
 
 ### Pipeline Definition
 
@@ -189,19 +189,19 @@ pipeline RoutingPipeline {
     stage route(analysis: Analysis) -> String {
         match analysis.category {
             "legal" => {
-                let result = LegalAgent.execute(analysis.content).await?;
+                let result = LegalModel.execute(analysis.content).await?;
                 result.text
             },
             "technical" => {
-                let result = TechAgent.execute(analysis.content).await?;
+                let result = TechModel.execute(analysis.content).await?;
                 result.text
             },
             "financial" => {
-                let result = FinanceAgent.execute(analysis.content).await?;
+                let result = FinanceModel.execute(analysis.content).await?;
                 result.text
             },
             _ => {
-                let result = GeneralAgent.execute(analysis.content).await?;
+                let result = GeneralModel.execute(analysis.content).await?;
                 result.text
             },
         }
@@ -222,7 +222,7 @@ hashmap pipeline_state: HashMap<String, Any> = HashMap::new();
 
 pipeline StatefulPipeline {
     stage step_one(input: String) -> String {
-        let result = AgentA.execute(input).await?;
+        let result = ModelA.execute(input).await?;
         pipeline_state.set("step_one_output", result.text);
         pipeline_state.set("step_one_time", std::time::now());
         result.text
@@ -231,7 +231,7 @@ pipeline StatefulPipeline {
     stage step_two(prev: String) -> String {
         // Can read state from previous stages
         let step_one_time = pipeline_state.get("step_one_time");
-        let result = AgentB.execute(prev).await?;
+        let result = ModelB.execute(prev).await?;
         pipeline_state.set("step_two_output", result.text);
         result.text
     }
@@ -246,7 +246,7 @@ pipeline StatefulPipeline {
 pipeline TimedPipeline {
     @timeout(seconds: 10)
     stage fast_step(input: String) -> String {
-        QuickAgent.execute(input).await?
+        QuickModel.execute(input).await?
     }
 
     @timeout(seconds: 120)
@@ -262,7 +262,7 @@ pipeline TimedPipeline {
 pipeline ReliablePipeline {
     @retry(max: 3, backoff: "exponential")
     stage unreliable_step(input: String) -> String {
-        ExternalAgent.execute(input).await?
+        ExternalModel.execute(input).await?
     }
 }
 ```
@@ -274,11 +274,11 @@ pipeline ReliablePipeline {
 ```concerto
 pipeline ResilientPipeline {
     stage primary(input: String) -> String {
-        match PrimaryAgent.execute(input).await {
+        match PrimaryModel.execute(input).await {
             Ok(response) => response.text,
             Err(_) => {
-                emit("warning", "Primary agent failed, using fallback");
-                let fallback = FallbackAgent.execute(input).await?;
+                emit("warning", "Primary model failed, using fallback");
+                let fallback = FallbackModel.execute(input).await?;
                 fallback.text
             },
         }

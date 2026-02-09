@@ -23,7 +23,7 @@ impl Parser {
                     }
                 }
             }
-            TokenKind::Agent => self.parse_agent_decl(decorators),
+            TokenKind::Model => self.parse_model_decl(decorators),
             TokenKind::Tool => self.parse_tool_decl(),
             TokenKind::Schema => self.parse_schema_decl(decorators),
             TokenKind::Pipeline => self.parse_pipeline_decl(),
@@ -39,7 +39,7 @@ impl Parser {
             TokenKind::Ledger => self.parse_ledger_decl(),
             TokenKind::Memory => self.parse_memory_decl(),
             TokenKind::Mcp => self.parse_mcp_decl(),
-            TokenKind::Host => self.parse_host_decl(decorators),
+            TokenKind::Agent => self.parse_agent_decl(decorators),
             _ => {
                 let span = self.current_span();
                 self.diagnostics.error(
@@ -436,17 +436,17 @@ impl Parser {
     }
 
     // ========================================================================
-    // agent declaration
+    // model declaration
     // ========================================================================
 
-    /// Parse `[decorators] agent Name { fields... }`
-    fn parse_agent_decl(&mut self, decorators: Vec<Decorator>) -> Option<Declaration> {
+    /// Parse `[decorators] model Name { fields... }`
+    fn parse_model_decl(&mut self, decorators: Vec<Decorator>) -> Option<Declaration> {
         let start = if let Some(first) = decorators.first() {
             first.span.clone()
         } else {
             self.current_span()
         };
-        self.advance(); // consume 'agent'
+        self.advance(); // consume 'model'
 
         let name_token = self.expect(TokenKind::Identifier)?;
         let name = name_token.lexeme.clone();
@@ -454,7 +454,7 @@ impl Parser {
         let fields = self.parse_config_fields()?;
         let span = start.merge(&self.previous_span());
 
-        Some(Declaration::Agent(AgentDecl {
+        Some(Declaration::Model(ModelDecl {
             name,
             decorators,
             fields,
@@ -1032,17 +1032,17 @@ impl Parser {
     }
 
     // ========================================================================
-    // host declaration
+    // agent declaration
     // ========================================================================
 
-    /// Parse `[decorators] host Name { fields... }`
-    fn parse_host_decl(&mut self, decorators: Vec<Decorator>) -> Option<Declaration> {
+    /// Parse `[decorators] agent Name { fields... }`
+    fn parse_agent_decl(&mut self, decorators: Vec<Decorator>) -> Option<Declaration> {
         let start = if let Some(first) = decorators.first() {
             first.span.clone()
         } else {
             self.current_span()
         };
-        self.advance(); // consume 'host'
+        self.advance(); // consume 'agent'
 
         let name_token = self.expect(TokenKind::Identifier)?;
         let name = name_token.lexeme.clone();
@@ -1050,7 +1050,7 @@ impl Parser {
         let fields = self.parse_config_fields()?;
         let span = start.merge(&self.previous_span());
 
-        Some(Declaration::Host(HostDecl {
+        Some(Declaration::Agent(AgentDecl {
             name,
             decorators,
             fields,
@@ -1087,26 +1087,26 @@ mod tests {
         Parser::new(tokens).parse()
     }
 
-    // ===== agent =====
+    // ===== model =====
 
     #[test]
-    fn parse_agent_decl() {
+    fn parse_model_decl() {
         let prog = parse(
             r#"
-            agent Classifier {
+            model Classifier {
                 provider: openai,
-                model: "gpt-4o",
+                base: "gpt-4o",
                 temperature: 0.3,
             }
         "#,
         );
         match &prog.declarations[0] {
-            Declaration::Agent(a) => {
+            Declaration::Model(a) => {
                 assert_eq!(a.name, "Classifier");
                 assert_eq!(a.fields.len(), 3);
                 assert!(a.decorators.is_empty());
             }
-            other => panic!("expected Agent, got {:?}", std::mem::discriminant(other)),
+            other => panic!("expected Model, got {:?}", std::mem::discriminant(other)),
         }
     }
 
@@ -1116,19 +1116,19 @@ mod tests {
             r#"
             @timeout(seconds: 60)
             @log(channel: "debug")
-            agent MyAgent {
+            model MyAgent {
                 provider: openai,
             }
         "#,
         );
         match &prog.declarations[0] {
-            Declaration::Agent(a) => {
+            Declaration::Model(a) => {
                 assert_eq!(a.name, "MyAgent");
                 assert_eq!(a.decorators.len(), 2);
                 assert_eq!(a.decorators[0].name, "timeout");
                 assert_eq!(a.decorators[1].name, "log");
             }
-            other => panic!("expected Agent, got {:?}", std::mem::discriminant(other)),
+            other => panic!("expected Model, got {:?}", std::mem::discriminant(other)),
         }
     }
 
@@ -1693,18 +1693,18 @@ mod tests {
         let prog = parse(
             r#"
             @cache
-            agent Cached {
+            model Cached {
                 provider: openai,
             }
         "#,
         );
         match &prog.declarations[0] {
-            Declaration::Agent(a) => {
+            Declaration::Model(a) => {
                 assert_eq!(a.decorators.len(), 1);
                 assert_eq!(a.decorators[0].name, "cache");
                 assert!(a.decorators[0].args.is_empty());
             }
-            other => panic!("expected Agent, got {:?}", std::mem::discriminant(other)),
+            other => panic!("expected Model, got {:?}", std::mem::discriminant(other)),
         }
     }
 
@@ -1747,13 +1747,13 @@ mod tests {
         let prog = parse(
             r#"
             @timeout(seconds: 30)
-            agent TimedAgent {
+            model TimedAgent {
                 provider: openai,
             }
         "#,
         );
         match &prog.declarations[0] {
-            Declaration::Agent(a) => {
+            Declaration::Model(a) => {
                 let dec = &a.decorators[0];
                 assert_eq!(dec.name, "timeout");
                 assert_eq!(dec.args.len(), 1);
@@ -1762,7 +1762,7 @@ mod tests {
                     _ => panic!("expected named arg"),
                 }
             }
-            other => panic!("expected Agent, got {:?}", std::mem::discriminant(other)),
+            other => panic!("expected Model, got {:?}", std::mem::discriminant(other)),
         }
     }
 
@@ -1783,28 +1783,28 @@ mod tests {
         assert!(matches!(&prog.declarations[2], Declaration::Function(_)));
     }
 
-    // ===== agent with tools array (config field with array expression) =====
+    // ===== model with tools array (config field with array expression) =====
 
     #[test]
     fn parse_agent_with_tools_array() {
         let prog = parse(
             r#"
-            agent FileAnalyzer {
+            model FileAnalyzer {
                 provider: openai,
-                model: "gpt-4o",
+                base: "gpt-4o",
                 tools: [FileManager, Calculator],
             }
         "#,
         );
         match &prog.declarations[0] {
-            Declaration::Agent(a) => {
+            Declaration::Model(a) => {
                 assert_eq!(a.name, "FileAnalyzer");
                 assert_eq!(a.fields.len(), 3);
                 assert_eq!(a.fields[2].name, "tools");
                 // The value should be an array expression
                 matches!(&a.fields[2].value.kind, ExprKind::Array(_));
             }
-            other => panic!("expected Agent, got {:?}", std::mem::discriminant(other)),
+            other => panic!("expected Model, got {:?}", std::mem::discriminant(other)),
         }
     }
 
@@ -1934,9 +1934,9 @@ mod tests {
     fn parse_test_fn_with_mock() {
         let prog = parse(
             r#"
-            agent Greeter {
+            model Greeter {
                 provider: openai,
-                model: "gpt-4o",
+                base: "gpt-4o",
                 system_prompt: "greet",
             }
 
@@ -1957,7 +1957,7 @@ mod tests {
                 assert!(f.decorators.iter().any(|d| d.name == "test"));
                 match &f.body.as_ref().unwrap().stmts[0] {
                     Stmt::Mock(m) => {
-                        assert_eq!(m.agent_name, "Greeter");
+                        assert_eq!(m.model_name, "Greeter");
                         assert_eq!(m.fields.len(), 1);
                         assert_eq!(m.fields[0].name, "response");
                     }

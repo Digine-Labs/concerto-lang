@@ -5,7 +5,7 @@ use concerto_common::ir_opcodes::Opcode;
 
 use crate::builtins;
 use crate::error::{Result, RuntimeError};
-use crate::host::HostRegistry;
+use crate::agent::AgentRegistry;
 use crate::ir_loader::LoadedModule;
 use crate::ledger::LedgerStore;
 use crate::mcp::McpRegistry;
@@ -66,20 +66,20 @@ pub struct VM {
     connection_manager: ConnectionManager,
     /// MCP server connections (stdio transport).
     mcp_registry: McpRegistry,
-    /// Host connections (external agent systems).
-    host_registry: HostRegistry,
+    /// Agent connections (external agent systems).
+    agent_registry: AgentRegistry,
     /// Emit handler callback.
     #[allow(clippy::type_complexity)]
     emit_handler: Box<dyn Fn(&str, &Value)>,
-    /// Mock agent responses (agent_name -> mock response text).
-    mock_agents: HashMap<String, MockConfig>,
+    /// Mock model responses (model_name -> mock response text).
+    mock_models: HashMap<String, MockConfig>,
     /// Captured emits during test execution.
     test_emits: Vec<(String, Value)>,
     /// Whether to capture emits for test_emits() built-in.
     test_capture_emits: bool,
 }
 
-/// Mock configuration for an agent.
+/// Mock configuration for a model.
 #[derive(Clone)]
 struct MockConfig {
     response: Option<String>,
@@ -91,9 +91,9 @@ impl VM {
     pub fn new(module: LoadedModule) -> Self {
         let mut globals = HashMap::new();
 
-        // Register agents as AgentRef values
-        for name in module.agents.keys() {
-            globals.insert(name.clone(), Value::AgentRef(name.clone()));
+        // Register models as ModelRef values
+        for name in module.models.keys() {
+            globals.insert(name.clone(), Value::ModelRef(name.clone()));
         }
 
         // Register schemas as SchemaRef values
@@ -220,11 +220,11 @@ impl VM {
         // Initialize MCP registry from IR connections (type: "mcp")
         let mcp_registry = McpRegistry::from_connections(&module.connections);
 
-        // Initialize host registry from IR hosts
-        let mut host_registry = HostRegistry::new();
-        for ir_host in module.hosts.values() {
-            host_registry.register(ir_host);
-            globals.insert(ir_host.name.clone(), Value::HostRef(ir_host.name.clone()));
+        // Initialize agent registry from IR agents
+        let mut agent_registry = AgentRegistry::new();
+        for ir_agent in module.agents.values() {
+            agent_registry.register(ir_agent);
+            globals.insert(ir_agent.name.clone(), Value::AgentRef(ir_agent.name.clone()));
         }
 
         VM {
@@ -239,11 +239,11 @@ impl VM {
             tool_registry,
             connection_manager,
             mcp_registry,
-            host_registry,
+            agent_registry,
             emit_handler: Box::new(|channel, payload| {
                 println!("[emit:{}] {}", channel, payload);
             }),
-            mock_agents: HashMap::new(),
+            mock_models: HashMap::new(),
             test_emits: Vec::new(),
             test_capture_emits: false,
         }
@@ -292,7 +292,7 @@ impl VM {
     /// and runs the test instructions.
     pub fn run_test(&mut self, test: &concerto_common::ir::IrTest) -> Result<Value> {
         // Clear per-test state
-        self.mock_agents.clear();
+        self.mock_models.clear();
         self.test_emits.clear();
         self.test_capture_emits = true;
 
@@ -688,9 +688,9 @@ impl VM {
                 }
                 Opcode::ListenBegin => self.exec_listen_begin(&inst)?,
 
-                Opcode::MockAgent => {
-                    // Install mock response for an agent during test execution
-                    let agent_name = inst
+                Opcode::MockModel => {
+                    // Install mock response for a model during test execution
+                    let model_name = inst
                         .name
                         .as_ref()
                         .ok_or_else(|| {
@@ -706,8 +706,8 @@ impl VM {
                         .and_then(|c| c.get("error"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    self.mock_agents
-                        .insert(agent_name, MockConfig { response, error });
+                    self.mock_models
+                        .insert(model_name, MockConfig { response, error });
                 }
 
                 Opcode::SpawnAsync => {
@@ -728,11 +728,11 @@ impl VM {
                     }
                 }
 
-                // === Agent operations (dispatched through CALL_METHOD) ===
-                Opcode::CallAgent
-                | Opcode::CallAgentSchema
-                | Opcode::CallAgentStream
-                | Opcode::CallAgentChat => {
+                // === Model operations (dispatched through CALL_METHOD) ===
+                Opcode::CallModel
+                | Opcode::CallModelSchema
+                | Opcode::CallModelStream
+                | Opcode::CallModelChat => {
                     // These should be dispatched through CALL_METHOD in our codegen,
                     // but handle them here as a fallback
                     let argc = inst.argc.unwrap_or(0) as usize;
@@ -742,10 +742,10 @@ impl VM {
                     }
                     args.reverse();
 
-                    let agent_name = inst.agent.as_deref().unwrap_or("unknown");
+                    let model_name = inst.model.as_deref().unwrap_or("unknown");
                     let method = inst.method.as_deref().unwrap_or("execute");
                     let result =
-                        self.call_agent_method(agent_name, method, args, inst.schema.as_deref())?;
+                        self.call_model_method(model_name, method, args, inst.schema.as_deref())?;
                     self.push(result);
                 }
 
@@ -837,7 +837,7 @@ impl VM {
             }
         }
 
-        // Fall back to globals (agents, schemas, builtins, etc.)
+        // Fall back to globals (models, schemas, builtins, etc.)
         if let Some(value) = self.globals.get(name) {
             self.push(value.clone());
             return Ok(());
@@ -948,9 +948,9 @@ impl VM {
                     return Err(RuntimeError::NameError(name));
                 }
             }
-            // If someone calls an AgentRef directly, treat as execute
-            Value::AgentRef(agent_name) => {
-                let result = self.call_agent_method(&agent_name, "execute", args, None)?;
+            // If someone calls a ModelRef directly, treat as execute
+            Value::ModelRef(model_name) => {
+                let result = self.call_model_method(&model_name, "execute", args, None)?;
                 self.push(result);
             }
             _ => {
@@ -983,34 +983,34 @@ impl VM {
 
         let schema = inst.schema.clone();
         let result = match &object {
-            Value::AgentRef(agent_name) => match method.as_str() {
+            Value::ModelRef(model_name) => match method.as_str() {
                 "with_memory" | "with_tools" | "without_tools" => {
-                    self.agent_ref_to_builder(agent_name, &method, args)?
+                    self.model_ref_to_builder(model_name, &method, args)?
                 }
-                _ => self.call_agent_method(agent_name, &method, args, schema.as_deref())?,
+                _ => self.call_model_method(model_name, &method, args, schema.as_deref())?,
             },
             Value::HashMapRef(hashmap_name) => {
                 self.call_hashmap_method(hashmap_name, &method, args)?
             }
             Value::LedgerRef(ledger_name) => self.call_ledger_method(ledger_name, &method, args)?,
             Value::MemoryRef(memory_name) => self.call_memory_method(memory_name, &method, args)?,
-            Value::HostRef(host_name) => match method.as_str() {
+            Value::AgentRef(agent_name) => match method.as_str() {
                 "with_memory" | "with_tools" | "without_tools" | "with_context" => {
-                    self.host_ref_to_builder(host_name, &method, args)?
+                    self.agent_ref_to_builder(agent_name, &method, args)?
                 }
-                "execute" => self.call_host_execute(host_name, args, None)?,
+                "execute" => self.call_agent_execute(agent_name, args, None)?,
                 "execute_with_schema" => {
-                    self.call_host_execute(host_name, args, schema.as_deref())?
+                    self.call_agent_execute(agent_name, args, schema.as_deref())?
                 }
                 _ => {
                     return Err(RuntimeError::TypeError(format!(
-                        "no method '{}' on Host",
+                        "no method '{}' on Agent",
                         method
                     )))
                 }
             },
-            Value::AgentBuilder { .. } => {
-                self.call_agent_builder_method(object, &method, args, schema.as_deref())?
+            Value::ModelBuilder { .. } => {
+                self.call_model_builder_method(object, &method, args, schema.as_deref())?
             }
             Value::PipelineRef(pipeline_name) => {
                 self.call_pipeline_method(pipeline_name, &method, args)?
@@ -1435,33 +1435,33 @@ impl VM {
     }
 
     // ========================================================================
-    // Agent method dispatch (provider-based)
+    // Model method dispatch (provider-based)
     // ========================================================================
 
-    fn call_agent_method(
+    fn call_model_method(
         &self,
-        agent_name: &str,
+        model_name: &str,
         method: &str,
         args: Vec<Value>,
         schema_name: Option<&str>,
     ) -> Result<Value> {
         // Check for mock override first
-        if let Some(mock) = self.mock_agents.get(agent_name) {
-            return self.call_mock_agent(agent_name, method, mock.clone(), schema_name);
+        if let Some(mock) = self.mock_models.get(model_name) {
+            return self.call_mock_model(model_name, method, mock.clone(), schema_name);
         }
 
-        let agent = self
+        let model_def = self
             .module
-            .agents
-            .get(agent_name)
-            .ok_or_else(|| RuntimeError::NameError(format!("unknown agent: {}", agent_name)))?;
+            .models
+            .get(model_name)
+            .ok_or_else(|| RuntimeError::NameError(format!("unknown model: {}", model_name)))?;
 
-        // Parse decorator configs from agent definition
-        let retry_config = crate::decorator::find_decorator(&agent.decorators, "retry")
+        // Parse decorator configs from model definition
+        let retry_config = crate::decorator::find_decorator(&model_def.decorators, "retry")
             .map(crate::decorator::parse_retry);
-        let timeout_config = crate::decorator::find_decorator(&agent.decorators, "timeout")
+        let timeout_config = crate::decorator::find_decorator(&model_def.decorators, "timeout")
             .map(crate::decorator::parse_timeout);
-        let has_log = crate::decorator::find_decorator(&agent.decorators, "log").is_some();
+        let has_log = crate::decorator::find_decorator(&model_def.decorators, "log").is_some();
 
         let max_attempts = retry_config.as_ref().map(|r| r.max_attempts).unwrap_or(1);
 
@@ -1473,8 +1473,8 @@ impl VM {
 
                 for attempt in 0..max_attempts {
                     let start = std::time::Instant::now();
-                    let request = self.build_chat_request(agent, &prompt_str, None);
-                    let provider = self.connection_manager.get_provider(&agent.connection);
+                    let request = self.build_chat_request(model_def, &prompt_str, None);
+                    let provider = self.connection_manager.get_provider(&model_def.connection);
 
                     match provider.chat_completion(request) {
                         Ok(chat_response) => {
@@ -1506,11 +1506,11 @@ impl VM {
                             // @log decorator
                             if has_log {
                                 (self.emit_handler)(
-                                    "agent:log",
+                                    "model:log",
                                     &Value::Map(vec![
                                         (
-                                            "agent".to_string(),
-                                            Value::String(agent_name.to_string()),
+                                            "model".to_string(),
+                                            Value::String(model_name.to_string()),
                                         ),
                                         (
                                             "method".to_string(),
@@ -1553,8 +1553,8 @@ impl VM {
                 Ok(Value::Result {
                     is_ok: false,
                     value: Box::new(Value::String(format!(
-                        "agent '{}' failed after {} attempts: {}",
-                        agent_name, max_attempts, last_error
+                        "model '{}' failed after {} attempts: {}",
+                        model_name, max_attempts, last_error
                     ))),
                 })
             }
@@ -1576,7 +1576,7 @@ impl VM {
                     // Outer retry loop: @retry decorator (catches provider errors)
                     for attempt in 0..max_attempts {
                         let start = std::time::Instant::now();
-                        let provider = self.connection_manager.get_provider(&agent.connection);
+                        let provider = self.connection_manager.get_provider(&model_def.connection);
                         let mut current_prompt = prompt_str.clone();
 
                         // Inner retry loop: schema validation retry
@@ -1590,7 +1590,7 @@ impl VM {
                                 response_format.clone()
                             };
 
-                            let request = self.build_chat_request(agent, &current_prompt, rf);
+                            let request = self.build_chat_request(model_def, &current_prompt, rf);
                             match provider.chat_completion(request) {
                                 Ok(chat_response) => {
                                     // Check timeout
@@ -1610,11 +1610,11 @@ impl VM {
                                         Ok(validated) => {
                                             if has_log {
                                                 (self.emit_handler)(
-                                                    "agent:log",
+                                                    "model:log",
                                                     &Value::Map(vec![
                                                         (
-                                                            "agent".to_string(),
-                                                            Value::String(agent_name.to_string()),
+                                                            "model".to_string(),
+                                                            Value::String(model_name.to_string()),
                                                         ),
                                                         (
                                                             "method".to_string(),
@@ -1685,8 +1685,8 @@ impl VM {
                     })
                 } else {
                     // No schema found — just do a regular execute
-                    let request = self.build_chat_request(agent, &prompt_str, None);
-                    let provider = self.connection_manager.get_provider(&agent.connection);
+                    let request = self.build_chat_request(model_def, &prompt_str, None);
+                    let provider = self.connection_manager.get_provider(&model_def.connection);
                     let chat_response = provider.chat_completion(request)?;
                     let response = Self::chat_response_to_value(&chat_response);
                     Ok(Value::Result {
@@ -1696,16 +1696,16 @@ impl VM {
                 }
             }
             _ => Err(RuntimeError::CallError(format!(
-                "unknown agent method: {}.{}",
-                agent_name, method
+                "unknown model method: {}.{}",
+                model_name, method
             ))),
         }
     }
 
-    /// Handle a mocked agent call, returning a fixed response or error.
-    fn call_mock_agent(
+    /// Handle a mocked model call, returning a fixed response or error.
+    fn call_mock_model(
         &self,
-        agent_name: &str,
+        model_name: &str,
         method: &str,
         mock: MockConfig,
         schema_name: Option<&str>,
@@ -1747,7 +1747,7 @@ impl VM {
                     }
                 }
 
-                // Build a Response struct matching the real agent response shape
+                // Build a Response struct matching the real model response shape
                 let mut fields = HashMap::new();
                 fields.insert("text".to_string(), Value::String(response_text));
                 fields.insert("model".to_string(), Value::String("mock".to_string()));
@@ -1762,35 +1762,35 @@ impl VM {
                 })
             }
             _ => Err(RuntimeError::TypeError(format!(
-                "mock agent '{}' does not support method '{}'",
-                agent_name, method
+                "mock model '{}' does not support method '{}'",
+                model_name, method
             ))),
         }
     }
 
-    /// Build a ChatRequest from agent config and prompt.
+    /// Build a ChatRequest from model config and prompt.
     fn build_chat_request(
         &self,
-        agent: &concerto_common::ir::IrAgent,
+        model_def: &concerto_common::ir::IrModel,
         prompt: &str,
         response_format: Option<crate::provider::ResponseFormat>,
     ) -> ChatRequest {
-        self.build_chat_request_with_memory(agent, prompt, response_format, None)
+        self.build_chat_request_with_memory(model_def, prompt, response_format, None)
     }
 
     fn build_chat_request_with_memory(
         &self,
-        agent: &concerto_common::ir::IrAgent,
+        model_def: &concerto_common::ir::IrModel,
         prompt: &str,
         response_format: Option<crate::provider::ResponseFormat>,
         memory_name: Option<&str>,
     ) -> ChatRequest {
-        self.build_chat_request_full(agent, prompt, response_format, memory_name, &[], false)
+        self.build_chat_request_full(model_def, prompt, response_format, memory_name, &[], false)
     }
 
     fn build_chat_request_full(
         &self,
-        agent: &concerto_common::ir::IrAgent,
+        model_def: &concerto_common::ir::IrModel,
         prompt: &str,
         response_format: Option<crate::provider::ResponseFormat>,
         memory_name: Option<&str>,
@@ -1799,8 +1799,8 @@ impl VM {
     ) -> ChatRequest {
         let mut messages = Vec::new();
 
-        // System prompt from agent config
-        if let Some(ref sys) = agent.config.system_prompt {
+        // System prompt from model config
+        if let Some(ref sys) = model_def.config.system_prompt {
             messages.push(ChatMessage {
                 role: "system".to_string(),
                 content: sys.clone(),
@@ -1826,9 +1826,9 @@ impl VM {
         let mut tool_schemas = Vec::new();
         let mut seen_names = std::collections::HashSet::new();
 
-        // Static tools from agent definition (unless excluded)
+        // Static tools from model definition (unless excluded)
         if !exclude_default_tools {
-            for tool_ref in &agent.tools {
+            for tool_ref in &model_def.tools {
                 if self.mcp_registry.has_server(tool_ref) {
                     for schema in self.mcp_registry.get_tool_schemas(tool_ref) {
                         if seen_names.insert(schema.name.clone()) {
@@ -1870,14 +1870,14 @@ impl VM {
         };
 
         ChatRequest {
-            model: agent
+            model: model_def
                 .config
-                .model
+                .base
                 .clone()
                 .unwrap_or_else(|| "gpt-4".to_string()),
             messages,
-            temperature: agent.config.temperature,
-            max_tokens: agent.config.max_tokens,
+            temperature: model_def.config.temperature,
+            max_tokens: model_def.config.max_tokens,
             tools,
             response_format,
         }
@@ -2434,19 +2434,19 @@ impl VM {
     }
 
     // ========================================================================
-    // Host method dispatch
+    // Agent method dispatch
     // ========================================================================
 
-    /// Create an AgentBuilder from a HostRef for chaining.
-    fn host_ref_to_builder(
+    /// Create a ModelBuilder from an AgentRef for chaining.
+    fn agent_ref_to_builder(
         &self,
-        host_name: &str,
+        agent_name: &str,
         method: &str,
         args: Vec<Value>,
     ) -> Result<Value> {
-        let mut builder = Value::AgentBuilder {
-            source_name: host_name.to_string(),
-            source_kind: crate::value::BuilderSourceKind::Host,
+        let mut builder = Value::ModelBuilder {
+            source_name: agent_name.to_string(),
+            source_kind: crate::value::BuilderSourceKind::Agent,
             memory: None,
             memory_auto_append: true,
             extra_tools: Vec::new(),
@@ -2457,17 +2457,17 @@ impl VM {
         Ok(builder)
     }
 
-    /// Execute a prompt on a host directly (without builder).
-    fn call_host_execute(
+    /// Execute a prompt on an agent directly (without builder).
+    fn call_agent_execute(
         &mut self,
-        host_name: &str,
+        agent_name: &str,
         args: Vec<Value>,
         schema_name: Option<&str>,
     ) -> Result<Value> {
         let prompt = args.into_iter().next().unwrap_or(Value::Nil);
         let prompt_str = prompt.display_string();
 
-        let result_text = self.host_registry.execute(host_name, &prompt_str, None)?;
+        let result_text = self.agent_registry.execute(agent_name, &prompt_str, None)?;
 
         // If schema validation requested
         if let Some(sname) = schema_name {
@@ -2499,13 +2499,13 @@ impl VM {
     }
 
     // ========================================================================
-    // Listen (bidirectional host streaming)
+    // Listen (bidirectional agent streaming)
     // ========================================================================
 
-    /// Execute a ListenBegin opcode: send prompt to host, then enter message loop.
+    /// Execute a ListenBegin opcode: send prompt to agent, then enter message loop.
     fn exec_listen_begin(&mut self, inst: &IrInstruction) -> Result<()> {
-        let host_name = inst.name.as_deref().ok_or_else(|| {
-            RuntimeError::CallError("ListenBegin missing host name".into())
+        let agent_name = inst.name.as_deref().ok_or_else(|| {
+            RuntimeError::CallError("ListenBegin missing agent name".into())
         })?;
         let listen_name = inst
             .arg
@@ -2542,22 +2542,22 @@ impl VM {
             })?
             .clone();
 
-        // Send prompt to host
-        self.host_registry
-            .get_client_mut(host_name)?
+        // Send prompt to agent
+        self.agent_registry
+            .get_client_mut(agent_name)?
             .write_prompt_streaming(&prompt, None)?;
 
         // Emit lifecycle event
         (self.emit_handler)(
             "listen:start",
             &Value::Map(vec![
-                ("host".to_string(), Value::String(host_name.to_string())),
+                ("agent".to_string(), Value::String(agent_name.to_string())),
                 ("listen".to_string(), Value::String(listen_name.to_string())),
             ]),
         );
 
         // Run the listen loop
-        let result = self.run_listen_loop(host_name, &listen);
+        let result = self.run_listen_loop(agent_name, &listen);
 
         // Emit completion event
         match &result {
@@ -2565,7 +2565,7 @@ impl VM {
                 (self.emit_handler)(
                     "listen:complete",
                     &Value::Map(vec![
-                        ("host".to_string(), Value::String(host_name.to_string())),
+                        ("agent".to_string(), Value::String(agent_name.to_string())),
                     ]),
                 );
             }
@@ -2573,7 +2573,7 @@ impl VM {
                 (self.emit_handler)(
                     "listen:error",
                     &Value::Map(vec![
-                        ("host".to_string(), Value::String(host_name.to_string())),
+                        ("agent".to_string(), Value::String(agent_name.to_string())),
                         ("error".to_string(), Value::String(e.to_string())),
                     ]),
                 );
@@ -2589,28 +2589,28 @@ impl VM {
         Ok(())
     }
 
-    /// Run the listen loop: read NDJSON messages from host, dispatch to handlers.
+    /// Run the listen loop: read NDJSON messages from agent, dispatch to handlers.
     fn run_listen_loop(
         &mut self,
-        host_name: &str,
+        agent_name: &str,
         listen: &concerto_common::ir::IrListen,
     ) -> Result<Value> {
         use crate::schema::SchemaValidator;
 
         loop {
-            // Read next message from host
+            // Read next message from agent
             let msg = self
-                .host_registry
-                .get_client_mut(host_name)?
+                .agent_registry
+                .get_client_mut(agent_name)?
                 .read_message()?;
 
             let msg = match msg {
                 Some(m) => m,
                 None => {
-                    // Host exited without sending result/error
+                    // Agent exited without sending result/error
                     return Err(RuntimeError::CallError(format!(
-                        "Host '{}' exited without sending a result",
-                        host_name
+                        "Agent '{}' exited without sending a result",
+                        agent_name
                     )));
                 }
             };
@@ -2636,11 +2636,11 @@ impl VM {
                     let error_msg = msg
                         .get("message")
                         .and_then(|m| m.as_str())
-                        .unwrap_or("unknown host error")
+                        .unwrap_or("unknown agent error")
                         .to_string();
                     return Err(RuntimeError::CallError(format!(
-                        "Host '{}' error: {}",
-                        host_name, error_msg
+                        "Agent '{}' error: {}",
+                        agent_name, error_msg
                     )));
                 }
                 _ => {
@@ -2668,15 +2668,15 @@ impl VM {
                         )?;
                         let handler_result = self.run_loop_until(stop_depth)?;
 
-                        // If handler returned a non-Nil value, send response back to host
+                        // If handler returned a non-Nil value, send response back to agent
                         if handler_result != Value::Nil {
                             let response_json = serde_json::json!({
                                 "type": "response",
                                 "in_reply_to": msg_type,
                                 "value": handler_result.to_json()
                             });
-                            self.host_registry
-                                .get_client_mut(host_name)?
+                            self.agent_registry
+                                .get_client_mut(agent_name)?
                                 .write_response(&response_json)?;
                         }
                     } else {
@@ -2692,20 +2692,20 @@ impl VM {
     }
 
     // ========================================================================
-    // AgentBuilder creation and dispatch
+    // ModelBuilder creation and dispatch
     // ========================================================================
 
-    /// Convert an AgentRef + builder method call into a Value::AgentBuilder.
-    fn agent_ref_to_builder(
+    /// Convert a ModelRef + builder method call into a Value::ModelBuilder.
+    fn model_ref_to_builder(
         &self,
-        agent_name: &str,
+        model_name: &str,
         method: &str,
         args: Vec<Value>,
     ) -> Result<Value> {
         use crate::value::BuilderSourceKind;
-        let mut builder = Value::AgentBuilder {
-            source_name: agent_name.to_string(),
-            source_kind: BuilderSourceKind::Agent,
+        let mut builder = Value::ModelBuilder {
+            source_name: model_name.to_string(),
+            source_kind: BuilderSourceKind::Model,
             memory: None,
             memory_auto_append: true,
             extra_tools: Vec::new(),
@@ -2716,14 +2716,14 @@ impl VM {
         Ok(builder)
     }
 
-    /// Apply a builder method (with_memory, with_tools, etc.) to an AgentBuilder.
+    /// Apply a builder method to a ModelBuilder.
     fn apply_builder_method(
         &self,
         builder: &mut Value,
         method: &str,
         args: Vec<Value>,
     ) -> Result<()> {
-        if let Value::AgentBuilder {
+        if let Value::ModelBuilder {
             ref mut memory,
             ref mut memory_auto_append,
             ref mut extra_tools,
@@ -2784,8 +2784,8 @@ impl VM {
         Ok(())
     }
 
-    /// Dispatch a method call on an AgentBuilder value.
-    fn call_agent_builder_method(
+    /// Dispatch a method call on a ModelBuilder value.
+    fn call_model_builder_method(
         &mut self,
         builder: Value,
         method: &str,
@@ -2798,23 +2798,23 @@ impl VM {
                 self.apply_builder_method(&mut new_builder, method, args)?;
                 Ok(new_builder)
             }
-            "execute" => self.execute_agent_builder(builder, args, None),
-            "execute_with_schema" => self.execute_agent_builder(builder, args, schema_name),
+            "execute" => self.execute_model_builder(builder, args, None),
+            "execute_with_schema" => self.execute_model_builder(builder, args, schema_name),
             _ => Err(RuntimeError::TypeError(format!(
-                "no method '{}' on AgentBuilder",
+                "no method '{}' on ModelBuilder",
                 method
             ))),
         }
     }
 
-    /// Execute an agent call using the accumulated builder configuration.
-    fn execute_agent_builder(
+    /// Execute a model call using the accumulated builder configuration.
+    fn execute_model_builder(
         &mut self,
         builder: Value,
         args: Vec<Value>,
         schema_name: Option<&str>,
     ) -> Result<Value> {
-        if let Value::AgentBuilder {
+        if let Value::ModelBuilder {
             source_name,
             source_kind,
             memory,
@@ -2835,27 +2835,27 @@ impl VM {
             let prompt = args.into_iter().next().unwrap_or(Value::Nil);
             let prompt_str = prompt.display_string();
 
-            // Check for mock override on agent builders
-            if matches!(source_kind, crate::value::BuilderSourceKind::Agent) {
-                if let Some(mock) = self.mock_agents.get(&source_name).cloned() {
+            // Check for mock override on model builders
+            if matches!(source_kind, crate::value::BuilderSourceKind::Model) {
+                if let Some(mock) = self.mock_models.get(&source_name).cloned() {
                     let method = if schema_name.is_some() {
                         "execute_with_schema"
                     } else {
                         "execute"
                     };
-                    return self.call_mock_agent(&source_name, method, mock, schema_name);
+                    return self.call_mock_model(&source_name, method, mock, schema_name);
                 }
             }
 
             // Dispatch based on source kind
             let (result_text, response_meta) = match source_kind {
-                crate::value::BuilderSourceKind::Agent => {
-                    let agent = self
+                crate::value::BuilderSourceKind::Model => {
+                    let model_def = self
                         .module
-                        .agents
+                        .models
                         .get(&source_name)
                         .ok_or_else(|| {
-                            RuntimeError::NameError(format!("unknown agent: {}", source_name))
+                            RuntimeError::NameError(format!("unknown model: {}", source_name))
                         })?
                         .clone();
 
@@ -2873,7 +2873,7 @@ impl VM {
                     });
 
                     let request = self.build_chat_request_full(
-                        &agent,
+                        &model_def,
                         &prompt_str,
                         response_format,
                         memory.as_deref(),
@@ -2881,7 +2881,7 @@ impl VM {
                         exclude_default_tools,
                     );
 
-                    let provider = self.connection_manager.get_provider(&agent.connection);
+                    let provider = self.connection_manager.get_provider(&model_def.connection);
                     let chat_response = provider.chat_completion(request)?;
                     (
                         chat_response.text,
@@ -2892,8 +2892,8 @@ impl VM {
                         )),
                     )
                 }
-                crate::value::BuilderSourceKind::Host => (
-                    self.host_registry
+                crate::value::BuilderSourceKind::Agent => (
+                    self.agent_registry
                         .execute(&source_name, &prompt_str, context.as_deref())?,
                     None,
                 ),
@@ -2928,14 +2928,14 @@ impl VM {
                         value: Box::new(Value::String(format!("unknown schema: {}", sname))),
                     })
                 }
-            } else if matches!(source_kind, crate::value::BuilderSourceKind::Host) {
-                // Hosts return Result<String>
+            } else if matches!(source_kind, crate::value::BuilderSourceKind::Agent) {
+                // Agents return Result<String>
                 Ok(Value::Result {
                     is_ok: true,
                     value: Box::new(Value::String(result_text)),
                 })
             } else {
-                // Agents return Response struct
+                // Models return Response struct
                 let (model, tokens_in, tokens_out) =
                     response_meta.unwrap_or_else(|| (String::new(), 0, 0));
                 let mut fields = std::collections::HashMap::new();
@@ -2952,7 +2952,7 @@ impl VM {
                 })
             }
         } else {
-            Err(RuntimeError::TypeError("expected AgentBuilder".into()))
+            Err(RuntimeError::TypeError("expected ModelBuilder".into()))
         }
     }
 
@@ -3082,14 +3082,14 @@ mod tests {
                 locals: vec![],
                 instructions,
             }],
-            agents: vec![],
+            models: vec![],
             tools: vec![],
             schemas: vec![],
             connections: vec![],
             hashmaps: vec![],
             ledgers: vec![],
             memories: vec![],
-            hosts: vec![],
+            agents: vec![],
             listens: vec![],
             pipelines: vec![],
             tests: vec![],
@@ -3109,7 +3109,7 @@ mod tests {
             op,
             arg: None,
             name: None,
-            agent: None,
+            model: None,
             method: None,
             schema: None,
             tool: None,
@@ -3345,14 +3345,14 @@ mod tests {
                     ],
                 },
             ],
-            agents: vec![],
+            models: vec![],
             tools: vec![],
             schemas: vec![],
             connections: vec![],
             hashmaps: vec![],
             ledgers: vec![],
             memories: vec![],
-            hosts: vec![],
+            agents: vec![],
             listens: vec![],
             pipelines: vec![],
             tests: vec![],
@@ -3868,14 +3868,14 @@ mod tests {
                     ],
                 },
             ],
-            agents: vec![],
+            models: vec![],
             tools: vec![],
             schemas: vec![],
             connections: vec![],
             hashmaps: vec![],
             ledgers: vec![],
             memories: vec![],
-            hosts: vec![],
+            agents: vec![],
             listens: vec![],
             pipelines: vec![],
             tests: vec![],
@@ -4135,12 +4135,12 @@ mod tests {
     #[test]
     fn build_chat_request_includes_memory_between_system_and_user_prompt() {
         let mut module = make_module(vec![inst(Opcode::Return)]);
-        module.agents = vec![IrAgent {
+        module.models = vec![IrModel {
             name: "Assistant".to_string(),
             module: "test".to_string(),
             connection: "openai".to_string(),
-            config: IrAgentConfig {
-                model: Some("gpt-4o-mini".to_string()),
+            config: IrModelConfig {
+                base: Some("gpt-4o-mini".to_string()),
                 temperature: Some(0.2),
                 max_tokens: Some(256),
                 system_prompt: Some("System prompt".to_string()),
@@ -4166,9 +4166,9 @@ mod tests {
             .append("conv", "assistant", "Earlier answer")
             .unwrap();
 
-        let agent = vm.module.agents.get("Assistant").unwrap().clone();
+        let model_def = vm.module.models.get("Assistant").unwrap().clone();
         let request =
-            vm.build_chat_request_full(&agent, "Current question", None, Some("conv"), &[], false);
+            vm.build_chat_request_full(&model_def, "Current question", None, Some("conv"), &[], false);
 
         assert_eq!(request.messages.len(), 4);
         assert_eq!(request.messages[0].role, "system");
@@ -4184,12 +4184,12 @@ mod tests {
     #[test]
     fn build_chat_request_merges_and_deduplicates_static_and_dynamic_tools() {
         let mut module = make_module(vec![inst(Opcode::Return)]);
-        module.agents = vec![IrAgent {
+        module.models = vec![IrModel {
             name: "Worker".to_string(),
             module: "test".to_string(),
             connection: "openai".to_string(),
-            config: IrAgentConfig {
-                model: Some("gpt-4o-mini".to_string()),
+            config: IrModelConfig {
+                base: Some("gpt-4o-mini".to_string()),
                 temperature: None,
                 max_tokens: None,
                 system_prompt: None,
@@ -4239,9 +4239,9 @@ mod tests {
         let loaded = LoadedModule::from_ir(module).unwrap();
         let vm = VM::new(loaded);
 
-        let agent = vm.module.agents.get("Worker").unwrap().clone();
+        let model_def = vm.module.models.get("Worker").unwrap().clone();
         let extra_tools = vec!["Calculator".to_string(), "Formatter".to_string()];
-        let request = vm.build_chat_request_full(&agent, "prompt", None, None, &extra_tools, false);
+        let request = vm.build_chat_request_full(&model_def, "prompt", None, None, &extra_tools, false);
 
         let mut tool_names: Vec<String> = request
             .tools
@@ -4257,12 +4257,12 @@ mod tests {
     #[test]
     fn build_chat_request_without_tools_excludes_static_but_keeps_dynamic() {
         let mut module = make_module(vec![inst(Opcode::Return)]);
-        module.agents = vec![IrAgent {
+        module.models = vec![IrModel {
             name: "Worker".to_string(),
             module: "test".to_string(),
             connection: "openai".to_string(),
-            config: IrAgentConfig {
-                model: Some("gpt-4o-mini".to_string()),
+            config: IrModelConfig {
+                base: Some("gpt-4o-mini".to_string()),
                 temperature: None,
                 max_tokens: None,
                 system_prompt: None,
@@ -4299,9 +4299,9 @@ mod tests {
         let loaded = LoadedModule::from_ir(module).unwrap();
         let vm = VM::new(loaded);
 
-        let agent = vm.module.agents.get("Worker").unwrap().clone();
+        let model_def = vm.module.models.get("Worker").unwrap().clone();
         let extra_tools = vec!["Formatter".to_string()];
-        let request = vm.build_chat_request_full(&agent, "prompt", None, None, &extra_tools, true);
+        let request = vm.build_chat_request_full(&model_def, "prompt", None, None, &extra_tools, true);
 
         let tool_names: Vec<String> = request
             .tools

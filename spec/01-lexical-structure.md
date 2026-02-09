@@ -66,7 +66,7 @@ The following identifiers are reserved as keywords and cannot be used as variabl
 | `mut` | Mutable modifier |
 | `const` | Compile-time constant |
 | `fn` | Function declaration |
-| `agent` | Agent definition |
+| `model` | Model definition |
 | `tool` | Tool definition |
 | `struct` | Struct type definition |
 | `enum` | Enum type definition |
@@ -138,7 +138,7 @@ The following identifiers are reserved as keywords and cannot be used as variabl
 
 ## Identifiers
 
-Identifiers name variables, functions, types, agents, tools, and modules.
+Identifiers name variables, functions, types, models, tools, and modules.
 
 ```
 identifier = [a-zA-Z_][a-zA-Z0-9_]*
@@ -146,9 +146,9 @@ identifier = [a-zA-Z_][a-zA-Z0-9_]*
 
 ### Conventions
 - Variables and functions: `snake_case` (e.g., `my_variable`, `process_data`)
-- Types, agents, tools, schemas: `PascalCase` (e.g., `Classifier`, `FileConnector`, `OutputSchema`)
+- Types, models, agents, tools, schemas: `PascalCase` (e.g., `Classifier`, `FileConnector`, `OutputSchema`)
 - Constants: `SCREAMING_SNAKE_CASE` (e.g., `MAX_RETRIES`, `DEFAULT_MODEL`)
-- Modules: `snake_case` (e.g., `agents::classifier`)
+- Modules: `snake_case` (e.g., `models::classifier`)
 
 ## Literals
 
@@ -206,7 +206,7 @@ let name = "World";
 let greeting = "Hello, ${name}!";                    // Simple variable
 let computed = "Result: ${2 + 2}";                   // Expression
 let method = "Upper: ${name.to_upper()}";            // Method call
-let nested = "Agent says: ${agent.execute(prompt)?}"; // Complex expression
+let nested = "Model says: ${model.execute(prompt)?}"; // Complex expression
 ```
 
 Interpolation uses `${}` syntax. Any valid expression can appear inside the braces.
@@ -343,7 +343,7 @@ let triple = (true, 42, "world");
 | Delimiter | Purpose |
 |-----------|---------|
 | `(` `)` | Grouping, function parameters, tuple |
-| `{` `}` | Blocks, map literals, struct/agent/tool bodies |
+| `{` `}` | Blocks, map literals, struct/model/agent/tool bodies |
 | `[` `]` | Array literals, index access |
 | `,` | Separator in lists |
 | `;` | Statement terminator |

@@ -2,13 +2,13 @@
 
 ## Overview
 
-Tools are capabilities that agents can invoke during execution. They map to the LLM function-calling interface -- when an LLM decides it needs to use a tool, the runtime intercepts the request, executes the tool method, and returns the result to the LLM.
+Tools are capabilities that models can invoke during execution. They map to the LLM function-calling interface -- when an LLM decides it needs to use a tool, the runtime intercepts the request, executes the tool method, and returns the result to the LLM.
 
 Tools come in two forms:
 1. **Local tools** -- Defined and implemented in Concerto
 2. **MCP tools** -- Declared in Concerto as typed interfaces, implemented by external MCP servers
 
-Both forms are compile-time type-checked and interchangeable on agent `tools:` arrays.
+Both forms are compile-time type-checked and interchangeable on model `tools:` arrays.
 
 ## Tool Definition
 
@@ -43,7 +43,7 @@ tool ToolName {
 Doc comments (`///`) are ambiguous -- they serve as both developer documentation and LLM-facing descriptions. This creates problems:
 - A developer might add a `///` comment above any function for documentation purposes, not intending it as an LLM tool description
 - The boundary between "this is for developers" and "this is for the LLM" becomes unclear
-- Missing descriptions silently degrade agent performance rather than failing loudly
+- Missing descriptions silently degrade model performance rather than failing loudly
 
 The `@describe`/`@param` decorators are **compiler-enforced** -- they are part of the language grammar, not comments. This makes tool descriptions a first-class, required part of tool definitions.
 
@@ -286,22 +286,22 @@ mcp GitHubServer {
 
 5. **Transport configuration** -- `transport: "stdio"` launches a subprocess; `transport: "sse"` connects to an HTTP endpoint. Additional transport types can be added as the MCP spec evolves.
 
-## Attaching Tools to Agents
+## Attaching Tools to Models
 
-Both local tools and MCP tools attach to agents uniformly via the `tools:` array:
+Both local tools and MCP tools attach to models uniformly via the `tools:` array:
 
 ```concerto
-agent ResearchAssistant {
+model ResearchAssistant {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     system_prompt: "You are a research assistant with web search, file access, and GitHub integration.",
     tools: [WebSearcher, FileConnector, GitHubServer],
 }
 ```
 
-When the agent makes a tool call:
+When the model makes a tool call:
 1. Runtime receives the tool call from the LLM
-2. Runtime looks up the tool in the agent's tool registry
+2. Runtime looks up the tool in the model's tool registry
 3. **For local tools**: Runtime invokes the tool method with the provided arguments
 4. **For MCP tools**: Runtime forwards the call to the MCP server via the configured transport
 5. The tool method executes and returns a result
@@ -399,7 +399,7 @@ Tool methods return `Result<T, ToolError>`. When a tool fails:
 
 1. The error is sent back to the LLM as a tool result
 2. The LLM can decide to retry, use a different approach, or report the error
-3. The agent's `on_tool_error` hook (if defined) is called
+3. The model's `on_tool_error` hook (if defined) is called
 
 ```concerto
 impl ResearchAssistant {

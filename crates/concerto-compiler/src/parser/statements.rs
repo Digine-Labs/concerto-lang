@@ -116,19 +116,19 @@ impl Parser {
         Some(Stmt::Throw(ThrowStmt { value, span }))
     }
 
-    /// Parse `mock AgentName { response: "...", }`.
+    /// Parse `mock ModelName { response: "...", }`.
     fn parse_mock_stmt(&mut self) -> Option<Stmt> {
         let start = self.current_span();
         self.advance(); // consume 'mock'
 
         let name_token = self.expect(TokenKind::Identifier)?;
-        let agent_name = name_token.lexeme.clone();
+        let model_name = name_token.lexeme.clone();
 
         let fields = self.parse_config_fields()?;
         let span = start.merge(&self.previous_span());
 
         Some(Stmt::Mock(MockStmt {
-            agent_name,
+            model_name,
             fields,
             span,
         }))

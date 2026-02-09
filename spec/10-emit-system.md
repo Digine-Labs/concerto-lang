@@ -26,7 +26,7 @@ emit("classification", {
 });
 
 // Emit a variable
-let result = agent.execute(prompt)?;
+let result = model.execute(prompt)?;
 emit("response", result.text);
 
 // Emit without payload

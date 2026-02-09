@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `concerto init` command scaffolds a new Concerto project with a working directory structure, a `Concerto.toml` manifest, a hello-world agent program, and a `.gitignore` file. It provides a zero-friction entry point for new users.
+The `concerto init` command scaffolds a new Concerto project with a working directory structure, a `Concerto.toml` manifest, a hello-world model program, and a `.gitignore` file. It provides a zero-friction entry point for new users.
 
 ## Command Syntax
 
@@ -88,7 +88,7 @@ default_model = "llama3.1"
 
 ### src/main.conc
 
-A minimal but complete agent program that demonstrates schema-validated LLM output. The `provider:` name matches the TOML connection name.
+A minimal but complete model program that demonstrates schema-validated LLM output. The `provider:` name matches the TOML connection name.
 
 ```concerto
 schema Greeting {
@@ -96,9 +96,9 @@ schema Greeting {
     language: String,
 }
 
-agent Greeter {
+model Greeter {
     provider: <connection_name>,
-    model: "<default_model>",
+    base: "<default_model>",
     temperature: 0.7,
     system_prompt: "You are a friendly multilingual greeter. Always respond with valid JSON.",
 }

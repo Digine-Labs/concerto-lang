@@ -2,7 +2,7 @@
 
 **A programming language for orchestrating AI agents.**
 
-Concerto provides a Rust-like syntax purpose-built for designing complex AI harnesses. Define agents, tools, memory databases, and multi-step pipelines as code -- then let the Concerto runtime handle LLM connections, structured output validation, and external integration.
+Concerto provides a Rust-like syntax purpose-built for designing complex AI harnesses. Define models, tools, memory databases, and multi-step pipelines as code -- then let the Concerto runtime handle LLM connections, structured output validation, and external integration.
 
 ## Why Concerto?
 
@@ -31,9 +31,9 @@ schema Classification {
     reasoning: String,
 }
 
-agent Classifier {
+model Classifier {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.2,
     system_prompt: "You are a document classifier.",
 }
@@ -53,18 +53,18 @@ fn main() {
 
 ## Key Features
 
-- **Agents as first-class constructs** -- Define LLM-powered agents with model, provider, temperature, system prompt, tools, and memory
-- **Agent memory** -- `memory` declarations plus `with_memory(...)` for multi-turn context injection and auto-append chat history
+- **Models as first-class constructs** -- Define LLM-powered models with base model, provider, temperature, system prompt, tools, and memory
+- **Model memory** -- `memory` declarations plus `with_memory(...)` for multi-turn context injection and auto-append chat history
 - **Dynamic tool binding** -- `with_tools([...])` adds tools per-execution, `without_tools()` strips default tools for focused runs
 - **Schema validation** -- Define expected output structures; runtime validates and auto-retries on mismatch
-- **First-class pipelines** -- `pipeline`/`stage` keywords for declarative multi-agent workflows
+- **First-class pipelines** -- `pipeline`/`stage` keywords for declarative multi-model workflows
 - **Bidirectional emit system** -- Runtime outputs that enable programmatic integration with host applications
-- **In-memory databases** -- Map-like storage for agent query design and harness state (ledger)
-- **Tools** -- Define tools as classes that agents can invoke, with auto-generated parameter schemas
+- **In-memory databases** -- Map-like storage for model query design and harness state (ledger)
+- **Tools** -- Define tools as classes that models can invoke, with auto-generated parameter schemas
 - **Strong type system** -- Static typing with inference, including AI-specific types (`Prompt`, `Response`, `Schema<T>`)
 - **Dual error handling** -- `Result<T,E>` with `?` propagation and `try`/`catch` for flexibility
-- **Async-native** -- All agent execution is async; parallel execution with `await (a, b, c)`
-- **Pipe operator** -- `prompt |> agent.execute() |> parse_schema(Output) |> emit("result")`
+- **Async-native** -- All model execution is async; parallel execution with `await (a, b, c)`
+- **Pipe operator** -- `prompt |> model.execute() |> parse_schema(Output) |> emit("result")`
 - **LLM provider agnostic** -- use manifest-based `[connections.*]` entries for OpenAI, Anthropic, Google, Ollama, or custom providers
 
 ## Architecture
@@ -82,14 +82,14 @@ fn main() {
        |
        v
  +-----------+
- |  RUNTIME  |  Stack-based VM with agent, tool, memory, and emit systems
+ |  RUNTIME  |  Stack-based VM with model, tool, memory, and emit systems
  +-----------+
        |
        v
  Emits (programmatic output to host application)
 ```
 
-## Example: Multi-Agent Pipeline
+## Example: Multi-Model Pipeline
 
 ```concerto
 schema Classification {
@@ -110,9 +110,9 @@ pipeline DocumentProcessor {
 
     stage route(classification: Classification) {
         match classification.label {
-            "legal" => LegalAgent.execute(classification)?,
-            "technical" => TechAgent.execute(classification)?,
-            _ => DefaultAgent.execute(classification)?,
+            "legal" => LegalModel.execute(classification)?,
+            "technical" => TechModel.execute(classification)?,
+            _ => DefaultModel.execute(classification)?,
         }
     }
 }
@@ -169,13 +169,13 @@ concerto run hello.conc-ir
 
 ## Example Projects
 
-- `examples/hello_agent` -- minimal single-agent flow
+- `examples/hello_agent` -- minimal single-model flow
 - `examples/tool_usage` -- local tools + MCP tool interfaces
 - `examples/multi_agent_pipeline` -- multi-stage orchestration
 - `examples/agent_memory_conversation` -- spec 24 memory patterns (`with_memory`, manual mode, message queries)
 - `examples/dynamic_tool_binding` -- spec 25 dynamic tool composition (`with_tools`, `without_tools`)
-- `examples/host_streaming` -- spec 27 listen syntax with external host streaming
-- `examples/bidirectional_host_middleware` -- self-contained bidirectional host middleware test (includes local host process)
+- `examples/host_streaming` -- spec 27 listen syntax with external agent streaming
+- `examples/bidirectional_host_middleware` -- self-contained bidirectional agent middleware test (includes local agent process)
 - `examples/core_language_tour` -- broad core syntax/semantics coverage (types, control flow, loops, traits/impls, hashmap, Result)
 - `examples/modules_and_visibility` -- module/import/visibility syntax coverage (`use`, `mod`, `pub`)
 - `examples/error_handling_matrix` -- Option/Result + `?` + `try/catch/throw` runtime behavior matrix
@@ -184,9 +184,9 @@ concerto run hello.conc-ir
 - `examples/schema_validation_modes` -- strict schema + fallback/optional schema + manual coercion strategy patterns
 - `examples/testing` -- `@test`/`@expect_fail` decorator examples with mock agents, assertions, and emit capture
 
-Host adapter reference projects:
+Agent adapter reference projects:
 
-- `hosts/claude_code` -- reference middleware that bridges Concerto host protocol to Claude Code CLI (`oneshot` + `listen`/stream modes)
+- `agents/claude_code` -- reference middleware that bridges Concerto agent protocol to Claude Code CLI (`oneshot` + `listen`/stream modes)
 
 ## Standard Library
 
@@ -216,7 +216,7 @@ Language specifications are in the [spec/](spec/) directory:
 - [Operators and Expressions](spec/04-operators-and-expressions.md)
 - [Control Flow](spec/05-control-flow.md)
 - [Functions](spec/06-functions.md)
-- [Agents](spec/07-agents.md)
+- [Models](spec/07-models.md)
 - [Tools](spec/08-tools.md)
 - [Memory and Databases](spec/09-memory-and-databases.md)
 - [Emit System](spec/10-emit-system.md)
@@ -233,19 +233,19 @@ Language specifications are in the [spec/](spec/) directory:
 - [Ledger System](spec/21-ledger.md)
 - [Project Manifest](spec/22-project-manifest.md)
 - [Project Scaffolding](spec/23-project-scaffolding.md)
-- [Agent Memory](spec/24-agent-memory.md)
+- [Model Memory](spec/24-model-memory.md)
 - [Dynamic Tool Binding](spec/25-dynamic-tool-binding.md)
-- [Hosts](spec/26-hosts.md)
-- [Host Streaming](spec/27-host-streaming.md)
+- [Agents](spec/26-agents.md)
+- [Agent Streaming](spec/27-agent-streaming.md)
 - [Testing](spec/28-testing.md)
-- [Host Initialization](spec/29-host-initialization.md)
+- [Agent Initialization](spec/29-agent-initialization.md)
 - [Pipeline Type Contracts](spec/30-pipeline-type-contracts.md)
 
 ## Project Status
 
 See [STATUS.md](STATUS.md) for detailed project tracking.
 
-**Current:** Phase 1-8 + Specs 29-30 complete (latest: host initialization params with `init`/`init_ack` protocol, pipeline stage type contracts with adjacency checking and signature syntax).
+**Current:** Phase 1-8 + Specs 29-30 complete (latest: agent initialization params with `init`/`init_ack` protocol, pipeline stage type contracts with adjacency checking and signature syntax).
 
 ## License
 

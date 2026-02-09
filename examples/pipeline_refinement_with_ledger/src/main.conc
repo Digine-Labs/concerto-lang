@@ -16,17 +16,17 @@ schema VerdictPacket {
 ledger facts: Ledger = Ledger::new();
 hashmap pipeline_state: HashMap<String, Any> = HashMap::new();
 
-agent PipelineWriter {
+model PipelineWriter {
     provider: openai,
-    model: "gpt-4o-mini",
+    base: "gpt-4o-mini",
     temperature: 0.7,
     max_tokens: 1100,
     system_prompt: "Draft practical technical guidance with concise structure.",
 }
 
-agent PipelineReviewer {
+model PipelineReviewer {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     temperature: 0.1,
     max_tokens: 900,
     system_prompt: "Review drafts against context and improve weak sections.",
@@ -143,7 +143,7 @@ fn main() {
         },
         Err(e) => {
             emit("pipeline_error", {
-                "message": e.message,
+                "message": e,
                 "question": question,
             });
         },

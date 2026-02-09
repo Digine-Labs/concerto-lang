@@ -2,9 +2,9 @@
 
 ## Overview
 
-Concerto provides an in-memory key-value hashmap system for agent coordination and harness state management. HashMaps act as a **shared state store** -- agents can read and write data, enabling communication between pipeline stages and maintaining context across interactions.
+Concerto provides an in-memory key-value hashmap system for model coordination and harness state management. HashMaps act as a **shared state store** -- models can read and write data, enabling communication between pipeline stages and maintaining context across interactions.
 
-> **Note**: For fault-tolerant knowledge retrieval with similarity-based querying (designed for AI agents that may issue imprecise queries), see the [Ledger System](21-ledger.md). HashMaps (`hashmap`) are for exact-key typed state management; Ledgers (`ledger`) are for tagged knowledge with fuzzy matching.
+> **Note**: For fault-tolerant knowledge retrieval with similarity-based querying (designed for AI models that may issue imprecise queries), see the [Ledger System](21-ledger.md). HashMaps (`hashmap`) are for exact-key typed state management; Ledgers (`ledger`) are for tagged knowledge with fuzzy matching.
 
 ## HashMap Declaration
 
@@ -125,7 +125,7 @@ for (key, value) in entries {
 
 ## Scoping
 
-Scopes create namespaced views of a hashmap. This allows multiple agents to share one physical hashmap while operating on isolated key spaces.
+Scopes create namespaced views of a hashmap. This allows multiple models to share one physical hashmap while operating on isolated key spaces.
 
 ```concerto
 hashmap shared: HashMap<String, String> = HashMap::new();
@@ -166,21 +166,21 @@ stage_scope.set("output", extracted_text);
 ```concerto
 hashmap harness_db: HashMap<String, Any> = HashMap::new();
 
-agent Classifier {
+model Classifier {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     memory: harness_db.scope("classifier"),
     // Agent reads/writes to "classifier:*" keys
 }
 
-agent Summarizer {
+model Summarizer {
     provider: openai,
-    model: "gpt-4o",
+    base: "gpt-4o",
     memory: harness_db.scope("summarizer"),
     // Agent reads/writes to "summarizer:*" keys
 }
 
-// Both agents share the same physical hashmap but have isolated namespaces
+// Both models share the same physical hashmap but have isolated namespaces
 ```
 
 ## Reactive Events
@@ -213,7 +213,7 @@ state.set("status", "processing");
 
 ## Concurrency Safety
 
-HashMaps are safe to access from concurrent agent executions. The runtime provides:
+HashMaps are safe to access from concurrent model executions. The runtime provides:
 
 1. **Atomic operations**: `set`, `get`, `delete` are atomic
 2. **Read-write consistency**: reads always return the latest written value

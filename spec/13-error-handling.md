@@ -71,7 +71,7 @@ Imperative error handling for cases where catching and handling errors at specif
 
 ```concerto
 try {
-    let response = agent.execute(prompt)?;
+    let response = model.execute(prompt)?;
     let parsed = parse_schema<Output>(response)?;
     emit("result", parsed);
 } catch {
@@ -85,7 +85,7 @@ Catch specific error types:
 
 ```concerto
 try {
-    let response = agent.execute(prompt)?;
+    let response = model.execute(prompt)?;
     let parsed = parse_schema<Output>(response)?;
     emit("result", parsed);
 } catch AgentError(e) {
@@ -132,7 +132,7 @@ return Err(SomeError("message"));
 
 ```concerto
 let result: Result<Classification, AgentError> = try {
-    let response = agent.execute(prompt)?;
+    let response = model.execute(prompt)?;
     parse_schema<Classification>(response)?
 };
 ```
@@ -238,7 +238,7 @@ impl From<AgentError> for ProcessError {
 
 fn process() -> Result<String, ProcessError> {
     // AgentError automatically converted to ProcessError via From
-    let response = agent.execute(prompt)?;
+    let response = model.execute(prompt)?;
     Ok(response.text)
 }
 ```
@@ -316,14 +316,14 @@ let is_err = result.is_err();                       // false
 ### Retry with Backoff
 
 ```concerto
-fn retry_agent_call(
+fn retry_model_call(
     prompt: String,
     max_attempts: Int,
 ) -> Result<Response, AgentError> {
     let mut last_error: Option<AgentError> = None;
 
     for attempt in 1..=max_attempts {
-        match agent.execute(prompt) {
+        match model.execute(prompt) {
             Ok(response) => return Ok(response),
             Err(e) => {
                 last_error = Some(e);
@@ -370,7 +370,7 @@ fn process_all(items: Array<String>) -> (Array<String>, Array<AgentError>) {
     let mut errors = [];
 
     for item in items {
-        match agent.execute(item) {
+        match model.execute(item) {
             Ok(response) => successes.push(response.text),
             Err(e) => errors.push(e),
         }

@@ -95,7 +95,7 @@ let message = match status_code {
 
 ```concerto
 // Result pattern
-match agent.execute(prompt) {
+match model.execute(prompt) {
     Ok(response) => {
         emit("result", response.text);
     },
@@ -227,7 +227,7 @@ let mut attempts = 0;
 let mut success = false;
 
 while attempts < MAX_RETRIES && !success {
-    match agent.execute(prompt) {
+    match model.execute(prompt) {
         Ok(response) => {
             success = true;
             emit("result", response.text);
@@ -248,7 +248,7 @@ Unconditional loop. Must exit with `break`.
 let mut counter = 0;
 
 loop {
-    let response = agent.execute(prompt)?;
+    let response = model.execute(prompt)?;
 
     if response.text.contains("DONE") {
         break;
@@ -267,7 +267,7 @@ loop {
 
 ```concerto
 let result = loop {
-    let response = agent.execute(prompt)?;
+    let response = model.execute(prompt)?;
     let parsed = parse_schema<Output>(response);
 
     match parsed {
@@ -341,7 +341,7 @@ fn classify(text: String) -> Result<String, AgentError> {
         return Err(AgentError::new("Empty input"));
     }
 
-    let response = agent.execute(text)?;
+    let response = model.execute(text)?;
     Ok(response.text)   // Implicit return (last expression)
 }
 ```
@@ -360,7 +360,7 @@ fn add(a: Int, b: Int) -> Int {
 
 ## Pipeline / Stage
 
-First-class pipeline construct for multi-step agent workflows. See [15-concurrency-and-pipelines.md](15-concurrency-and-pipelines.md) for the full specification.
+First-class pipeline construct for multi-step model workflows. See [15-concurrency-and-pipelines.md](15-concurrency-and-pipelines.md) for the full specification.
 
 ```concerto
 pipeline DocumentProcessor {
@@ -374,9 +374,9 @@ pipeline DocumentProcessor {
 
     stage route(result: Classification) -> String {
         match result.label {
-            "legal" => LegalAgent.execute(result)?,
-            "technical" => TechAgent.execute(result)?,
-            _ => DefaultAgent.execute(result)?,
+            "legal" => LegalModel.execute(result)?,
+            "technical" => TechModel.execute(result)?,
+            _ => DefaultModel.execute(result)?,
         }
     }
 }

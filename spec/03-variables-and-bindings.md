@@ -72,7 +72,7 @@ let result: Result<String, AgentError>;  // Declared but not yet assigned (rare)
 - Empty collections: `let items: Array<Int> = [];`
 - Ambiguous numeric literals (if needed): `let x: Float = 5;`
 - Function parameters and return types (always required)
-- Struct and agent field definitions (always required)
+- Struct and model field definitions (always required)
 
 ## Destructuring
 

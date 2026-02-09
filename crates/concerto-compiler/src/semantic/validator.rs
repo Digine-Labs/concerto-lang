@@ -42,7 +42,7 @@ impl Validator {
     fn validate_declaration(&mut self, decl: &Declaration) {
         match decl {
             Declaration::Function(f) => self.validate_function(f),
-            Declaration::Agent(a) => self.validate_agent(a),
+            Declaration::Model(a) => self.validate_model(a),
             Declaration::Tool(t) => self.validate_tool(t),
             Declaration::Schema(s) => self.validate_schema(s),
             Declaration::Struct(s) => self.validate_struct(s),
@@ -89,15 +89,15 @@ impl Validator {
         }
     }
 
-    fn validate_agent(&mut self, agent: &AgentDecl) {
-        let has_provider = agent.fields.iter().any(|f| f.name == "provider");
+    fn validate_model(&mut self, model: &ModelDecl) {
+        let has_provider = model.fields.iter().any(|f| f.name == "provider");
         if !has_provider {
             self.diagnostics.report(
                 Diagnostic::error(format!(
-                    "agent `{}` is missing required field `provider`",
-                    agent.name
+                    "model `{}` is missing required field `provider`",
+                    model.name
                 ))
-                .with_span(agent.span.clone())
+                .with_span(model.span.clone())
                 .with_suggestion(
                     "add a 'provider: <connection>' field referencing a connect block",
                 ),
@@ -347,8 +347,8 @@ mod tests {
     fn agent_missing_provider() {
         let errs = val_errors(
             r#"
-            agent MyAgent {
-                model: "gpt-4o",
+            model MyAgent {
+                base: "gpt-4o",
             }
             "#,
         );
@@ -361,9 +361,9 @@ mod tests {
     fn agent_with_provider_ok() {
         let errs = val_errors(
             r#"
-            agent MyAgent {
+            model MyAgent {
                 provider: openai,
-                model: "gpt-4o",
+                base: "gpt-4o",
             }
             "#,
         );
@@ -600,8 +600,8 @@ mod tests {
     fn agent_missing_provider_has_suggestion() {
         let diags = full_val_diagnostics(
             r#"
-            agent MyAgent {
-                model: "gpt-4o",
+            model MyAgent {
+                base: "gpt-4o",
             }
             "#,
         );

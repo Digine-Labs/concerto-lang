@@ -1,44 +1,44 @@
-# 29. Host Initialization Arguments
+# 29. Agent Initialization Arguments
 
 ## Overview
 
-Hosts are **middleware applications** — typically TypeScript or Python projects — that sit between Concerto and external tools or agent systems. Concerto spawns the middleware process and communicates via stdio. The middleware internally manages whatever it wraps (Claude Code, a custom LLM pipeline, a code analysis tool, etc.).
+Agents are **middleware applications** — typically TypeScript or Python projects — that sit between Concerto and external tools or agent systems. Concerto spawns the middleware process and communicates via stdio. The middleware internally manages whatever it wraps (Claude Code, a custom LLM pipeline, a code analysis tool, etc.).
 
 ```
-Concerto Runtime  <--stdio-->  Host Middleware (TS/Python)  --->  Claude Code / LLM / Tool
+Concerto Runtime  <--stdio-->  Agent Middleware (TS/Python)  --->  Claude Code / LLM / Tool
 ```
 
 Middleware often needs structured configuration at startup — working directories, model names, API endpoints, permission lists. Currently these must be encoded as positional CLI `args` in `Concerto.toml`, which is unstructured and fragile.
 
-This spec adds a `[hosts.<name>.params]` TOML table for named initialization parameters, and a wire protocol `init` message to deliver them to the middleware at spawn time.
+This spec adds an `[agents.<name>.params]` TOML table for named initialization parameters, and a wire protocol `init` message to deliver them to the middleware at spawn time.
 
 ## Manifest Configuration
 
 ### Params Table
 
-A `[hosts.<name>.params]` table in `Concerto.toml` defines named arguments passed to the host middleware at initialization:
+An `[agents.<name>.params]` table in `Concerto.toml` defines named arguments passed to the agent middleware at initialization:
 
 ```toml
 # A TypeScript middleware that internally manages Claude Code
-[hosts.claude_code_host]
+[agents.claude_code_agent]
 transport = "stdio"
 command = "npx"
 args = ["ts-node", "hosts/claude-code-host/index.ts"]
 timeout = 600
 
-[hosts.claude_code_host.params]
+[agents.claude_code_agent.params]
 work_dir = "/home/user/my-project"
 model = "opus"
 allowed_tools = ["read", "write", "bash"]
 
 # A Python middleware that wraps a custom LLM pipeline
-[hosts.researcher]
+[agents.researcher]
 transport = "stdio"
 command = "python"
 args = ["hosts/researcher/main.py"]
 timeout = 300
 
-[hosts.researcher.params]
+[agents.researcher.params]
 model = "gpt-4o"
 api_endpoint = "https://api.openai.com/v1"
 max_tokens = 4096
@@ -63,11 +63,11 @@ Nested objects and arrays are fully supported. The params table is serialized as
 
 ### No Source Changes
 
-The `.conc` source does not change. Host declarations remain purely structural:
+The `.conc` source does not change. Agent declarations remain purely structural:
 
 ```concerto
-host ClaudeCodeHost {
-    connector: "claude_code_host",
+agent ClaudeCodeAgent {
+    connector: "claude_code_agent",
     output_format: "json",
 }
 ```
@@ -78,7 +78,7 @@ Params are a deployment concern (which directory, which model, which permissions
 
 ### Init Message
 
-When the runtime spawns a host middleware that has a `[hosts.<name>.params]` table, it sends an **init message** as the first NDJSON line before any prompts:
+When the runtime spawns an agent middleware that has an `[agents.<name>.params]` table, it sends an **init message** as the first NDJSON line before any prompts:
 
 ```
 --> {"type": "init", "params": {"work_dir": "/home/user/my-project", "model": "opus", "allowed_tools": ["read", "write", "bash"]}}
@@ -120,9 +120,9 @@ Example with metadata:
 
 If the middleware does **not** respond with `init_ack`:
 
-- **Timeout**: If no response arrives within the host's configured `timeout` (or a default init timeout of 10 seconds), the runtime raises a hard error: `"host '<name>' did not acknowledge initialization"`. This ensures the middleware is params-aware.
+- **Timeout**: If no response arrives within the agent's configured `timeout` (or a default init timeout of 10 seconds), the runtime raises a hard error: `"agent '<name>' did not acknowledge initialization"`. This ensures the middleware is params-aware.
 - **Error response**: If the middleware responds with `{"type": "error", "message": "..."}` instead of `init_ack`, the runtime raises the error immediately.
-- **No params**: If the host has no `[hosts.<name>.params]` table (or it is empty), the runtime skips the init message entirely and proceeds directly to prompts. This provides backwards compatibility with existing middleware.
+- **No params**: If the agent has no `[agents.<name>.params]` table (or it is empty), the runtime skips the init message entirely and proceeds directly to prompts. This provides backwards compatibility with existing middleware.
 
 ### Init vs Prompt
 
@@ -137,10 +137,10 @@ If the middleware does **not** respond with `init_ack`:
 
 ### IR Embedding
 
-The compiler already embeds host TOML config (`command`, `args`, `env`, `working_dir`) into `IrHost` at compile time. The `params` table is added as a new field:
+The compiler already embeds agent TOML config (`command`, `args`, `env`, `working_dir`) into `IrAgent` at compile time. The `params` table is added as a new field:
 
 ```rust
-pub struct IrHost {
+pub struct IrAgent {
     pub name: String,
     pub connector: String,
     pub input_format: String,
@@ -151,19 +151,19 @@ pub struct IrHost {
     pub args: Option<Vec<String>>,
     pub env: Option<HashMap<String, String>>,
     pub working_dir: Option<String>,
-    // NEW: initialization params from [hosts.<name>.params]
+    // NEW: initialization params from [agents.<name>.params]
     pub params: Option<serde_json::Value>,
 }
 ```
 
-The `embed_manifest_hosts()` function in the compiler merges the `params` table from TOML into the IR alongside existing fields.
+The `embed_manifest_agents()` function in the compiler merges the `params` table from TOML into the IR alongside existing fields.
 
 ### Manifest Parsing
 
-The `HostConfig` struct in `manifest.rs` gains a `params` field:
+The `AgentConfig` struct in `manifest.rs` gains a `params` field:
 
 ```rust
-pub struct HostConfig {
+pub struct AgentConfig {
     pub transport: String,
     pub command: Option<String>,
     pub args: Option<Vec<String>>,
@@ -175,13 +175,13 @@ pub struct HostConfig {
 }
 ```
 
-TOML nested tables under `[hosts.<name>.params]` are automatically deserialized into `serde_json::Value` by the serde TOML parser.
+TOML nested tables under `[agents.<name>.params]` are automatically deserialized into `serde_json::Value` by the serde TOML parser.
 
 ## Runtime Behavior
 
-### HostClient Changes
+### AgentClient Changes
 
-The `HostClient` in `host.rs` gains init support:
+The `AgentClient` in `host.rs` gains init support:
 
 1. On `ensure_connected()`, after spawning the subprocess, check if `params` is `Some`.
 2. If so, write the init message as the first NDJSON line.
@@ -204,23 +204,23 @@ fn send_init(&mut self, params: &serde_json::Value) -> Result<(), RuntimeError> 
         Some("init_ack") => Ok(()),
         Some("error") => {
             let msg = parsed.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
-            Err(RuntimeError::host_error(format!("host init failed: {}", msg)))
+            Err(RuntimeError::host_error(format!("agent init failed: {}", msg)))
         }
-        _ => Err(RuntimeError::host_error("host did not acknowledge initialization")),
+        _ => Err(RuntimeError::host_error("agent did not acknowledge initialization")),
     }
 }
 ```
 
-### IrHost to HostClient Flow
+### IrAgent to AgentClient Flow
 
 ```
-IrHost.params (from IR)
+IrAgent.params (from IR)
     |
     v
-HostRegistry.register() stores params alongside client
+AgentRegistry.register() stores params alongside client
     |
     v
-HostClient.ensure_connected() checks params
+AgentClient.ensure_connected() checks params
     |
     v
 If params present: send_init() -> wait init_ack
@@ -310,11 +310,11 @@ if __name__ == "__main__":
 
 ## Use Cases
 
-| Host Middleware | Param | Purpose |
+| Agent Middleware | Param | Purpose |
 |----------------|-------|---------|
-| Claude Code Host | `work_dir` | Directory where Claude Code operates |
-| Claude Code Host | `model` | Which Claude model the middleware passes to Claude |
-| Claude Code Host | `allowed_tools` | Tool permissions for the Claude session |
+| Claude Code Agent | `work_dir` | Directory where Claude Code operates |
+| Claude Code Agent | `model` | Which Claude model the middleware passes to Claude |
+| Claude Code Agent | `allowed_tools` | Tool permissions for the Claude session |
 | Python Researcher | `model` | LLM model name for the research pipeline |
 | Python Researcher | `api_endpoint` | Custom API endpoint |
 | Python Researcher | `search_provider` | Which search API to use (tavily, serper, etc.) |
@@ -328,8 +328,8 @@ if __name__ == "__main__":
 ### Why TOML, Not Source
 
 - **Deployment-specific**: Working directories, models, API endpoints vary per environment — they belong in config.
-- **Middleware concern**: The `.conc` source defines agent orchestration. How the middleware configures itself is the middleware's business.
-- **No language complexity**: No constructor syntax or parameterized host types needed in the grammar.
+- **Middleware concern**: The `.conc` source defines orchestration. How the middleware configures itself is the middleware's business.
+- **No language complexity**: No constructor syntax or parameterized agent types needed in the grammar.
 - **Consistent with connections**: LLM provider config (`api_key_env`, `default_model`) already lives in TOML.
 
 ### Why Hard Fail on Missing Ack
@@ -338,6 +338,6 @@ If the middleware doesn't acknowledge init, it likely isn't params-aware and wil
 
 ### Alternatives Considered
 
-1. **Constructor syntax in source** (`host Worker(dir: String) { ... }`) — rejected because these are middleware deployment config, not language semantics.
-2. **Environment variables only** — works but is unstructured, hard to document per-host, and doesn't compose well with multiple hosts.
+1. **Constructor syntax in source** (`agent Worker(dir: String) { ... }`) — rejected because these are middleware deployment config, not language semantics.
+2. **Environment variables only** — works but is unstructured, hard to document per-agent, and doesn't compose well with multiple agents.
 3. **Extending `args` array** — CLI args are positional and untyped; named params are clearer and middleware can parse them structurally.
