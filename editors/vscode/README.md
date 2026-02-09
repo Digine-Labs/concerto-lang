@@ -11,8 +11,8 @@ Syntax highlighting and language support for the [Concerto](https://github.com/D
 
 ### Highlighted Elements
 
-- **Keywords**: `let`, `fn`, `agent`, `tool`, `schema`, `pipeline`, `stage`, `match`, `if`/`else`, `try`/`catch`/`throw`, `async`/`await`, and more
-- **AI constructs**: `agent`, `tool`, `schema`, `pipeline`, `stage`, `db`, `ledger`, `mcp`, `emit`
+- **Keywords**: `let`, `fn`, `model`, `agent`, `tool`, `schema`, `pipeline`, `stage`, `match`, `if`/`else`, `try`/`catch`/`throw`, `async`/`await`, and more
+- **AI constructs**: `model`, `agent`, `tool`, `schema`, `pipeline`, `stage`, `ledger`, `mcp`, `memory`, `listen`, `emit`
 - **Types**: `Int`, `Float`, `String`, `Bool`, `Array<T>`, `Map<K,V>`, `Option<T>`, `Result<T,E>`, AI types
 - **String interpolation**: `"Hello, ${name}!"` with full expression highlighting inside `${}`
 - **Decorators**: `@describe(...)`, `@param(...)`, `@retry(...)`, `@timeout(...)`, `@log(...)`
