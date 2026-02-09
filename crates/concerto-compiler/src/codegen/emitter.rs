@@ -73,6 +73,7 @@ impl CodeGenerator {
                 host.args = cfg.args.clone();
                 host.env = cfg.env.clone();
                 host.working_dir = cfg.working_dir.clone();
+                host.params = cfg.params.clone();
                 // Use TOML timeout as fallback if not set in source
                 if host.timeout.is_none() {
                     host.timeout = cfg.timeout;
@@ -2562,6 +2563,15 @@ impl CodeGenerator {
         self.pipelines.push(IrPipeline {
             name: pipeline.name.clone(),
             stages,
+            input_type: pipeline
+                .input_param
+                .as_ref()
+                .and_then(|p| p.type_ann.as_ref())
+                .map(|t| serde_json::Value::String(format_type(t))),
+            output_type: pipeline
+                .return_type
+                .as_ref()
+                .map(|t| serde_json::Value::String(format_type(t))),
         });
     }
 
@@ -2803,6 +2813,7 @@ impl CodeGenerator {
             args: None,
             env: None,
             working_dir: None,
+            params: None,
         });
     }
 

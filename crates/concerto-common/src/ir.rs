@@ -262,6 +262,9 @@ pub struct IrHost {
     pub env: Option<std::collections::HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    /// Initialization params from [hosts.<name>.params] in Concerto.toml.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
 }
 
 fn default_text() -> String {
@@ -273,6 +276,12 @@ fn default_text() -> String {
 pub struct IrPipeline {
     pub name: String,
     pub stages: Vec<IrPipelineStage>,
+    /// Optional pipeline-level input type from signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_type: Option<serde_json::Value>,
+    /// Optional pipeline-level output type from signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

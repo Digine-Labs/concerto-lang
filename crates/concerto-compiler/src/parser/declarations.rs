@@ -547,6 +547,21 @@ impl Parser {
         let name_token = self.expect(TokenKind::Identifier)?;
         let name = name_token.lexeme.clone();
 
+        // Optional pipeline-level signature: pipeline Name(param: Type) -> ReturnType
+        let input_param = if self.eat(TokenKind::LeftParen) {
+            let param = self.parse_param()?;
+            self.expect(TokenKind::RightParen)?;
+            Some(param)
+        } else {
+            None
+        };
+
+        let return_type = if self.eat(TokenKind::Arrow) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+
         self.expect(TokenKind::LeftBrace)?;
         let mut stages = Vec::new();
 
@@ -559,7 +574,13 @@ impl Parser {
         self.expect(TokenKind::RightBrace)?;
         let span = start.merge(&self.previous_span());
 
-        Some(Declaration::Pipeline(PipelineDecl { name, stages, span }))
+        Some(Declaration::Pipeline(PipelineDecl {
+            name,
+            stages,
+            span,
+            input_param,
+            return_type,
+        }))
     }
 
     /// Parse `[decorators] stage name(params) [-> Type] { body }`
@@ -1256,6 +1277,57 @@ mod tests {
                 assert_eq!(p.stages[0].params.len(), 1);
                 assert!(p.stages[0].return_type.is_some());
                 assert_eq!(p.stages[1].name, "transform");
+            }
+            other => panic!("expected Pipeline, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn parse_pipeline_with_signature() {
+        let prog = parse(
+            r#"
+            pipeline TextProcess(input: String) -> Int {
+                stage parse(data: String) -> Int {
+                    return 42;
+                }
+            }
+        "#,
+        );
+        match &prog.declarations[0] {
+            Declaration::Pipeline(p) => {
+                assert_eq!(p.name, "TextProcess");
+                // Pipeline-level input param
+                let input = p.input_param.as_ref().expect("should have input_param");
+                assert_eq!(input.name, "input");
+                assert!(input.type_ann.is_some());
+                // Pipeline-level return type
+                assert!(p.return_type.is_some());
+                // Stage
+                assert_eq!(p.stages.len(), 1);
+                assert_eq!(p.stages[0].name, "parse");
+            }
+            other => panic!("expected Pipeline, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn parse_pipeline_without_signature() {
+        // Backwards compatibility: no signature
+        let prog = parse(
+            r#"
+            pipeline Simple {
+                stage only(x: String) -> String {
+                    return x;
+                }
+            }
+        "#,
+        );
+        match &prog.declarations[0] {
+            Declaration::Pipeline(p) => {
+                assert_eq!(p.name, "Simple");
+                assert!(p.input_param.is_none());
+                assert!(p.return_type.is_none());
+                assert_eq!(p.stages.len(), 1);
             }
             other => panic!("expected Pipeline, got {:?}", std::mem::discriminant(other)),
         }

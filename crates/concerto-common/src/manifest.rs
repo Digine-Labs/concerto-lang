@@ -105,6 +105,10 @@ pub struct HostConfig {
     pub env: Option<HashMap<String, String>>,
     #[serde(default)]
     pub working_dir: Option<String>,
+    /// Named initialization parameters sent to the host middleware at spawn time.
+    /// Populated from `[hosts.<name>.params]` in Concerto.toml.
+    #[serde(default)]
+    pub params: Option<serde_json::Value>,
 }
 
 /// Raw TOML structure for deserialization.
@@ -544,6 +548,55 @@ transport = "websocket"
         assert_eq!(obj["api_key_env"], "OPENAI_API_KEY");
         assert_eq!(obj["default_model"], "gpt-4o");
         assert_eq!(obj["timeout"], 60);
+    }
+
+    #[test]
+    fn host_params_deserialized() {
+        let toml = r#"
+[project]
+name = "test"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[hosts.my_host]
+transport = "stdio"
+command = "python3"
+args = ["host.py"]
+
+[hosts.my_host.params]
+model = "gpt-4o"
+temperature = 0.7
+tags = ["research", "code"]
+"#;
+        let manifest = parse_manifest(toml, PathBuf::from("/project")).unwrap();
+        assert_eq!(manifest.hosts.len(), 1);
+        let host = &manifest.hosts["my_host"];
+        assert_eq!(host.transport, "stdio");
+        assert_eq!(host.command.as_deref(), Some("python3"));
+
+        let params = host.params.as_ref().expect("params should be Some");
+        assert_eq!(params["model"], "gpt-4o");
+        assert_eq!(params["temperature"], 0.7);
+        let tags = params["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0], "research");
+    }
+
+    #[test]
+    fn host_without_params_ok() {
+        let toml = r#"
+[project]
+name = "test"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[hosts.simple]
+transport = "stdio"
+command = "echo"
+"#;
+        let manifest = parse_manifest(toml, PathBuf::from("/project")).unwrap();
+        let host = &manifest.hosts["simple"];
+        assert!(host.params.is_none());
     }
 
     #[test]

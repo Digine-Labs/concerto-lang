@@ -157,6 +157,36 @@ impl Type {
         }
     }
 
+    /// Check if `output` type is assignable to `input` type for pipeline stage adjacency.
+    /// Automatically unwraps `Result<T, E>` to `T` (runtime does this between stages).
+    pub fn is_pipeline_assignable(output: &Type, input: &Type) -> bool {
+        // Unwrap Result<T, E> → T (runtime unwraps between stages)
+        let effective = match output {
+            Type::Result(inner, _) => inner.as_ref(),
+            other => other,
+        };
+        match (effective, input) {
+            // Exact match
+            (a, b) if a == b => true,
+            // Any accepts everything
+            (_, Type::Any) | (Type::Any, _) => true,
+            // Unknown / Error: skip check (avoid cascading errors)
+            (_, Type::Unknown) | (Type::Unknown, _) => true,
+            (_, Type::Error) | (Type::Error, _) => true,
+            // Numeric promotion
+            (Type::Int, Type::Float) => true,
+            // Array covariance
+            (Type::Array(a), Type::Array(b)) => Type::is_pipeline_assignable(a, b),
+            // Map covariance
+            (Type::Map(k1, v1), Type::Map(k2, v2)) => {
+                Type::is_pipeline_assignable(k1, k2) && Type::is_pipeline_assignable(v1, v2)
+            }
+            // Named types match by name
+            (Type::Named(a), Type::Named(b)) => a == b,
+            _ => false,
+        }
+    }
+
     /// Human-readable name for error messages.
     pub fn display_name(&self) -> std::string::String {
         match self {

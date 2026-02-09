@@ -6,12 +6,40 @@
 
 **Phase 1–7e**: COMPLETE. See sections below.
 **Direct Run**: COMPLETE. `concerto run file.conc` compiles and executes in one step.
-**Phase 8 (Testing)**: COMPLETE. `@test`/`@expect_fail` decorators, `mock` keyword, assert builtins, emit capture, `concerto test` CLI. 536 tests total (10 manifest + 250 compiler + 238 runtime + 38 integration).
+**Phase 8 (Testing)**: COMPLETE. `@test`/`@expect_fail` decorators, `mock` keyword, assert builtins, emit capture, `concerto test` CLI.
 **Testing Refactor**: COMPLETE. Replaced `test "desc" { body }` keyword syntax with `@test fn name() { body }` decorator syntax. Added `@expect_fail`/`@expect_fail("msg")`. Dual enforcement: compile-time call restriction + IR-level isolation.
+**Spec 29 (Host Initialization)**: COMPLETE. `[hosts.<name>.params]` TOML table, `init`/`init_ack` wire protocol, compiler embedding, runtime HostClient init handshake.
+**Spec 30 (Pipeline Type Contracts)**: COMPLETE. Stage adjacency type checking with Result unwrapping, required stage return types (warning→error), `pipeline Name(input: T) -> U` signature syntax, IR pipeline signature.
+**Total: 554 tests** (12 manifest + 260 compiler + 241 runtime + 41 integration), clippy clean.
 
 ---
 
 ## Recent Development Log
+
+### 2026-02-09 - Implement Specs 29 & 30
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Spec 29: HostConfig params in manifest.rs | Done | `params: Option<serde_json::Value>` on HostConfig, deserializes `[hosts.<name>.params]` |
+| Spec 29: IrHost params field | Done | `params` field on IrHost, compiler embeds from manifest |
+| Spec 29: Runtime init protocol | Done | `send_init()` on HostClient, `init`/`init_ack` NDJSON handshake on spawn |
+| Spec 29: Tests | Done | 2 manifest tests (params/no-params), 3 host tests (init_ack/error/skip), 1 integration test |
+| Spec 30: AST pipeline signature | Done | `input_param`/`return_type` on PipelineDecl |
+| Spec 30: Parser pipeline signature | Done | Optional `(param: Type) -> ReturnType` after pipeline name |
+| Spec 30: Semantic type checking | Done | `is_pipeline_assignable()` with Result unwrapping, adjacency checks, signature validation |
+| Spec 30: Validator upgrade | Done | Missing stage return type promoted from warning to error |
+| Spec 30: IR pipeline signature | Done | `input_type`/`output_type` on IrPipeline, codegen emits from AST |
+| Spec 30: Tests | Done | 2 parser tests, 8 validator tests, 2 integration tests |
+| Test count | Done | 554 total (12 manifest + 260 compiler + 241 runtime + 41 integration) |
+
+### 2026-02-09 - New Specs: Host Initialization & Pipeline Type Contracts
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Create spec/29-host-initialization.md | Done | `[hosts.<name>.params]` TOML table, full JSON types, `init`/`init_ack` wire protocol, hard fail on missing ack, 10s default timeout, compiler IR embedding, TS/Python middleware examples |
+| Create spec/30-pipeline-type-contracts.md | Done | Adjacent stage type checking with Result unwrapping, required stage return types (warning→error), `pipeline Name(input: T) -> U` signature syntax, AST/parser/IR changes, assignability rules, 3-phase migration |
+| Update CLAUDE.md spec directory | Done | Added specs 24-30 to directory listing |
+| Update README.md spec listing | Done | Added specs 29-30 to documentation links |
 
 ### 2026-02-09 - Ideas Folder Cleanup (Implemented Proposals)
 

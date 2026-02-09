@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use concerto_common::{Diagnostic, DiagnosticBag};
 
 use crate::ast::nodes::*;
+use crate::semantic::types::Type;
 
 /// Declaration-level validation pass.
 ///
@@ -184,15 +185,108 @@ impl Validator {
             );
         }
 
+        // Required return type annotations (promoted from warning to error)
         for stage in &pipeline.stages {
             if stage.return_type.is_none() {
-                self.diagnostics.warning(
+                self.diagnostics.error(
                     format!(
-                        "stage `{}` in pipeline `{}` has no return type annotation",
+                        "stage `{}` in pipeline `{}` must have a return type annotation",
                         stage.name, pipeline.name
                     ),
                     stage.span.clone(),
                 );
+            }
+        }
+
+        // Stage adjacency type checking
+        for i in 0..pipeline.stages.len().saturating_sub(1) {
+            let current = &pipeline.stages[i];
+            let next = &pipeline.stages[i + 1];
+
+            let output_type = current
+                .return_type
+                .as_ref()
+                .map(Type::from_annotation)
+                .unwrap_or(Type::Any);
+
+            if let Some(first_param) = next.params.first() {
+                let input_type = first_param
+                    .type_ann
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or(Type::Any);
+
+                if !Type::is_pipeline_assignable(&output_type, &input_type) {
+                    self.diagnostics.report(
+                        Diagnostic::error(format!(
+                            "pipeline `{}` stage type mismatch: `{}` returns `{}` but `{}` expects `{}`",
+                            pipeline.name,
+                            current.name,
+                            output_type.display_name(),
+                            next.name,
+                            input_type.display_name()
+                        ))
+                        .with_span(next.params[0].span.clone())
+                        .with_suggestion(
+                            "align stage signatures or insert a conversion stage",
+                        ),
+                    );
+                }
+            }
+        }
+
+        // Pipeline-level signature validation
+        if let Some(ref input_param) = pipeline.input_param {
+            if let Some(first_stage) = pipeline.stages.first() {
+                if let Some(first_param) = first_stage.params.first() {
+                    let pipeline_input = input_param
+                        .type_ann
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Any);
+                    let stage_input = first_param
+                        .type_ann
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Any);
+
+                    if !Type::is_pipeline_assignable(&pipeline_input, &stage_input) {
+                        self.diagnostics.error(
+                            format!(
+                                "pipeline `{}` input type mismatch: pipeline declares `{}` but first stage `{}` expects `{}`",
+                                pipeline.name,
+                                pipeline_input.display_name(),
+                                first_stage.name,
+                                stage_input.display_name()
+                            ),
+                            first_param.span.clone(),
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(ref ret_ann) = pipeline.return_type {
+            let pipeline_output = Type::from_annotation(ret_ann);
+            if let Some(last_stage) = pipeline.stages.last() {
+                let stage_output = last_stage
+                    .return_type
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or(Type::Any);
+
+                if !Type::is_pipeline_assignable(&stage_output, &pipeline_output) {
+                    self.diagnostics.error(
+                        format!(
+                            "pipeline `{}` output type mismatch: last stage `{}` returns `{}` but pipeline declares `{}`",
+                            pipeline.name,
+                            last_stage.name,
+                            stage_output.display_name(),
+                            pipeline_output.display_name()
+                        ),
+                        last_stage.span.clone(),
+                    );
+                }
             }
         }
     }
@@ -342,6 +436,164 @@ mod tests {
         );
         let diags = super::Validator::new().validate(&program);
         diags.into_diagnostics()
+    }
+
+    // ===== pipeline type contract tests =====
+
+    #[test]
+    fn pipeline_stage_missing_return_type_is_error() {
+        let errs = val_errors(
+            r#"
+            pipeline P {
+                stage s(x: String) {
+                    return x;
+                }
+            }
+            "#,
+        );
+        assert!(
+            errs.iter().any(|e| e.contains("must have a return type")),
+            "expected return type error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn pipeline_stage_adjacency_mismatch() {
+        let errs = val_errors(
+            r#"
+            pipeline P {
+                stage a(x: String) -> Int {
+                    return 42;
+                }
+                stage b(y: String) -> String {
+                    return y;
+                }
+            }
+            "#,
+        );
+        assert!(
+            errs.iter().any(|e| e.contains("type mismatch") && e.contains("Int") && e.contains("String")),
+            "expected adjacency type mismatch error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn pipeline_stage_adjacency_result_unwrap() {
+        // Result<Int, Error> output → Int input should be OK (runtime unwraps)
+        let errs = val_errors(
+            r#"
+            pipeline P {
+                stage a(x: String) -> Result<Int, String> {
+                    return Ok(42);
+                }
+                stage b(y: Int) -> Int {
+                    return y;
+                }
+            }
+            "#,
+        );
+        let adjacency_errors: Vec<_> = errs.iter().filter(|e| e.contains("type mismatch")).collect();
+        assert!(
+            adjacency_errors.is_empty(),
+            "Result<Int, String> → Int should be compatible, got: {:?}",
+            adjacency_errors
+        );
+    }
+
+    #[test]
+    fn pipeline_stage_adjacency_any_accepts_all() {
+        let errs = val_errors(
+            r#"
+            pipeline P {
+                stage a(x: String) -> Int {
+                    return 42;
+                }
+                stage b(y: Any) -> String {
+                    return "ok";
+                }
+            }
+            "#,
+        );
+        let adjacency_errors: Vec<_> = errs.iter().filter(|e| e.contains("type mismatch")).collect();
+        assert!(
+            adjacency_errors.is_empty(),
+            "Any input should accept Int output, got: {:?}",
+            adjacency_errors
+        );
+    }
+
+    #[test]
+    fn pipeline_signature_input_mismatch() {
+        let errs = val_errors(
+            r#"
+            pipeline P(input: String) -> Int {
+                stage s(x: Int) -> Int {
+                    return x;
+                }
+            }
+            "#,
+        );
+        assert!(
+            errs.iter().any(|e| e.contains("input type mismatch")),
+            "expected pipeline input type mismatch, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn pipeline_signature_output_mismatch() {
+        let errs = val_errors(
+            r#"
+            pipeline P(input: String) -> Int {
+                stage s(x: String) -> String {
+                    return x;
+                }
+            }
+            "#,
+        );
+        assert!(
+            errs.iter().any(|e| e.contains("output type mismatch")),
+            "expected pipeline output type mismatch, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn pipeline_signature_valid() {
+        let errs = val_errors(
+            r#"
+            pipeline P(input: String) -> Int {
+                stage parse(x: String) -> Int {
+                    return 42;
+                }
+            }
+            "#,
+        );
+        assert!(errs.is_empty(), "expected no errors, got: {:?}", errs);
+    }
+
+    #[test]
+    fn pipeline_adjacency_compatible_types_ok() {
+        let errs = val_errors(
+            r#"
+            pipeline P {
+                stage a(x: String) -> Int {
+                    return 42;
+                }
+                stage b(y: Int) -> String {
+                    return "done";
+                }
+            }
+            "#,
+        );
+        let adjacency_errors: Vec<_> = errs.iter().filter(|e| e.contains("type mismatch")).collect();
+        assert!(
+            adjacency_errors.is_empty(),
+            "Int → Int should be compatible, got: {:?}",
+            adjacency_errors
+        );
     }
 
     #[test]

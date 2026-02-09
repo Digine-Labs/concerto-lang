@@ -183,6 +183,10 @@ pub struct PipelineDecl {
     pub name: String,
     pub stages: Vec<StageDecl>,
     pub span: Span,
+    /// Optional pipeline-level input parameter (e.g., `pipeline P(input: String)`).
+    pub input_param: Option<Param>,
+    /// Optional pipeline-level return type (e.g., `pipeline P(...) -> Output`).
+    pub return_type: Option<TypeAnnotation>,
 }
 
 /// A single stage within a pipeline.

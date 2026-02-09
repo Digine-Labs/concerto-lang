@@ -1184,3 +1184,125 @@ fn e2e_test_description_from_decorator() {
     assert_eq!(module.tests.len(), 1);
     assert_eq!(module.tests[0].description, "descriptive test name");
 }
+
+// =========================================================================
+// Spec 29: Host initialization params in IR
+// =========================================================================
+
+#[test]
+fn e2e_host_params_none_without_manifest() {
+    // Host declaration without manifest should have params: None in IR
+    let source = r#"
+        host MyHost {
+            connector: "test_service",
+            input_format: "json",
+            output_format: "json",
+            timeout: 60,
+        }
+
+        fn main() {
+            emit("ok", "yes");
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors());
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors());
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+    assert_eq!(ir.hosts.len(), 1);
+    assert_eq!(ir.hosts[0].name, "MyHost");
+    assert!(ir.hosts[0].params.is_none(), "params should be None without manifest");
+}
+
+// =========================================================================
+// Spec 30: Pipeline type contracts
+// =========================================================================
+
+#[test]
+fn e2e_pipeline_with_signature_compiles() {
+    // Pipeline with signature compiles and loads successfully
+    let source = r#"
+        pipeline TextPipeline(input: String) -> Int {
+            stage parse(data: String) -> Int {
+                return 42;
+            }
+        }
+
+        fn main() {
+            emit("ok", "compiled");
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors(), "semantic errors: {:?}", sem_diags.diagnostics());
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+
+    // Verify pipeline signature in IR
+    assert_eq!(ir.pipelines.len(), 1);
+    assert!(ir.pipelines[0].input_type.is_some(), "should have input_type");
+    assert!(ir.pipelines[0].output_type.is_some(), "should have output_type");
+
+    // Round-trip through JSON
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+    let ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    let module = LoadedModule::from_ir(ir_module).expect("IR loading failed");
+
+    let emits: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emits_clone = emits.clone();
+    let mut vm = VM::new(module);
+    vm.set_emit_handler(move |channel, payload| {
+        emits_clone.lock().unwrap().push((channel.to_string(), payload.display_string()));
+    });
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "execution failed: {:?}", result.err());
+}
+
+#[test]
+fn e2e_pipeline_adjacency_type_error() {
+    // Pipeline with mismatched stage types should produce a compile error
+    let source = r#"
+        pipeline Bad {
+            stage a(x: String) -> Int {
+                return 42;
+            }
+            stage b(y: String) -> String {
+                return y;
+            }
+        }
+        fn main() {}
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors());
+
+    // Validator should catch type mismatch
+    let validator_diags = concerto_compiler::semantic::validator::Validator::new().validate(&program);
+    assert!(
+        validator_diags.has_errors(),
+        "should have type mismatch error"
+    );
+    let errors: Vec<_> = validator_diags
+        .diagnostics()
+        .iter()
+        .filter(|d| d.severity == concerto_common::Severity::Error)
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(
+        errors.iter().any(|e| e.contains("type mismatch")),
+        "expected type mismatch error, got: {:?}",
+        errors
+    );
+}

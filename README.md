@@ -182,7 +182,7 @@ concerto run hello.conc-ir
 - `examples/async_concurrency_patterns` -- async/await syntax coverage (prefix+postfix await, tuple await, await emit, pipeline interplay)
 - `examples/agent_chat_stream` -- memory-backed multi-turn chat + chunk streaming surrogate with emit channels
 - `examples/schema_validation_modes` -- strict schema + fallback/optional schema + manual coercion strategy patterns
-- `examples/testing` -- first-class `test`/`mock` examples with assertions and emit capture
+- `examples/testing` -- `@test`/`@expect_fail` decorator examples with mock agents, assertions, and emit capture
 
 Host adapter reference projects:
 
@@ -238,12 +238,14 @@ Language specifications are in the [spec/](spec/) directory:
 - [Hosts](spec/26-hosts.md)
 - [Host Streaming](spec/27-host-streaming.md)
 - [Testing](spec/28-testing.md)
+- [Host Initialization](spec/29-host-initialization.md)
+- [Pipeline Type Contracts](spec/30-pipeline-type-contracts.md)
 
 ## Project Status
 
 See [STATUS.md](STATUS.md) for detailed project tracking.
 
-**Current:** Phase 1-8 complete (latest: first-class `test`/`mock`, host streaming examples, and Claude Code host adapter reference project).
+**Current:** Phase 1-8 + Specs 29-30 complete (latest: host initialization params with `init`/`init_ack` protocol, pipeline stage type contracts with adjacency checking and signature syntax).
 
 ## License
 

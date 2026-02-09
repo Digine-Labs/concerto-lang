@@ -37,6 +37,8 @@ pub struct HostClient {
     child: Option<Child>,
     /// Persistent buffered reader for streaming (taken from child.stdout).
     stdout_reader: Option<BufReader<ChildStdout>>,
+    /// Initialization params from [hosts.<name>.params] in Concerto.toml.
+    params: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for HostClient {
@@ -67,6 +69,7 @@ impl HostClient {
             timeout: Duration::from_secs(timeout_secs as u64),
             child: None,
             stdout_reader: None,
+            params: ir_host.params.clone(),
         }
     }
 
@@ -119,7 +122,87 @@ impl HostClient {
         })?;
         self.stdout_reader = Some(BufReader::new(stdout));
         self.child = Some(child);
+
+        // Send init message if params are configured
+        if let Some(ref params) = self.params {
+            self.send_init(params.clone())?;
+        }
+
         Ok(())
+    }
+
+    /// Send init message with params and wait for init_ack.
+    fn send_init(&mut self, params: serde_json::Value) -> Result<()> {
+        let init_msg = serde_json::json!({
+            "type": "init",
+            "params": params
+        });
+
+        // Write init message as first NDJSON line
+        let child = self.child.as_mut().ok_or_else(|| {
+            RuntimeError::CallError(format!("Host '{}' not connected for init", self.name))
+        })?;
+        let stdin = child.stdin.as_mut().ok_or_else(|| {
+            RuntimeError::CallError(format!("Host '{}' stdin not available for init", self.name))
+        })?;
+        let line = format!("{}\n", init_msg);
+        stdin.write_all(line.as_bytes()).map_err(|e| {
+            RuntimeError::CallError(format!("Failed to write init to host '{}': {}", self.name, e))
+        })?;
+        stdin.flush().map_err(|e| {
+            RuntimeError::CallError(format!(
+                "Failed to flush init to host '{}': {}",
+                self.name, e
+            ))
+        })?;
+
+        // Read init_ack response
+        let reader = self.stdout_reader.as_mut().ok_or_else(|| {
+            RuntimeError::CallError(format!(
+                "Host '{}' stdout not available for init_ack",
+                self.name
+            ))
+        })?;
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line).map_err(|e| {
+            RuntimeError::CallError(format!(
+                "Host '{}' failed to read init_ack: {}",
+                self.name, e
+            ))
+        })?;
+
+        if response_line.is_empty() {
+            return Err(RuntimeError::CallError(format!(
+                "Host '{}' exited before acknowledging initialization",
+                self.name
+            )));
+        }
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(response_line.trim_end()).map_err(|e| {
+                RuntimeError::CallError(format!(
+                    "Host '{}' invalid init response: {}",
+                    self.name, e
+                ))
+            })?;
+
+        match parsed.get("type").and_then(|t| t.as_str()) {
+            Some("init_ack") => Ok(()),
+            Some("error") => {
+                let msg = parsed
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown error");
+                Err(RuntimeError::CallError(format!(
+                    "Host '{}' init failed: {}",
+                    self.name, msg
+                )))
+            }
+            _ => Err(RuntimeError::CallError(format!(
+                "Host '{}' did not acknowledge initialization",
+                self.name
+            ))),
+        }
     }
 
     /// Execute a prompt on the host and return the response.
@@ -390,6 +473,7 @@ mod tests {
             args: Some(vec!["hello".to_string()]),
             env: None,
             working_dir: None,
+            params: None,
         };
         registry.register(&ir_host);
         assert!(registry.has_host("TestHost"));
@@ -410,6 +494,7 @@ mod tests {
             args: Some(vec!["hello world".to_string()]),
             env: None,
             working_dir: None,
+            params: None,
         };
         registry.register(&ir_host);
 
@@ -433,6 +518,7 @@ mod tests {
             args: Some(vec!["hello".to_string()]),
             env: None,
             working_dir: None,
+            params: None,
         };
         registry.register(&ir_host);
         assert!(registry.get_client_mut("TestHost").is_ok());
@@ -456,6 +542,7 @@ mod tests {
             ]),
             env: None,
             working_dir: None,
+            params: None,
         };
         let mut client = HostClient::from_ir(&ir_host);
         client.ensure_connected().unwrap();
@@ -476,6 +563,87 @@ mod tests {
     }
 
     #[test]
+    fn host_init_sends_params_and_receives_ack() {
+        // Use bash to read init message, echo init_ack, then echo result for execute
+        let ir_host = IrHost {
+            name: "InitHost".to_string(),
+            connector: "test".to_string(),
+            input_format: "text".to_string(),
+            output_format: "text".to_string(),
+            timeout: Some(5),
+            decorators: vec![],
+            command: Some("bash".to_string()),
+            args: Some(vec![
+                "-c".to_string(),
+                // Read init line, respond with init_ack, read prompt, echo response
+                r#"read init_line; echo '{"type":"init_ack"}'; read prompt; echo "response_text""#.to_string(),
+            ]),
+            env: None,
+            working_dir: None,
+            params: Some(serde_json::json!({"model": "gpt-4o", "temperature": 0.5})),
+        };
+        let mut client = HostClient::from_ir(&ir_host);
+        // ensure_connected should send init and get init_ack
+        let result = client.ensure_connected();
+        assert!(result.is_ok(), "init handshake failed: {:?}", result.err());
+
+        // Now execute should work normally
+        let exec_result = client.execute("hello", None);
+        assert!(exec_result.is_ok(), "execute failed: {:?}", exec_result.err());
+        assert_eq!(exec_result.unwrap(), "response_text");
+    }
+
+    #[test]
+    fn host_init_error_propagates() {
+        // Host responds with error instead of init_ack
+        let ir_host = IrHost {
+            name: "FailHost".to_string(),
+            connector: "test".to_string(),
+            input_format: "text".to_string(),
+            output_format: "text".to_string(),
+            timeout: Some(5),
+            decorators: vec![],
+            command: Some("bash".to_string()),
+            args: Some(vec![
+                "-c".to_string(),
+                r#"read init_line; echo '{"type":"error","message":"bad config"}'"#.to_string(),
+            ]),
+            env: None,
+            working_dir: None,
+            params: Some(serde_json::json!({"invalid": true})),
+        };
+        let mut client = HostClient::from_ir(&ir_host);
+        let result = client.ensure_connected();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("bad config"), "got: {}", err_msg);
+    }
+
+    #[test]
+    fn host_no_params_skips_init() {
+        // Host without params should NOT send init message
+        // Use echo which outputs immediately and exits — if init were sent, it would fail
+        let ir_host = IrHost {
+            name: "NoInitHost".to_string(),
+            connector: "test".to_string(),
+            input_format: "text".to_string(),
+            output_format: "text".to_string(),
+            timeout: Some(5),
+            decorators: vec![],
+            command: Some("echo".to_string()),
+            args: Some(vec!["hello".to_string()]),
+            env: None,
+            working_dir: None,
+            params: None,
+        };
+        let mut client = HostClient::from_ir(&ir_host);
+        assert!(client.params.is_none());
+        // This should succeed without any init handshake
+        let result = client.ensure_connected();
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn host_read_message_plain_text_fallback() {
         // Non-JSON lines should be wrapped as {"type": "result", "text": "..."}
         let ir_host = IrHost {
@@ -489,6 +657,7 @@ mod tests {
             args: Some(vec!["plain text output".to_string()]),
             env: None,
             working_dir: None,
+            params: None,
         };
         let mut client = HostClient::from_ir(&ir_host);
         client.ensure_connected().unwrap();
@@ -512,6 +681,7 @@ mod tests {
             args: None,
             env: None,
             working_dir: None,
+            params: None,
         };
         let mut client = HostClient::from_ir(&ir_host);
         client.ensure_connected().unwrap();
