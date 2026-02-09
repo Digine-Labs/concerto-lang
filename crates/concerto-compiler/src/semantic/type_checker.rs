@@ -135,6 +135,52 @@ fn types_ordered(left: &Type, right: &Type) -> bool {
     )
 }
 
+/// Check if a value of type `from` can be assigned to a target of type `to`.
+/// Returns true for compatible types, Unknown/Any/Error pass-through.
+pub fn types_assignable(from: &Type, to: &Type) -> bool {
+    // Unknown/Any/Error always compatible (inference, dynamic, error recovery)
+    if matches!(from, Type::Unknown | Type::Any | Type::Error)
+        || matches!(to, Type::Unknown | Type::Any | Type::Error)
+    {
+        return true;
+    }
+    // Exact match
+    if from == to {
+        return true;
+    }
+    // Numeric promotion: Int assignable to Float
+    if matches!((from, to), (Type::Int, Type::Float)) {
+        return true;
+    }
+    // Nil assignable to Option
+    if matches!(from, Type::Nil) && matches!(to, Type::Option(_)) {
+        return true;
+    }
+    // Result<T, E> assignability (inner types checked recursively)
+    if let (Type::Result(ft, fe), Type::Result(tt, te)) = (from, to) {
+        return types_assignable(ft, tt) && types_assignable(fe, te);
+    }
+    // T assignable to Result<T, E> (implicit Ok wrapping, e.g. pipeline stages)
+    if let Type::Result(inner, _) = to {
+        if types_assignable(from, inner) {
+            return true;
+        }
+    }
+    // Option<T> assignability
+    if let (Type::Option(fi), Type::Option(ti)) = (from, to) {
+        return types_assignable(fi, ti);
+    }
+    // Array<T> assignability
+    if let (Type::Array(fi), Type::Array(ti)) = (from, to) {
+        return types_assignable(fi, ti);
+    }
+    // Named types: same name matches (we don't deep-check struct fields here)
+    if let (Type::Named(a), Type::Named(b)) = (from, to) {
+        return a == b;
+    }
+    false
+}
+
 fn binary_op_symbol(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "+",

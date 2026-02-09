@@ -393,6 +393,44 @@ impl CodeGenerator {
             }
 
             ExprKind::Binary { left, op, right } => {
+                // Short-circuit evaluation for logical operators
+                if *op == BinaryOp::And {
+                    // left && right: if left is false, skip right
+                    self.generate_expr(left, ctx);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::Dup,
+                        span,
+                        ..default_instruction()
+                    });
+                    let jump_end = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::Pop,
+                        span,
+                        ..default_instruction()
+                    });
+                    self.generate_expr(right, ctx);
+                    ctx.patch_jump(jump_end);
+                    return;
+                }
+                if *op == BinaryOp::Or {
+                    // left || right: if left is true, skip right
+                    self.generate_expr(left, ctx);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::Dup,
+                        span,
+                        ..default_instruction()
+                    });
+                    let jump_end = ctx.emit_placeholder(Opcode::JumpIfTrue, span);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::Pop,
+                        span,
+                        ..default_instruction()
+                    });
+                    self.generate_expr(right, ctx);
+                    ctx.patch_jump(jump_end);
+                    return;
+                }
+
                 self.generate_expr(left, ctx);
                 self.generate_expr(right, ctx);
                 let opcode = match op {
@@ -407,8 +445,7 @@ impl CodeGenerator {
                     BinaryOp::Gt => Opcode::Gt,
                     BinaryOp::Lte => Opcode::Lte,
                     BinaryOp::Gte => Opcode::Gte,
-                    BinaryOp::And => Opcode::And,
-                    BinaryOp::Or => Opcode::Or,
+                    BinaryOp::And | BinaryOp::Or => unreachable!(),
                 };
                 ctx.emit(IrInstruction {
                     op: opcode,
@@ -709,8 +746,7 @@ impl CodeGenerator {
                     ..default_instruction()
                 });
                 ctx.emit(IrInstruction {
-                    op: Opcode::BuildArray,
-                    count: Some(3),
+                    op: Opcode::BuildRange,
                     span,
                     ..default_instruction()
                 });
@@ -1587,40 +1623,239 @@ impl CodeGenerator {
 
                     ctx.patch_jump(done);
                 } else {
-                    // Fallback behavior for non-core enum patterns.
+                    // User-defined enum: compare with LoadGlobal path.
+                    let full_path = path.join("::");
                     ctx.emit(IrInstruction {
-                        op: Opcode::Pop,
+                        op: Opcode::LoadGlobal,
+                        name: Some(full_path),
                         span,
                         ..default_instruction()
                     });
-                    let idx = self.pool.add_bool(true);
                     ctx.emit(IrInstruction {
-                        op: Opcode::LoadConst,
-                        arg: Some(serde_json::Value::Number(idx.into())),
+                        op: Opcode::Eq,
                         span,
                         ..default_instruction()
                     });
                 }
             }
 
-            // For other complex patterns (tuple, struct, array), emit a
-            // simplified check. Full structural matching is deferred to
-            // the runtime.
-            PatternKind::Tuple(_) | PatternKind::Struct { .. } | PatternKind::Array { .. } => {
+            PatternKind::Tuple(elements) => {
+                self.emit_sequence_pattern_check(elements, None, ctx, span);
+            }
+
+            PatternKind::Array { elements, .. } => {
+                self.emit_sequence_pattern_check(elements, None, ctx, span);
+            }
+
+            PatternKind::Struct { path, fields, .. } => {
+                let tmp = ctx.fresh_local("$struct_pat");
+                let false_idx = self.pool.add_bool(false);
+
+                // Save value to temp
                 ctx.emit(IrInstruction {
-                    op: Opcode::Pop,
+                    op: Opcode::StoreLocal,
+                    name: Some(tmp.clone()),
                     span,
                     ..default_instruction()
                 });
-                let idx = self.pool.add_bool(true);
+
+                // Check type name matches
+                ctx.emit(IrInstruction {
+                    op: Opcode::LoadLocal,
+                    name: Some(tmp.clone()),
+                    span,
+                    ..default_instruction()
+                });
+                let struct_type_name = path.join("::");
+                ctx.emit(IrInstruction {
+                    op: Opcode::CheckType,
+                    type_name: Some(struct_type_name),
+                    span,
+                    ..default_instruction()
+                });
+                let fail_type = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+
+                // Check each field sub-pattern
+                let mut fail_patches = vec![fail_type];
+                for field in fields {
+                    ctx.emit(IrInstruction {
+                        op: Opcode::LoadLocal,
+                        name: Some(tmp.clone()),
+                        span,
+                        ..default_instruction()
+                    });
+                    let field_idx = self.pool.add_string(&field.name);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::LoadConst,
+                        arg: Some(serde_json::Value::Number(field_idx.into())),
+                        span,
+                        ..default_instruction()
+                    });
+                    ctx.emit(IrInstruction {
+                        op: Opcode::IndexGet,
+                        span,
+                        ..default_instruction()
+                    });
+                    if let Some(ref pat) = field.pattern {
+                        self.emit_pattern_check(pat, ctx, span);
+                    } else {
+                        // Just binding, always matches — pop value, push true
+                        ctx.emit(IrInstruction {
+                            op: Opcode::Pop,
+                            span,
+                            ..default_instruction()
+                        });
+                        let true_idx = self.pool.add_bool(true);
+                        ctx.emit(IrInstruction {
+                            op: Opcode::LoadConst,
+                            arg: Some(serde_json::Value::Number(true_idx.into())),
+                            span,
+                            ..default_instruction()
+                        });
+                    }
+                    let fail_field = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+                    fail_patches.push(fail_field);
+                }
+
+                // All checks passed: push true
+                let true_idx = self.pool.add_bool(true);
                 ctx.emit(IrInstruction {
                     op: Opcode::LoadConst,
-                    arg: Some(serde_json::Value::Number(idx.into())),
+                    arg: Some(serde_json::Value::Number(true_idx.into())),
                     span,
                     ..default_instruction()
                 });
+                let skip_false = ctx.emit_placeholder(Opcode::Jump, span);
+
+                // Fail label: push false
+                let fail_ip = ctx.current_ip();
+                for patch in fail_patches {
+                    ctx.instructions[patch].offset = Some(fail_ip as i32);
+                }
+                ctx.emit(IrInstruction {
+                    op: Opcode::LoadConst,
+                    arg: Some(serde_json::Value::Number(false_idx.into())),
+                    span,
+                    ..default_instruction()
+                });
+
+                ctx.patch_jump(skip_false);
             }
         }
+    }
+
+    /// Emit pattern check for tuple/array patterns (both are Value::Array at runtime).
+    /// Value on top of stack. Consumes value, pushes Bool.
+    fn emit_sequence_pattern_check(
+        &mut self,
+        elements: &[Pattern],
+        _rest: Option<&str>,
+        ctx: &mut FunctionCtx,
+        span: Option<[u32; 2]>,
+    ) {
+        let tmp = ctx.fresh_local("$seq_pat");
+        let false_idx = self.pool.add_bool(false);
+
+        // Save value to temp
+        ctx.emit(IrInstruction {
+            op: Opcode::StoreLocal,
+            name: Some(tmp.clone()),
+            span,
+            ..default_instruction()
+        });
+
+        // Check it's an Array
+        ctx.emit(IrInstruction {
+            op: Opcode::LoadLocal,
+            name: Some(tmp.clone()),
+            span,
+            ..default_instruction()
+        });
+        ctx.emit(IrInstruction {
+            op: Opcode::CheckType,
+            type_name: Some("Array".to_string()),
+            span,
+            ..default_instruction()
+        });
+        let fail_type = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+
+        // Check length matches
+        ctx.emit(IrInstruction {
+            op: Opcode::LoadLocal,
+            name: Some(tmp.clone()),
+            span,
+            ..default_instruction()
+        });
+        ctx.emit(IrInstruction {
+            op: Opcode::CallMethod,
+            name: Some("len".to_string()),
+            argc: Some(0),
+            span,
+            ..default_instruction()
+        });
+        let len_idx = self.pool.add_int(elements.len() as i64);
+        ctx.emit(IrInstruction {
+            op: Opcode::LoadConst,
+            arg: Some(serde_json::Value::Number(len_idx.into())),
+            span,
+            ..default_instruction()
+        });
+        ctx.emit(IrInstruction {
+            op: Opcode::Eq,
+            span,
+            ..default_instruction()
+        });
+        let fail_len = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+
+        // Check each element sub-pattern
+        let mut fail_patches = vec![fail_type, fail_len];
+        for (i, pat) in elements.iter().enumerate() {
+            ctx.emit(IrInstruction {
+                op: Opcode::LoadLocal,
+                name: Some(tmp.clone()),
+                span,
+                ..default_instruction()
+            });
+            let idx = self.pool.add_int(i as i64);
+            ctx.emit(IrInstruction {
+                op: Opcode::LoadConst,
+                arg: Some(serde_json::Value::Number(idx.into())),
+                span,
+                ..default_instruction()
+            });
+            ctx.emit(IrInstruction {
+                op: Opcode::IndexGet,
+                span,
+                ..default_instruction()
+            });
+            self.emit_pattern_check(pat, ctx, span);
+            let fail_elem = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+            fail_patches.push(fail_elem);
+        }
+
+        // All checks passed: push true
+        let true_idx = self.pool.add_bool(true);
+        ctx.emit(IrInstruction {
+            op: Opcode::LoadConst,
+            arg: Some(serde_json::Value::Number(true_idx.into())),
+            span,
+            ..default_instruction()
+        });
+        let skip_false = ctx.emit_placeholder(Opcode::Jump, span);
+
+        // Fail label: push false
+        let fail_ip = ctx.current_ip();
+        for patch in fail_patches {
+            ctx.instructions[patch].offset = Some(fail_ip as i32);
+        }
+        ctx.emit(IrInstruction {
+            op: Opcode::LoadConst,
+            arg: Some(serde_json::Value::Number(false_idx.into())),
+            span,
+            ..default_instruction()
+        });
+
+        ctx.patch_jump(skip_false);
     }
 
     /// Emit code that binds pattern variables from the value on top of the
@@ -2166,8 +2401,14 @@ impl CodeGenerator {
         span: Option<[u32; 2]>,
     ) {
         // left ?? right
-        // If left is not nil, use left; otherwise use right.
+        // If left is not nil (or None), use left; otherwise use right.
+        // NilCoalescePrep normalizes Option(None)→Nil, Option(Some(v))→v.
         self.generate_expr(left, ctx);
+        ctx.emit(IrInstruction {
+            op: Opcode::NilCoalescePrep,
+            span,
+            ..default_instruction()
+        });
         ctx.emit(IrInstruction {
             op: Opcode::Dup,
             span,
@@ -3685,7 +3926,7 @@ mod tests {
     }
 
     #[test]
-    fn range_generates_array() {
+    fn range_generates_build_range() {
         let ir = compile(
             r#"
             fn main() {
@@ -3695,7 +3936,7 @@ mod tests {
         );
         let main = &ir.functions[0];
         let ops: Vec<Opcode> = main.instructions.iter().map(|i| i.op).collect();
-        assert!(ops.contains(&Opcode::BuildArray));
+        assert!(ops.contains(&Opcode::BuildRange));
     }
 
     #[test]

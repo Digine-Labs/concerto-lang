@@ -10,11 +10,35 @@
 **Testing Refactor**: COMPLETE. Replaced `test "desc" { body }` keyword syntax with `@test fn name() { body }` decorator syntax. Added `@expect_fail`/`@expect_fail("msg")`. Dual enforcement: compile-time call restriction + IR-level isolation.
 **Spec 29 (Agent Initialization)**: COMPLETE. `[agents.<name>.params]` TOML table, `init`/`init_ack` wire protocol, compiler embedding, runtime AgentClient init handshake.
 **Spec 30 (Pipeline Type Contracts)**: COMPLETE. Stage adjacency type checking with Result unwrapping, required stage return types (warning→error), `pipeline Name(input: T) -> U` signature syntax, IR pipeline signature.
-**Total: 554 tests** (12 manifest + 260 compiler + 241 runtime + 41 integration), clippy clean.
+**Bug Sweep**: COMPLETE. 13 bugs fixed (compiler + runtime). 5 remaining open bugs deferred.
+**Total: 578 tests** (12 manifest + 268 compiler + 242 runtime + 56 integration), clippy clean.
 
 ---
 
 ## Recent Development Log
+
+### 2026-02-09 - Bug Sweep: 13 Bugs Fixed
+
+All 13 open bugs from the triage sweep below have been fixed, tested, and bug report files removed. 5 new bugs discovered during the sweep remain open for future work.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix 1: None pattern parsed as identifier | Done | Parser: `parse_identifier_pattern()` returns `PatternKind::Enum` for single-segment `"None"` instead of catch-all binding |
+| Fix 2: Logical short-circuit (&&/\|\|) | Done | Codegen: `&&` emits Dup→JumpIfFalse→Pop→eval right; `\|\|` emits Dup→JumpIfTrue→Pop→eval right |
+| Fix 3: Nil coalesce Option (??) | Done | New `NilCoalescePrep` opcode unwraps Option(Some(v))→v, Option(None)→Nil before existing nil-check |
+| Fix 4: Propagate operator (?) Option support | Done | Runtime: `exec_propagate()` handles Option(Some)→unwrap, Option(None)→early return |
+| Fix 5: Cast operator invalid conversions | Done | Runtime: `exec_cast()` returns error on parse failure instead of silent passthrough; restricted cast paths |
+| Fix 6: Agent timeout enforcement | Done | Runtime: `read_line_with_timeout()` using thread+mpsc channel; replaces blocking reads |
+| Fix 7: Range values for-loop/slicing | Done | New `Value::Range` variant + `BuildRange` opcode; for-loop iterates numeric range; array slicing with Range |
+| Fix 8: Structural pattern matching | Done | Codegen: real checks for tuple/array (type+length+elements), struct (type+fields), user-defined enum (LoadGlobal+Eq) |
+| Fix 9: For loop iterable validation | Done | Semantic: type check iterable is Array/Map/String/Tuple/Range; compile error otherwise |
+| Fix 10: Match exhaustiveness warning | Done | Semantic: warning when no wildcard `_` or catch-all arm exists |
+| Fix 11: Static type enforcement | Done | Semantic+type_checker: `types_assignable()` for let/return/assign type checks; recursive Result/Option/Array |
+| Fix 12: Match error binding type narrowing | Done | Semantic: `resolve_pattern_with_type()` propagates scrutinee type to Ok/Err/Some bindings |
+| Fix 13: Listen handler type annotation | Done | Semantic: handler param type resolved from annotation instead of hardcoded Unknown |
+| Remove 14 bug report files | Done | All original triage bugs removed (13 fixed + 1 previously fixed `len-builtin-unresolved`) |
+| Remaining open bugs | Deferred | 5 new bugs: `use-and-mod-declarations-not-functional`, `try-catch-control-flow-corruption`, `index-access-spec-mismatch-string-and-array-get`, `call-arity-not-enforced`, `model-builder-argument-contracts-not-enforced` |
+| Test count | Done | 578 total (12 manifest + 268 compiler + 242 runtime + 56 integration) |
 
 ### 2026-02-09 - Example Audit + Language Bug Triage
 
@@ -37,6 +61,11 @@
 | Deep-dive bug report: cast semantics diverge from spec | Done | Added `bugs/2026-02-09-cast-operator-allows-invalid-and-silent-conversions.md` |
 | Deep-dive bug report: match exhaustiveness not enforced | Done | Added `bugs/2026-02-09-match-exhaustiveness-not-enforced.md` (`nil` fallback) |
 | Deep-dive bug report: `for` iterable type not validated | Done | Added `bugs/2026-02-09-for-loop-iterable-type-not-validated.md` |
+| Deep-dive bug report: try/catch control-flow corruption | Done | Added `bugs/2026-02-09-try-catch-control-flow-corruption.md` (matched catch fallthrough + typed mismatch swallow/stack corruption) |
+| Deep-dive bug report: `use`/`mod` not functionally wired | Done | Added `bugs/2026-02-09-use-and-mod-declarations-not-functional.md` |
+| Deep-dive bug report: index-access spec mismatch | Done | Added `bugs/2026-02-09-index-access-spec-mismatch-string-and-array-get.md` (`string[index]` and `Array.get(index)` failures) |
+| Deep-dive bug report: function call arity unchecked | Done | Added `bugs/2026-02-09-call-arity-not-enforced.md` (missing args fail late, extra args silently ignored) |
+| Deep-dive bug report: model builder argument contracts unchecked | Done | Added `bugs/2026-02-09-model-builder-argument-contracts-not-enforced.md` (`with_tools`/`without_tools` spec mismatch) |
 
 ### 2026-02-09 - Implement Specs 29 & 30
 

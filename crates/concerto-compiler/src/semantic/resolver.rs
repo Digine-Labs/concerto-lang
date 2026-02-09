@@ -754,12 +754,38 @@ impl Resolver {
         }
     }
 
+    /// Resolve a type by looking up type aliases in scope.
+    /// If the type is `Named("Foo")` and `Foo` is a type alias for `String`,
+    /// returns `String`.  All other types pass through unchanged.
+    fn resolve_type(&self, ty: Type) -> Type {
+        if let Type::Named(ref name) = ty {
+            if let Some(sym) = self.scopes.lookup(name) {
+                if sym.kind == SymbolKind::TypeAlias {
+                    return sym.ty.clone();
+                }
+            }
+        }
+        ty
+    }
+
     fn resolve_let(&mut self, stmt: &LetStmt) {
         // Resolve the initializer *before* adding the binding to the scope.
         let ty = if let Some(ref init) = stmt.initializer {
             self.resolve_expr(init);
             if let Some(ref ann) = stmt.type_ann {
-                Type::from_annotation(ann)
+                let ann_ty = self.resolve_type(Type::from_annotation(ann));
+                let init_ty = self.infer_expr_type(init);
+                if !type_checker::types_assignable(&init_ty, &ann_ty) {
+                    self.diagnostics.error(
+                        format!(
+                            "type mismatch: expected {}, got {}",
+                            ann_ty.display_name(),
+                            init_ty.display_name()
+                        ),
+                        stmt.span.clone(),
+                    );
+                }
+                ann_ty
             } else {
                 self.infer_expr_type(init)
             }
@@ -789,6 +815,19 @@ impl Resolver {
         }
         if let Some(ref val) = stmt.value {
             self.resolve_expr(val);
+            if let Some(ref ret_ty) = self.current_function_return {
+                let val_ty = self.infer_expr_type(val);
+                if !type_checker::types_assignable(&val_ty, ret_ty) {
+                    self.diagnostics.error(
+                        format!(
+                            "return type mismatch: expected {}, got {}",
+                            ret_ty.display_name(),
+                            val_ty.display_name()
+                        ),
+                        stmt.span.clone(),
+                    );
+                }
+            }
         }
     }
 
@@ -936,6 +975,19 @@ impl Resolver {
                 self.resolve_expr(target);
                 self.resolve_expr(value);
                 self.check_assign_target(target);
+                // Type check assignment
+                let target_ty = self.infer_expr_type(target);
+                let value_ty = self.infer_expr_type(value);
+                if !type_checker::types_assignable(&value_ty, &target_ty) {
+                    self.diagnostics.error(
+                        format!(
+                            "type mismatch in assignment: expected {}, got {}",
+                            target_ty.display_name(),
+                            value_ty.display_name()
+                        ),
+                        target.span.clone(),
+                    );
+                }
             }
 
             ExprKind::FieldAccess { object, .. } => {
@@ -971,15 +1023,41 @@ impl Resolver {
 
             ExprKind::Match { scrutinee, arms } => {
                 self.resolve_expr(scrutinee);
+                let scrutinee_ty = self.infer_expr_type(scrutinee);
                 for arm in arms {
                     self.scopes.push(ScopeKind::Block);
-                    self.resolve_pattern(&arm.pattern);
+                    self.resolve_pattern_with_type(&arm.pattern, Some(&scrutinee_ty));
                     if let Some(ref guard) = arm.guard {
                         self.resolve_expr(guard);
                     }
                     self.resolve_expr(&arm.body);
                     let idx = self.scopes.pop();
                     self.emit_unused_warnings(idx);
+                }
+                // Warn if no catch-all arm (wildcard or bare identifier)
+                let has_catchall = arms.iter().any(|arm| {
+                    matches!(
+                        arm.pattern.kind,
+                        PatternKind::Wildcard | PatternKind::Identifier(_)
+                    )
+                });
+                // Check if Ok+Err or Some+None cover Result/Option exhaustively
+                let has_variant_coverage = {
+                    let variant_names: Vec<&str> = arms.iter().filter_map(|arm| {
+                        if let PatternKind::Enum { path, .. } = &arm.pattern.kind {
+                            path.first().map(|s| s.as_str())
+                        } else {
+                            None
+                        }
+                    }).collect();
+                    (variant_names.contains(&"Ok") && variant_names.contains(&"Err"))
+                        || (variant_names.contains(&"Some") && variant_names.contains(&"None"))
+                };
+                if !has_catchall && !has_variant_coverage && !arms.is_empty() {
+                    self.diagnostics.warning(
+                        "match may not be exhaustive; consider adding a wildcard `_` arm".to_string(),
+                        scrutinee.span.clone(),
+                    );
                 }
             }
 
@@ -1013,6 +1091,26 @@ impl Resolver {
                 body,
             } => {
                 self.resolve_expr(iterable);
+                let iter_ty = self.infer_expr_type(iterable);
+                let is_iterable = matches!(
+                    &iter_ty,
+                    Type::Array(_)
+                        | Type::Map(_, _)
+                        | Type::String
+                        | Type::Tuple(_)
+                        | Type::Unknown
+                        | Type::Any
+                        | Type::Error
+                ) || matches!(&iter_ty, Type::Named(n) if n == "Range");
+                if !is_iterable {
+                    self.diagnostics.error(
+                        format!(
+                            "for loop requires an iterable (Array, Map, String, Range), got {}",
+                            iter_ty.display_name()
+                        ),
+                        iterable.span.clone(),
+                    );
+                }
                 self.scopes.push(ScopeKind::Loop);
                 self.resolve_pattern(pattern);
                 self.resolve_block(body);
@@ -1178,10 +1276,16 @@ impl Resolver {
                 self.resolve_expr(call);
                 for handler in handlers {
                     self.scopes.push(ScopeKind::Function);
+                    let param_ty = handler
+                        .param
+                        .type_ann
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Unknown);
                     self.define_symbol(
                         &handler.param.name,
                         SymbolKind::Parameter,
-                        Type::Unknown,
+                        param_ty,
                         false,
                         false,
                         handler.param.span.clone(),
@@ -1199,15 +1303,20 @@ impl Resolver {
     // ====================================================================
 
     fn resolve_pattern(&mut self, pattern: &Pattern) {
+        self.resolve_pattern_with_type(pattern, None);
+    }
+
+    fn resolve_pattern_with_type(&mut self, pattern: &Pattern, scrutinee_ty: Option<&Type>) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::Rest => {}
             PatternKind::Literal(_) => {}
             PatternKind::Identifier(name) => {
                 if name != "_" {
+                    let ty = scrutinee_ty.cloned().unwrap_or(Type::Unknown);
                     self.define_symbol(
                         name,
                         SymbolKind::Variable,
-                        Type::Unknown,
+                        ty,
                         false,
                         false,
                         pattern.span.clone(),
@@ -1215,8 +1324,15 @@ impl Resolver {
                 }
             }
             PatternKind::Tuple(pats) => {
-                for p in pats {
-                    self.resolve_pattern(p);
+                for (i, p) in pats.iter().enumerate() {
+                    let elem_ty = scrutinee_ty.and_then(|t| {
+                        if let Type::Tuple(types) = t {
+                            types.get(i).cloned()
+                        } else {
+                            None
+                        }
+                    });
+                    self.resolve_pattern_with_type(p, elem_ty.as_ref());
                 }
             }
             PatternKind::Struct { path, fields, .. } => {
@@ -1230,7 +1346,7 @@ impl Resolver {
                 }
                 for f in fields {
                     if let Some(ref p) = f.pattern {
-                        self.resolve_pattern(p);
+                        self.resolve_pattern_with_type(p, None);
                     } else {
                         // Shorthand `Point { x }` — x is both field name and binding.
                         self.define_symbol(
@@ -1252,8 +1368,16 @@ impl Resolver {
                     // Don't error for unknown first segments — they might be
                     // built-in enum constructors (Some, Ok, Err, ...).
                 }
+                // Narrow inner types based on variant and scrutinee type
+                let variant = path.last().map(|s| s.as_str()).unwrap_or("");
+                let inner_ty = match (variant, scrutinee_ty) {
+                    ("Ok", Some(Type::Result(t, _))) => Some(t.as_ref().clone()),
+                    ("Err", Some(Type::Result(_, e))) => Some(e.as_ref().clone()),
+                    ("Some", Some(Type::Option(t))) => Some(t.as_ref().clone()),
+                    _ => None,
+                };
                 for p in fields {
-                    self.resolve_pattern(p);
+                    self.resolve_pattern_with_type(p, inner_ty.as_ref());
                 }
             }
             PatternKind::Array { elements, .. } => {
@@ -1969,6 +2093,97 @@ mod tests {
             errs.iter()
                 .any(|e| e.contains("@test")),
             "expected mock-outside-test error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn for_loop_non_iterable_error() {
+        let errs = errors("fn main() { for n in 42 { } }");
+        assert!(
+            errs.iter().any(|e| e.contains("for loop requires an iterable")),
+            "expected for-loop iterable error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn for_loop_array_ok() {
+        let errs = errors("fn main() { for n in [1, 2, 3] { } }");
+        assert!(
+            !errs.iter().any(|e| e.contains("for loop requires")),
+            "unexpected iterable error for array: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn match_non_exhaustive_warning() {
+        let warns = warnings("fn main() { match 2 { 1 => \"one\" } }");
+        assert!(
+            warns.iter().any(|w| w.contains("exhaustive")),
+            "expected exhaustiveness warning, got: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn match_with_wildcard_no_warning() {
+        let warns = warnings("fn main() { match 2 { 1 => \"one\", _ => \"other\" } }");
+        assert!(
+            !warns.iter().any(|w| w.contains("exhaustive")),
+            "unexpected exhaustiveness warning with wildcard: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn let_type_mismatch_error() {
+        let errs = errors(r#"fn main() { let x: Int = "bad"; }"#);
+        assert!(
+            errs.iter().any(|e| e.contains("type mismatch")),
+            "expected type mismatch error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn return_type_mismatch_error() {
+        let errs = errors(r#"fn score() -> Int { return "bad"; } fn main() { }"#);
+        assert!(
+            errs.iter().any(|e| e.contains("return type mismatch")),
+            "expected return type mismatch error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn assign_type_mismatch_error() {
+        let errs = errors(r#"fn main() { let mut x: Int = 1; x = "oops"; }"#);
+        assert!(
+            errs.iter().any(|e| e.contains("type mismatch")),
+            "expected assignment type mismatch error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn match_binding_type_narrowing() {
+        // Err(e) should bind e as String when scrutinee is Result<Int, String>.
+        // Assigning e to Int variable should produce a type mismatch.
+        let errs = errors(r#"
+            fn fail() -> Result<Int, String> { Err("boom") }
+            fn main() {
+                match fail() {
+                    Ok(v) => { let y: String = v; }
+                    Err(e) => { let y: Int = e; }
+                    _ => {}
+                }
+            }
+        "#);
+        assert!(
+            errs.iter().any(|e| e.contains("type mismatch")),
+            "expected type narrowing mismatch, got: {:?}",
             errs
         );
     }

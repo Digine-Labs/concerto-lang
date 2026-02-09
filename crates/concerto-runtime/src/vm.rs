@@ -796,6 +796,52 @@ impl VM {
                     }
                     self.push(Value::Map(results));
                 }
+
+                // === Nil Coalesce ===
+                Opcode::NilCoalescePrep => {
+                    let val = self.pop()?;
+                    match val {
+                        Value::Option(None) => self.push(Value::Nil),
+                        Value::Option(Some(inner)) => self.push(*inner),
+                        other => self.push(other),
+                    }
+                }
+
+                // === Range ===
+                Opcode::BuildRange => {
+                    let inclusive = self.pop()?;
+                    let end = self.pop()?;
+                    let start = self.pop()?;
+                    let start_i = match &start {
+                        Value::Int(i) => *i,
+                        Value::Nil => 0,
+                        _ => {
+                            return Err(RuntimeError::TypeError(format!(
+                                "range start must be Int, got {}",
+                                start.type_name()
+                            )));
+                        }
+                    };
+                    let end_i = match &end {
+                        Value::Int(i) => *i,
+                        Value::Nil => i64::MAX,
+                        _ => {
+                            return Err(RuntimeError::TypeError(format!(
+                                "range end must be Int, got {}",
+                                end.type_name()
+                            )));
+                        }
+                    };
+                    let inclusive_b = match &inclusive {
+                        Value::Bool(b) => *b,
+                        _ => false,
+                    };
+                    self.push(Value::Range {
+                        start: start_i,
+                        end: end_i,
+                        inclusive: inclusive_b,
+                    });
+                }
             }
         }
     }
@@ -1019,6 +1065,9 @@ impl VM {
             Value::Option(opt) => Self::call_option_method(opt, &method)?,
             Value::String(s) => Self::call_string_method(s, &method, args)?,
             Value::Array(arr) => Self::call_array_method(arr, &method, args)?,
+            Value::Range { start, end, inclusive } => {
+                Self::call_range_method(*start, *end, *inclusive, &method)?
+            }
             Value::Struct { ref type_name, .. }
                 if type_name == "Set" || type_name == "Queue" || type_name == "Stack" =>
             {
@@ -1105,10 +1154,23 @@ impl VM {
                 // Propagate Err — try to catch it via try/catch first
                 self.exec_throw(*value)
             }
-            other => {
-                // Not a Result — pass through
-                self.push(other);
+            Value::Option(Some(inner)) => {
+                // Unwrap Some
+                self.push(*inner);
                 Ok(())
+            }
+            Value::Option(None) => {
+                // Early return with None — pop current frame, push None for caller
+                self.call_stack.pop();
+                self.push(Value::Option(None));
+                Ok(())
+            }
+            other => {
+                // Not a Result or Option — runtime error
+                Err(RuntimeError::TypeError(format!(
+                    "? operator requires Result or Option, got {}",
+                    other.type_name()
+                )))
             }
         }
     }
@@ -1278,23 +1340,34 @@ impl VM {
         let val = self.pop()?;
         let target = inst.type_name.as_deref().unwrap_or("");
         let result = match target {
-            "Int" => match val {
-                Value::Float(f) => Value::Int(f as i64),
-                Value::String(ref s) => s.parse::<i64>().map(Value::Int).unwrap_or(val),
-                Value::Bool(b) => Value::Int(if b { 1 } else { 0 }),
-                other => other,
+            "Int" => match &val {
+                Value::Int(_) => Ok(val),
+                Value::Float(f) => Ok(Value::Int(*f as i64)),
+                Value::String(s) => s.parse::<i64>().map(Value::Int).map_err(|_| {
+                    format!("cannot cast String \"{}\" to Int", s)
+                }),
+                Value::Bool(b) => Ok(Value::Int(if *b { 1 } else { 0 })),
+                _ => Err(format!("cannot cast {} to Int", val.type_name())),
             },
-            "Float" => match val {
-                Value::Int(i) => Value::Float(i as f64),
-                Value::String(ref s) => s.parse::<f64>().map(Value::Float).unwrap_or(val),
-                other => other,
+            "Float" => match &val {
+                Value::Float(_) => Ok(val),
+                Value::Int(i) => Ok(Value::Float(*i as f64)),
+                Value::String(s) => s.parse::<f64>().map(Value::Float).map_err(|_| {
+                    format!("cannot cast String \"{}\" to Float", s)
+                }),
+                _ => Err(format!("cannot cast {} to Float", val.type_name())),
             },
-            "String" => Value::String(val.display_string()),
-            "Bool" => Value::Bool(val.is_truthy()),
-            _ => val,
+            "String" => Ok(Value::String(val.display_string())),
+            "Bool" => Ok(Value::Bool(val.is_truthy())),
+            _ => Err(format!("unsupported cast target type '{}'", target)),
         };
-        self.push(result);
-        Ok(())
+        match result {
+            Ok(v) => {
+                self.push(v);
+                Ok(())
+            }
+            Err(msg) => self.exec_throw(Value::String(msg)),
+        }
     }
 
     fn exec_build_array(&mut self, inst: &IrInstruction) -> Result<()> {
@@ -3025,6 +3098,23 @@ impl VM {
             "is_empty" => Ok(Value::Bool(arr.is_empty())),
             _ => Err(RuntimeError::TypeError(format!(
                 "no method '{}' on Array",
+                method
+            ))),
+        }
+    }
+
+    fn call_range_method(start: i64, end: i64, inclusive: bool, method: &str) -> Result<Value> {
+        match method {
+            "len" => {
+                let len = if inclusive { end - start + 1 } else { end - start };
+                Ok(Value::Int(len.max(0)))
+            }
+            "is_empty" => {
+                let len = if inclusive { end - start + 1 } else { end - start };
+                Ok(Value::Bool(len <= 0))
+            }
+            _ => Err(RuntimeError::TypeError(format!(
+                "no method '{}' on Range",
                 method
             ))),
         }

@@ -1457,6 +1457,16 @@ impl Parser {
         // Simple identifier binding (single-segment path)
         if path.len() == 1 {
             let name = path.into_iter().next().unwrap();
+            // `None` is a unit enum variant, not a variable binding
+            if name == "None" {
+                return Some(Pattern {
+                    kind: PatternKind::Enum {
+                        path: vec![name],
+                        fields: Vec::new(),
+                    },
+                    span: name_token.span,
+                });
+            }
             Some(Pattern {
                 kind: PatternKind::Identifier(name),
                 span: name_token.span,

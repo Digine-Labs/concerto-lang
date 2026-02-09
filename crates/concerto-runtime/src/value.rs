@@ -48,6 +48,12 @@ pub enum Value {
         function: String,
         args: Vec<Value>,
     },
+    /// A numeric range (start..end or start..=end).
+    Range {
+        start: i64,
+        end: i64,
+        inclusive: bool,
+    },
     /// Transient builder for Model/Agent execution with chained config.
     /// Created by Model.with_memory(), Model.with_tools(), etc.
     ModelBuilder {
@@ -330,6 +336,26 @@ impl Value {
             (Value::Option(opt), Value::Int(0)) => {
                 Ok(opt.as_ref().map(|v| *v.clone()).unwrap_or(Value::Nil))
             }
+            // Range[Int] => value at index (start + i)
+            (Value::Range { start, end, inclusive }, Value::Int(i)) => {
+                let len = if *inclusive { end - start + 1 } else { end - start };
+                if *i < 0 || *i >= len {
+                    Err(RuntimeError::IndexError { index: *i, len: len as usize })
+                } else {
+                    Ok(Value::Int(start + i))
+                }
+            }
+            // Array[Range] => slice
+            (Value::Array(arr), Value::Range { start, end, inclusive }) => {
+                let s = (*start).max(0) as usize;
+                let e = if *inclusive { *end + 1 } else { *end };
+                let e = (e as usize).min(arr.len());
+                if s > arr.len() {
+                    Ok(Value::Array(vec![]))
+                } else {
+                    Ok(Value::Array(arr[s..e].to_vec()))
+                }
+            }
             // Struct[String] => field access
             (Value::Struct { .. }, Value::String(key)) => self.field_get(key),
             _ => Err(RuntimeError::TypeError(format!(
@@ -367,6 +393,7 @@ impl Value {
             Value::MemoryRef(_) => "MemoryRef",
             Value::AgentRef(_) => "AgentRef",
             Value::Thunk { .. } => "Thunk",
+            Value::Range { .. } => "Range",
             Value::ModelBuilder { .. } => "ModelBuilder",
         }
     }
@@ -429,6 +456,9 @@ impl Value {
             Value::MemoryRef(name) => serde_json::json!(format!("<memory {}>", name)),
             Value::AgentRef(name) => serde_json::json!(format!("<agent {}>", name)),
             Value::Thunk { function, .. } => serde_json::json!(format!("<thunk {}>", function)),
+            Value::Range { start, end, inclusive } => {
+                serde_json::json!({"start": start, "end": end, "inclusive": inclusive})
+            }
             Value::ModelBuilder { source_name, .. } => {
                 serde_json::json!(format!("<builder {}>", source_name))
             }
@@ -473,6 +503,11 @@ impl PartialEq for Value {
                 },
             ) => ok1 == ok2 && v1 == v2,
             (Value::Option(a), Value::Option(b)) => a == b,
+            (Value::Function(a), Value::Function(b)) => a == b,
+            (
+                Value::Range { start: s1, end: e1, inclusive: i1 },
+                Value::Range { start: s2, end: e2, inclusive: i2 },
+            ) => s1 == s2 && e1 == e2 && i1 == i2,
             _ => false,
         }
     }
@@ -535,6 +570,13 @@ impl fmt::Display for Value {
             Value::PipelineRef(name) => write!(f, "<pipeline {}>", name),
             Value::MemoryRef(name) => write!(f, "<memory {}>", name),
             Value::AgentRef(name) => write!(f, "<agent {}>", name),
+            Value::Range { start, end, inclusive } => {
+                if *inclusive {
+                    write!(f, "{}..={}", start, end)
+                } else {
+                    write!(f, "{}..{}", start, end)
+                }
+            }
             Value::Thunk { function, .. } => write!(f, "<thunk {}>", function),
             Value::ModelBuilder { source_name, .. } => write!(f, "<builder {}>", source_name),
         }

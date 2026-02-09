@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use concerto_common::ir::IrAgent;
@@ -156,15 +157,8 @@ impl AgentClient {
             ))
         })?;
 
-        // Read init_ack response
-        let reader = self.stdout_reader.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!(
-                "Agent '{}' stdout not available for init_ack",
-                self.name
-            ))
-        })?;
-        let mut response_line = String::new();
-        reader.read_line(&mut response_line).map_err(|e| {
+        // Read init_ack response (with timeout)
+        let response_line = self.read_line_with_timeout().map_err(|e| {
             RuntimeError::CallError(format!(
                 "Agent '{}' failed to read init_ack: {}",
                 self.name, e
@@ -239,16 +233,8 @@ impl AgentClient {
             RuntimeError::CallError(format!("Failed to flush agent '{}' stdin: {}", self.name, e))
         })?;
 
-        // Read output (one line, blocking)
-        let reader = self.stdout_reader.as_mut().ok_or_else(|| {
-            RuntimeError::CallError(format!("Agent '{}' stdout not available", self.name))
-        })?;
-
-        let mut line = String::new();
-
-        reader.read_line(&mut line).map_err(|e| {
-            RuntimeError::CallError(format!("Agent '{}' read error: {}", self.name, e))
-        })?;
+        // Read output (one line, with timeout)
+        let line = self.read_line_with_timeout()?;
 
         if line.is_empty() {
             self.child = None;
@@ -318,48 +304,39 @@ impl AgentClient {
     /// Non-JSON lines are wrapped as `{"type": "result", "text": "<line>"}`.
     pub fn read_message(&mut self) -> Result<Option<serde_json::Value>> {
         loop {
-            let reader = self.stdout_reader.as_mut().ok_or_else(|| {
-                RuntimeError::CallError(format!("Agent '{}' not connected", self.name))
-            })?;
-
-            let mut line = String::new();
-
-            match reader.read_line(&mut line) {
-                Ok(0) => {
-                    // EOF
-                    self.child = None;
-                    self.stdout_reader = None;
-                    return Ok(None);
-                }
-                Ok(_) => {
-                    let trimmed = line.trim_end();
-                    if trimmed.is_empty() {
-                        // Skip empty lines, try next
-                        continue;
-                    }
-                    // Try parsing as JSON
-                    return match serde_json::from_str::<serde_json::Value>(trimmed) {
-                        Ok(json) if json.is_object() && json.get("type").is_some() => {
-                            Ok(Some(json))
-                        }
-                        _ => {
-                            // Non-JSON or no "type" field: wrap as result
-                            Ok(Some(serde_json::json!({
-                                "type": "result",
-                                "text": trimmed
-                            })))
-                        }
-                    };
-                }
+            let line = match self.read_line_with_timeout() {
+                Ok(line) => line,
                 Err(e) => {
+                    // Check if it's a timeout or disconnect
                     self.child = None;
                     self.stdout_reader = None;
-                    return Err(RuntimeError::CallError(format!(
-                        "Agent '{}' read error: {}",
-                        self.name, e
-                    )));
+                    return Err(e);
                 }
+            };
+
+            if line.is_empty() {
+                // EOF
+                self.child = None;
+                self.stdout_reader = None;
+                return Ok(None);
             }
+
+            let trimmed = line.trim_end();
+            if trimmed.is_empty() {
+                // Skip empty lines, try next
+                continue;
+            }
+            // Try parsing as JSON
+            return match serde_json::from_str::<serde_json::Value>(trimmed) {
+                Ok(json) if json.is_object() && json.get("type").is_some() => Ok(Some(json)),
+                _ => {
+                    // Non-JSON or no "type" field: wrap as result
+                    Ok(Some(serde_json::json!({
+                        "type": "result",
+                        "text": trimmed
+                    })))
+                }
+            };
         }
     }
 
@@ -382,6 +359,55 @@ impl AgentClient {
         })?;
 
         Ok(())
+    }
+
+    /// Read a line from stdout with timeout enforcement.
+    /// Takes ownership of the BufReader temporarily to move into thread.
+    fn read_line_with_timeout(&mut self) -> Result<String> {
+        let mut reader = self.stdout_reader.take().ok_or_else(|| {
+            RuntimeError::CallError(format!("Agent '{}' stdout not available", self.name))
+        })?;
+        let timeout = self.timeout;
+        let agent_name = self.name.clone();
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let result = reader.read_line(&mut line);
+            // Send both the result and the reader back
+            let _ = tx.send((result, line, reader));
+        });
+
+        match rx.recv_timeout(timeout) {
+            Ok((read_result, line, reader)) => {
+                // Restore the reader
+                self.stdout_reader = Some(reader);
+                read_result.map_err(|e| {
+                    RuntimeError::CallError(format!("Agent '{}' read error: {}", agent_name, e))
+                })?;
+                Ok(line)
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Timeout — kill the child process
+                if let Some(ref mut child) = self.child {
+                    let _ = child.kill();
+                }
+                self.child = None;
+                // stdout_reader is already None (taken above), leave it
+                Err(RuntimeError::CallError(format!(
+                    "Agent '{}' timed out after {}s",
+                    agent_name,
+                    timeout.as_secs()
+                )))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.child = None;
+                Err(RuntimeError::CallError(format!(
+                    "Agent '{}' read thread disconnected",
+                    agent_name
+                )))
+            }
+        }
     }
 
     /// Shutdown the agent process.
@@ -700,5 +726,36 @@ mod tests {
         assert_eq!(echoed["type"], "response");
         assert_eq!(echoed["in_reply_to"], "question");
         assert_eq!(echoed["value"], "RS256");
+    }
+
+    #[test]
+    fn agent_execute_timeout_enforced() {
+        // Bug: timeout was stored but never enforced.
+        // Agent sleeps 3s but timeout is 1s — should error before 3s.
+        let ir_agent = IrAgent {
+            name: "SlowAgent".to_string(),
+            connector: "slow".to_string(),
+            input_format: "text".to_string(),
+            output_format: "text".to_string(),
+            timeout: Some(1),
+            decorators: vec![],
+            command: Some("sleep".to_string()),
+            args: Some(vec!["10".to_string()]),
+            env: None,
+            working_dir: None,
+            params: None,
+        };
+        let mut client = AgentClient::from_ir(&ir_agent);
+        client.ensure_connected().unwrap();
+
+        let start = std::time::Instant::now();
+        let result = client.read_line_with_timeout();
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "should timeout");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("timed out"), "error should mention timeout, got: {}", err);
+        // Should complete well under 3s (timeout is 1s)
+        assert!(elapsed.as_secs() < 3, "elapsed {}s, expected ~1s", elapsed.as_secs());
     }
 }

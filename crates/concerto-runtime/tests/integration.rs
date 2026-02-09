@@ -1306,3 +1306,283 @@ fn e2e_pipeline_adjacency_type_error() {
         errors
     );
 }
+
+// =========================================================================
+// Bug fix regression tests
+// =========================================================================
+
+#[test]
+fn bugfix_none_pattern_not_catchall() {
+    // Bug: bare `None` pattern was parsed as identifier binding (catch-all).
+    // Fix: `None` is now parsed as enum unit variant.
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let out = match Some(7) {
+                None => "none",
+                Some(v) => "some",
+            };
+            emit("out", out);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("out".into(), "some".into()));
+}
+
+#[test]
+fn bugfix_none_pattern_matches_none() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let out = match None {
+                None => "none",
+                Some(v) => "some",
+            };
+            emit("out", out);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("out".into(), "none".into()));
+}
+
+#[test]
+fn bugfix_short_circuit_and() {
+    // Bug: && eagerly evaluated both operands.
+    // Fix: short-circuit — if left is false, right is not evaluated.
+    let (_, emits) = run_program(
+        r#"
+        fn side_true(label: String) -> Bool {
+            emit("side_called", label);
+            true
+        }
+
+        fn main() {
+            let a = false && side_true("and_right");
+            emit("a", a);
+        }
+        "#,
+    );
+    // side_true should NOT be called
+    assert_eq!(emits.len(), 1);
+    assert_eq!(emits[0], ("a".into(), "false".into()));
+}
+
+#[test]
+fn bugfix_short_circuit_or() {
+    let (_, emits) = run_program(
+        r#"
+        fn side_true(label: String) -> Bool {
+            emit("side_called", label);
+            true
+        }
+
+        fn main() {
+            let b = true || side_true("or_right");
+            emit("b", b);
+        }
+        "#,
+    );
+    // side_true should NOT be called
+    assert_eq!(emits.len(), 1);
+    assert_eq!(emits[0], ("b".into(), "true".into()));
+}
+
+#[test]
+fn bugfix_short_circuit_evaluates_right_when_needed() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let a = true && false;
+            let b = false || true;
+            emit("a", a);
+            emit("b", b);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("a".into(), "false".into()));
+    assert_eq!(emits[1], ("b".into(), "true".into()));
+}
+
+#[test]
+fn bugfix_nil_coalesce_option() {
+    // Bug: Some(3) ?? 0 returned Some(3) instead of 3
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let a = Some(3) ?? 0;
+            let b = None ?? 42;
+            let c = nil ?? "default";
+            emit("a", a);
+            emit("b", b);
+            emit("c", c);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("a".into(), "3".into()));
+    assert_eq!(emits[1], ("b".into(), "42".into()));
+    assert_eq!(emits[2], ("c".into(), "default".into()));
+}
+
+#[test]
+fn bugfix_propagate_option_some() {
+    // Bug: ? on Option(Some(v)) passed through unchanged instead of unwrapping
+    let (_, emits) = run_program(
+        r#"
+        fn bump(v: Option<Int>) -> Option<Int> {
+            let n = v?;
+            Some(n + 1)
+        }
+
+        fn main() {
+            emit("result", bump(Some(1)));
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("result".into(), "Some(2)".into()));
+}
+
+#[test]
+fn bugfix_propagate_option_none() {
+    // Bug: ? on Option(None) didn't early-return
+    let (_, emits) = run_program(
+        r#"
+        fn only_if_present(v: Option<Int>) -> Option<Int> {
+            let n = v?;
+            Some(42)
+        }
+
+        fn main() {
+            emit("result", only_if_present(None));
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("result".into(), "None".into()));
+}
+
+#[test]
+fn bugfix_cast_valid_conversions() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let a = 42 as Float;
+            let b = 3.14 as Int;
+            let c = "123" as Int;
+            emit("a", a);
+            emit("b", b);
+            emit("c", c);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("a".into(), "42".into()));
+    assert_eq!(emits[1], ("b".into(), "3".into()));
+    assert_eq!(emits[2], ("c".into(), "123".into()));
+}
+
+#[test]
+fn bugfix_cast_invalid_string_to_int_throws() {
+    // Bug: "abc" as Int silently returned "abc"
+    // Now it throws a catchable error
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            try {
+                let x = "abc" as Int;
+                emit("bad", "should not reach");
+            } catch {
+                emit("result", "caught");
+            }
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("result".into(), "caught".into()));
+}
+
+#[test]
+fn bugfix_range_for_loop_inclusive() {
+    // Bug: for n in 1..=3 iterated over metadata array [1, 3, true]
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let mut total = 0;
+            for n in 1..=3 {
+                total = total + n;
+            }
+            emit("total", total);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("total".into(), "6".into()));
+}
+
+#[test]
+fn bugfix_range_for_loop_exclusive() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let mut total = 0;
+            for n in 0..5 {
+                total = total + n;
+            }
+            emit("total", total);
+        }
+        "#,
+    );
+    // 0+1+2+3+4 = 10
+    assert_eq!(emits[0], ("total".into(), "10".into()));
+}
+
+#[test]
+fn bugfix_range_array_slicing() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let items = [10, 20, 30, 40, 50];
+            let slice = items[1..4];
+            emit("slice", slice);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("slice".into(), "[20, 30, 40]".into()));
+}
+
+// ============================================================================
+// Bug fix: Structural pattern matching
+// ============================================================================
+
+#[test]
+fn bugfix_tuple_pattern_check() {
+    let (_val, emits) = run_program(
+        r#"
+        fn main() {
+            let pair = (1, 2);
+            let out = match pair {
+                (3, 4) => "wrong",
+                (1, 2) => "correct",
+                _ => "fallback",
+            };
+            emit("out", out);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("out".into(), "correct".into()));
+}
+
+#[test]
+fn bugfix_user_enum_pattern_check() {
+    let (_val, emits) = run_program(
+        r#"
+        enum Mode { A, B }
+
+        fn main() {
+            let m = Mode::A;
+            let out = match m {
+                Mode::B => "wrong",
+                Mode::A => "correct",
+                _ => "fallback",
+            };
+            emit("out", out);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("out".into(), "correct".into()));
+}

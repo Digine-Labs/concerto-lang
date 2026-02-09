@@ -167,4 +167,12 @@ pub enum Opcode {
     /// Install a mock response for a model during test execution.
     /// name: model name, arg: mock config JSON (response/error fields).
     MockModel,
+
+    // === Nil Coalesce ===
+    /// Prepare value for nil coalesce: Option(None) → Nil, Option(Some(v)) → v, other → unchanged.
+    NilCoalescePrep,
+
+    // === Range ===
+    /// Pop start, end, inclusive; push Range value.
+    BuildRange,
 }
