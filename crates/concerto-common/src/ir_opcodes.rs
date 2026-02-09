@@ -157,4 +157,9 @@ pub enum Opcode {
     AwaitAll,
     /// Spawn async task from closure on stack.
     SpawnAsync,
+
+    // === Host Streaming ===
+    /// Begin listen loop on host. Pops argc args from stack.
+    /// name: host name, arg: listen definition reference.
+    ListenBegin,
 }

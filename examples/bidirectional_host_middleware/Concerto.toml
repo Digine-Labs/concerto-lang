@@ -1,0 +1,10 @@
+[project]
+name = "bidirectional_host_middleware"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[hosts.mock_external_agent]
+transport = "stdio"
+command = "bash"
+args = ["examples/bidirectional_host_middleware/host/mock_external_agent.sh"]
+timeout = 120

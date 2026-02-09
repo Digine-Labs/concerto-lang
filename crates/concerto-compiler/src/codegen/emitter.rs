@@ -24,8 +24,10 @@ pub struct CodeGenerator {
     ledgers: Vec<IrLedger>,
     memories: Vec<IrMemory>,
     pipelines: Vec<IrPipeline>,
+    listens: Vec<IrListen>,
     types: Vec<IrType>,
     closure_counter: usize,
+    listen_counter: usize,
 }
 
 impl CodeGenerator {
@@ -44,8 +46,10 @@ impl CodeGenerator {
             ledgers: Vec::new(),
             memories: Vec::new(),
             pipelines: Vec::new(),
+            listens: Vec::new(),
             types: Vec::new(),
             closure_counter: 0,
+            listen_counter: 0,
         }
     }
 
@@ -97,6 +101,7 @@ impl CodeGenerator {
             memories: self.memories,
             hosts: self.hosts,
             pipelines: self.pipelines,
+            listens: self.listens,
             source_map: None,
             metadata: IrMetadata {
                 compiler_version: "0.1.0".to_string(),
@@ -763,6 +768,11 @@ impl CodeGenerator {
                     span,
                     ..default_instruction()
                 });
+            }
+
+            // --- Listen expression ---
+            ExprKind::Listen { call, handlers } => {
+                self.generate_listen(call, handlers, ctx, span);
             }
 
             // --- Return expression (in expression position, e.g., match arms) ---
@@ -1798,6 +1808,107 @@ impl CodeGenerator {
         }
 
         ctx.patch_jump(jump_past_catch);
+    }
+
+    // ========================================================================
+    // Listen expression
+    // ========================================================================
+
+    fn generate_listen(
+        &mut self,
+        call: &Expr,
+        handlers: &[ListenHandler],
+        ctx: &mut FunctionCtx,
+        span: Option<[u32; 2]>,
+    ) {
+        // Extract host name and args from the call expression.
+        // Expected: MethodCall { object: Identifier(host), method: "execute", args: [prompt] }
+        let (host_name, args) = match &call.kind {
+            ExprKind::MethodCall {
+                object,
+                method: _,
+                args,
+                ..
+            } => {
+                let name = match &object.kind {
+                    ExprKind::Identifier(name) => name.clone(),
+                    _ => "unknown".to_string(),
+                };
+                (name, args)
+            }
+            _ => {
+                // Fallback: push the call expression result and use "unknown" host
+                self.generate_expr(call, ctx);
+                ("unknown".to_string(), &vec![] as &Vec<Expr>)
+            }
+        };
+
+        // Push call args onto the stack (typically just the prompt)
+        for arg in args {
+            self.generate_expr(arg, ctx);
+        }
+
+        // Compile each handler body as instruction block (pipeline stage pattern)
+        let ir_handlers: Vec<IrListenHandler> = handlers
+            .iter()
+            .map(|h| {
+                let mut handler_ctx = FunctionCtx::new();
+                handler_ctx.add_local(&h.param.name);
+                self.generate_block(&h.body, &mut handler_ctx);
+
+                // Ensure handler body has a RETURN
+                if h.body.tail_expr.is_none() {
+                    let nil_idx = self.pool.add_nil();
+                    handler_ctx.emit(IrInstruction {
+                        op: Opcode::LoadConst,
+                        arg: Some(serde_json::Value::Number(nil_idx.into())),
+                        span: None,
+                        ..default_instruction()
+                    });
+                }
+                handler_ctx.emit(IrInstruction {
+                    op: Opcode::Return,
+                    span: None,
+                    ..default_instruction()
+                });
+
+                let param_type = h
+                    .param
+                    .type_ann
+                    .as_ref()
+                    .map(|t| serde_json::Value::String(format!("{t:?}")))
+                    .unwrap_or(serde_json::Value::String("any".to_string()));
+
+                IrListenHandler {
+                    message_type: h.message_type.clone(),
+                    param: IrParam {
+                        name: h.param.name.clone(),
+                        param_type,
+                    },
+                    instructions: handler_ctx.instructions,
+                }
+            })
+            .collect();
+
+        // Create IrListen definition
+        let listen_name = format!("$listen_{}", self.listen_counter);
+        self.listen_counter += 1;
+
+        self.listens.push(IrListen {
+            name: listen_name.clone(),
+            host: host_name.clone(),
+            handlers: ir_handlers,
+        });
+
+        // Emit ListenBegin instruction
+        ctx.emit(IrInstruction {
+            op: Opcode::ListenBegin,
+            name: Some(host_name),
+            arg: Some(serde_json::Value::String(listen_name)),
+            argc: Some(args.len() as u32),
+            span,
+            ..default_instruction()
+        });
     }
 
     // ========================================================================
@@ -3512,5 +3623,113 @@ mod tests {
         assert_eq!(ir.memories.len(), 1);
         assert_eq!(ir.memories[0].name, "conv");
         assert_eq!(ir.memories[0].max_messages, Some(50));
+    }
+
+    // ========================================================================
+    // Listen codegen tests
+    // ========================================================================
+
+    #[test]
+    fn listen_generates_ir_listen() {
+        let ir = compile(
+            r#"
+            host MyHost {
+                connector: "test_host",
+            }
+            fn main() {
+                let result = listen MyHost.execute("do work") {
+                    "progress" => |msg| {
+                        emit("log", msg);
+                    },
+                };
+            }
+        "#,
+        );
+        // Should have generated a listen definition
+        assert_eq!(ir.listens.len(), 1);
+        assert_eq!(ir.listens[0].name, "$listen_0");
+        assert_eq!(ir.listens[0].host, "MyHost");
+        assert_eq!(ir.listens[0].handlers.len(), 1);
+        assert_eq!(ir.listens[0].handlers[0].message_type, "progress");
+        assert_eq!(ir.listens[0].handlers[0].param.name, "msg");
+    }
+
+    #[test]
+    fn listen_emits_listen_begin_opcode() {
+        let ir = compile(
+            r#"
+            host MyHost {
+                connector: "test_host",
+            }
+            fn main() {
+                let result = listen MyHost.execute("prompt") {
+                    "progress" => |msg| {
+                        emit("log", msg);
+                    },
+                };
+            }
+        "#,
+        );
+        let main = &ir.functions[0];
+        let ops: Vec<Opcode> = main.instructions.iter().map(|i| i.op).collect();
+        assert!(ops.contains(&Opcode::ListenBegin));
+        // Verify the ListenBegin instruction has correct fields
+        let listen_inst = main
+            .instructions
+            .iter()
+            .find(|i| i.op == Opcode::ListenBegin)
+            .unwrap();
+        assert_eq!(listen_inst.name.as_deref(), Some("MyHost"));
+        assert_eq!(
+            listen_inst.arg.as_ref().and_then(|a| a.as_str()),
+            Some("$listen_0")
+        );
+        assert_eq!(listen_inst.argc, Some(1)); // one arg (the prompt)
+    }
+
+    #[test]
+    fn listen_handler_instructions_have_return() {
+        let ir = compile(
+            r#"
+            host MyHost {
+                connector: "test_host",
+            }
+            fn main() {
+                let result = listen MyHost.execute("prompt") {
+                    "question" => |q| {
+                        "answer"
+                    },
+                };
+            }
+        "#,
+        );
+        // Handler instructions should end with RETURN
+        let handler = &ir.listens[0].handlers[0];
+        let last_op = handler.instructions.last().unwrap().op;
+        assert_eq!(last_op, Opcode::Return);
+    }
+
+    #[test]
+    fn listen_multiple_handlers_ir() {
+        let ir = compile(
+            r#"
+            host MyHost {
+                connector: "test_host",
+            }
+            fn main() {
+                let result = listen MyHost.execute("prompt") {
+                    "progress" => |p| {
+                        emit("log", p);
+                    },
+                    "question" => |q| {
+                        "answer"
+                    },
+                };
+            }
+        "#,
+        );
+        assert_eq!(ir.listens[0].handlers.len(), 2);
+        assert_eq!(ir.listens[0].handlers[0].message_type, "progress");
+        assert_eq!(ir.listens[0].handlers[1].message_type, "question");
     }
 }

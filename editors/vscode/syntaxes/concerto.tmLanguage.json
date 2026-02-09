@@ -296,7 +296,7 @@
         {
           "comment": "AI-specific declaration keywords",
           "name": "keyword.declaration.concerto",
-          "match": "\\b(agent|tool|schema|pipeline|stage|hashmap|ledger|memory|host|mcp)\\b"
+          "match": "\\b(agent|tool|schema|pipeline|stage|hashmap|ledger|memory|host|listen|mcp)\\b"
         },
         {
           "comment": "Control flow",

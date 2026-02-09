@@ -499,6 +499,16 @@ pub struct MatchArm {
     pub span: Span,
 }
 
+/// A handler arm within a listen expression.
+/// `"message_type" => |param: Type| { body }`
+#[derive(Debug, Clone)]
+pub struct ListenHandler {
+    pub message_type: String,
+    pub param: Param,
+    pub body: Block,
+    pub span: Span,
+}
+
 /// A catch clause: `catch [ErrorType(binding)] { body }`.
 #[derive(Debug, Clone)]
 pub struct CatchClause {
@@ -738,6 +748,12 @@ pub enum ExprKind {
 
     /// Return expression: `return expr` (used in expression position, e.g., match arms)
     Return(Option<Box<Expr>>),
+
+    /// Listen expression: `listen Host.execute("prompt") { "type" => |p| { ... }, ... }`
+    Listen {
+        call: Box<Expr>,
+        handlers: Vec<ListenHandler>,
+    },
 }
 
 /// A literal value.

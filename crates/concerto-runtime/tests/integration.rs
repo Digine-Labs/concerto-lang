@@ -558,3 +558,316 @@ fn e2e_host_declaration() {
     let result = vm.execute();
     assert!(result.is_ok());
 }
+
+// =========================================================================
+// Listen expression tests
+// =========================================================================
+
+#[test]
+fn e2e_listen_compiles_and_loads() {
+    // Test that a listen expression compiles to valid IR and loads correctly
+    let source = r#"
+        host StreamHost {
+            connector: "stream_host",
+        }
+        fn main() {
+            let result = listen StreamHost.execute("do work") {
+                "progress" => |msg| {
+                    emit("log", msg);
+                },
+                "question" => |q| {
+                    "yes"
+                },
+            };
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(
+        !parse_diags.has_errors(),
+        "parse errors: {:?}",
+        parse_diags.diagnostics()
+    );
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(
+        !sem_diags.has_errors(),
+        "semantic errors: {:?}",
+        sem_diags.diagnostics()
+    );
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+
+    // Verify listen IR structure
+    assert_eq!(ir.listens.len(), 1);
+    assert_eq!(ir.listens[0].host, "StreamHost");
+    assert_eq!(ir.listens[0].handlers.len(), 2);
+    assert_eq!(ir.listens[0].handlers[0].message_type, "progress");
+    assert_eq!(ir.listens[0].handlers[1].message_type, "question");
+
+    // Verify IR serialization round-trip
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+    let ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    let module = LoadedModule::from_ir(ir_module).expect("IR loading failed");
+
+    // Verify listen loaded into module
+    assert!(module.listens.contains_key("$listen_0"));
+}
+
+#[test]
+fn e2e_listen_vm_execution() {
+    // Test actual VM execution with a mock host that outputs NDJSON.
+    // Uses printf to output progress + result messages.
+    let source = r#"
+        host MockHost {
+            connector: "mock",
+        }
+        fn main() {
+            let result = listen MockHost.execute("do work") {
+                "progress" => |msg| {
+                    emit("progress_received", msg);
+                },
+            };
+            emit("done", result);
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors(), "semantic errors: {:?}", sem_diags.diagnostics());
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+
+    // Patch the host command to use printf for mock NDJSON output
+    let mut ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    // Set the host command to printf which outputs NDJSON
+    ir_module.hosts[0].command = Some("printf".to_string());
+    ir_module.hosts[0].args = Some(vec![
+        r#"{"type":"progress","message":"Working on it..."}\n{"type":"result","text":"All done"}\n"#.to_string(),
+    ]);
+
+    let module = LoadedModule::from_ir(ir_module).expect("IR loading failed");
+
+    let emits: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emits_clone = emits.clone();
+    let mut vm = VM::new(module);
+    vm.set_emit_handler(move |channel, payload| {
+        emits_clone
+            .lock()
+            .unwrap()
+            .push((channel.to_string(), payload.display_string()));
+    });
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "VM execution failed: {:?}", result.err());
+
+    let collected = emits.lock().unwrap().clone();
+    // Should have: listen:start, progress_received, listen:complete, done
+    let channels: Vec<&str> = collected.iter().map(|(c, _)| c.as_str()).collect();
+    assert!(channels.contains(&"listen:start"), "missing listen:start, got: {:?}", channels);
+    assert!(channels.contains(&"progress_received"), "missing progress_received, got: {:?}", channels);
+    assert!(channels.contains(&"listen:complete"), "missing listen:complete, got: {:?}", channels);
+    assert!(channels.contains(&"done"), "missing done, got: {:?}", channels);
+}
+
+#[test]
+fn e2e_listen_bidirectional() {
+    // Test bidirectional communication: host sends question, handler responds.
+    // Uses a bash script via `bash -c` that reads stdin and writes to stdout.
+    let source = r#"
+        host BidiHost {
+            connector: "bidi",
+        }
+        fn main() {
+            let result = listen BidiHost.execute("start") {
+                "question" => |q| {
+                    emit("got_question", q);
+                    "yes"
+                },
+            };
+            emit("final", result);
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors());
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors());
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+
+    let mut ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    // Script: read prompt, send question, read response, send result
+    ir_module.hosts[0].command = Some("bash".to_string());
+    ir_module.hosts[0].args = Some(vec![
+        "-c".to_string(),
+        // Read the prompt line, emit a question, read back response, emit result
+        r#"read prompt; echo '{"type":"question","question":"Approve?"}'; read response; echo '{"type":"result","text":"completed"}';"#.to_string(),
+    ]);
+
+    let module = LoadedModule::from_ir(ir_module).expect("IR loading failed");
+
+    let emits: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emits_clone = emits.clone();
+    let mut vm = VM::new(module);
+    vm.set_emit_handler(move |channel, payload| {
+        emits_clone
+            .lock()
+            .unwrap()
+            .push((channel.to_string(), payload.display_string()));
+    });
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "VM execution failed: {:?}", result.err());
+
+    let collected = emits.lock().unwrap().clone();
+    let channels: Vec<&str> = collected.iter().map(|(c, _)| c.as_str()).collect();
+    assert!(channels.contains(&"got_question"), "missing got_question, got: {:?}", channels);
+    assert!(channels.contains(&"final"), "missing final, got: {:?}", channels);
+}
+
+// =========================================================================
+// Direct run tests (compile .conc in-memory → execute)
+// =========================================================================
+
+/// Helper: compile source to IrModule in-memory, load, return LoadedModule.
+/// Mimics what `concerto run file.conc` does internally.
+fn compile_and_load(source: &str) -> LoadedModule {
+    let (tokens, lex_diags) = Lexer::new(source, "direct.conc").tokenize();
+    assert!(!lex_diags.has_errors(), "lex errors: {:?}", lex_diags.diagnostics());
+
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors(), "semantic errors: {:?}", sem_diags.diagnostics());
+
+    let ir = CodeGenerator::new("direct", "direct.conc").generate(&program);
+    let json = serde_json::to_string(&ir).expect("IR serialize failed");
+    let ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialize failed");
+    LoadedModule::from_ir(ir_module).expect("LoadedModule failed")
+}
+
+#[test]
+fn e2e_direct_run_basic_program() {
+    // Verify the in-memory compile+run path works for a basic program
+    let source = r#"
+        fn main() {
+            let x = 10 + 20;
+            emit("result", x);
+        }
+    "#;
+
+    let module = compile_and_load(source);
+    let emits: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emits_clone = emits.clone();
+    let mut vm = VM::new(module);
+    vm.set_emit_handler(move |channel, payload| {
+        emits_clone.lock().unwrap().push((channel.to_string(), payload.display_string()));
+    });
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "execution failed: {:?}", result.err());
+
+    let collected = emits.lock().unwrap().clone();
+    assert_eq!(collected.len(), 1);
+    assert_eq!(collected[0].0, "result");
+    assert_eq!(collected[0].1, "30");
+}
+
+#[test]
+fn e2e_direct_run_with_stdlib() {
+    // Verify stdlib calls work through direct run path
+    let source = r#"
+        fn main() {
+            let s = "hello world";
+            let upper = std::string::to_upper(s);
+            emit("output", upper);
+        }
+    "#;
+
+    let module = compile_and_load(source);
+    let emits: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emits_clone = emits.clone();
+    let mut vm = VM::new(module);
+    vm.set_emit_handler(move |channel, payload| {
+        emits_clone.lock().unwrap().push((channel.to_string(), payload.display_string()));
+    });
+
+    let result = vm.execute();
+    assert!(result.is_ok());
+    let collected = emits.lock().unwrap().clone();
+    assert_eq!(collected[0].1, "HELLO WORLD");
+}
+
+#[test]
+fn e2e_direct_run_with_agent_mock() {
+    // Verify agent execution works through direct run path (uses MockProvider)
+    let source = r#"
+        agent TestBot {
+            provider: openai,
+            model: "gpt-4o-mini",
+            system_prompt: "You are a test bot.",
+        }
+
+        fn main() {
+            let result = TestBot.execute("Hello");
+            match result {
+                Ok(response) => emit("text", response.text),
+                Err(e) => emit("error", e),
+            }
+        }
+    "#;
+
+    let (tokens, lex_diags) = Lexer::new(source, "agent.conc").tokenize();
+    assert!(!lex_diags.has_errors());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors());
+
+    // Need to register "openai" as connection name for semantic analysis
+    let sem_diags = concerto_compiler::semantic::analyze_with_connections(
+        &program, &["openai".to_string()],
+    );
+    assert!(!sem_diags.has_errors(), "sem: {:?}", sem_diags.diagnostics());
+
+    let mut codegen = CodeGenerator::new("agent_test", "agent.conc");
+    codegen.add_manifest_connections(vec![concerto_common::ir::IrConnection {
+        name: "openai".to_string(),
+        config: serde_json::json!({
+            "provider": "openai",
+            "default_model": "gpt-4o-mini"
+        }),
+    }]);
+    let ir = codegen.generate(&program);
+
+    let json = serde_json::to_string(&ir).unwrap();
+    let ir_module: concerto_common::ir::IrModule = serde_json::from_str(&json).unwrap();
+    let module = LoadedModule::from_ir(ir_module).unwrap();
+
+    let emits: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emits_clone = emits.clone();
+    let mut vm = VM::new(module);
+    vm.set_emit_handler(move |channel, payload| {
+        emits_clone.lock().unwrap().push((channel.to_string(), payload.display_string()));
+    });
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "execution failed: {:?}", result.err());
+
+    let collected = emits.lock().unwrap().clone();
+    assert_eq!(collected.len(), 1);
+    // MockProvider returns a mock response, so we just check the channel
+    assert_eq!(collected[0].0, "text");
+}

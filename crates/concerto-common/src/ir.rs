@@ -33,6 +33,8 @@ pub struct IrModule {
     pub memories: Vec<IrMemory>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<IrHost>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listens: Vec<IrListen>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_map: Option<IrSourceMap>,
     pub metadata: IrMetadata,
@@ -280,6 +282,22 @@ pub struct IrPipelineStage {
     pub output_type: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decorators: Vec<IrDecorator>,
+    pub instructions: Vec<IrInstruction>,
+}
+
+/// A listen expression definition (bidirectional host streaming).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrListen {
+    pub name: String,
+    pub host: String,
+    pub handlers: Vec<IrListenHandler>,
+}
+
+/// A handler within a listen expression.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrListenHandler {
+    pub message_type: String,
+    pub param: IrParam,
     pub instructions: Vec<IrInstruction>,
 }
 

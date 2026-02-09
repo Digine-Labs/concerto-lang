@@ -1,0 +1,15 @@
+[project]
+name = "host_streaming"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[connections.openai]
+provider = "openai"
+api_key_env = "OPENAI_API_KEY"
+default_model = "gpt-4o-mini"
+
+[hosts.claude_code]
+transport = "stdio"
+command = "claude"
+args = ["--output-format", "stream-json"]
+timeout = 600

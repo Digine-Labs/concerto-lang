@@ -1,0 +1,42 @@
+// Host Streaming Example
+// Demonstrates bidirectional communication with an external host agent.
+// The listen expression creates a message loop that handles typed NDJSON messages.
+
+schema HostProgress {
+    message: String,
+    percent: Int,
+}
+
+schema HostQuestion {
+    question: String,
+    context: String,
+}
+
+agent Architect {
+    provider: openai,
+    model: "gpt-4o-mini",
+    system_prompt: "You are a software architect. Answer technical questions concisely.",
+}
+
+host ClaudeCode {
+    connector: "claude_code",
+    output_format: "json",
+    timeout: 600,
+}
+
+fn main() {
+    let result = listen ClaudeCode.execute("Refactor the auth module to use JWT") {
+        "progress" => |msg: HostProgress| {
+            emit("host:progress", msg);
+        },
+        "question" => |q: HostQuestion| {
+            let answer = Architect.execute("Answer: ${q.question}")?;
+            answer.text
+        },
+        "approval" => |req| {
+            emit("host:approval_request", req);
+            "yes"
+        },
+    };
+    emit("host:complete", result);
+}

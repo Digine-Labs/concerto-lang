@@ -5,13 +5,13 @@ use std::process;
 use clap::Parser;
 use concerto_runtime::{LoadedModule, VM};
 
-/// Concerto language runtime — executes compiled .conc-ir files.
+/// Concerto language runtime — executes .conc source files or compiled .conc-ir files.
 #[derive(Parser)]
 #[command(
     name = "concerto",
     version,
     about,
-    long_about = "Concerto language runtime.\n\nExecutes compiled .conc-ir files produced by the Concerto compiler (concertoc).\n\nExamples:\n  concerto run hello.conc-ir            Run a compiled program\n  concerto run hello.conc-ir --debug    Run with debug output\n  concerto run hello.conc-ir --quiet    Run without emit output\n  concerto init my-project              Create a new Concerto project"
+    long_about = "Concerto language runtime.\n\nRuns Concerto programs from source (.conc) or compiled IR (.conc-ir) files.\nWhen given a .conc file, it compiles in-memory and executes directly.\n\nExamples:\n  concerto run src/main.conc            Compile and run in one step\n  concerto run hello.conc-ir            Run a pre-compiled program\n  concerto run src/main.conc --debug    Run with debug output\n  concerto run src/main.conc --quiet    Run without emit output\n  concerto init my-project              Create a new Concerto project"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -20,9 +20,9 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Command {
-    /// Execute a compiled .conc-ir file
+    /// Execute a .conc source file or compiled .conc-ir file
     Run {
-        /// Path to the .conc-ir file
+        /// Path to the .conc or .conc-ir file
         input: PathBuf,
 
         /// Enable debug output (show stack trace on error)
@@ -55,13 +55,25 @@ async fn main() {
             debug,
             quiet,
         } => {
-            let path = input.to_string_lossy().to_string();
+            let path_str = input.to_string_lossy().to_string();
 
-            let module = match LoadedModule::load_from_file(&path) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("error: failed to load IR: {}", e);
-                    process::exit(1);
+            let module = if is_source_file(&input) {
+                // Direct run: compile .conc in-memory, then execute
+                match compile_source(&input, quiet) {
+                    Ok(m) => m,
+                    Err(msg) => {
+                        eprintln!("{}", msg);
+                        process::exit(1);
+                    }
+                }
+            } else {
+                // Legacy path: load pre-compiled .conc-ir
+                match LoadedModule::load_from_file(&path_str) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("error: failed to load IR: {}", e);
+                        process::exit(1);
+                    }
                 }
             };
 
@@ -89,6 +101,151 @@ async fn main() {
                 process::exit(1);
             }
         }
+    }
+}
+
+// ============================================================================
+// Direct .conc compilation
+// ============================================================================
+
+/// Check if the input file is a .conc source file (not .conc-ir).
+fn is_source_file(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    ext == "conc"
+}
+
+/// Compile a .conc source file in-memory and return a LoadedModule.
+fn compile_source(path: &Path, quiet: bool) -> Result<LoadedModule, String> {
+    use concerto_common::ir::IrConnection;
+    use concerto_common::manifest;
+    use concerto_compiler::codegen::CodeGenerator;
+    use concerto_compiler::lexer::Lexer;
+    use concerto_compiler::parser;
+
+    // Read source
+    let source = fs::read_to_string(path)
+        .map_err(|e| format!("error: could not read '{}': {}", path.display(), e))?;
+
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    // Find and load Concerto.toml
+    let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let (connection_names, ir_connections, manifest_hosts) =
+        match manifest::find_and_load_manifest(&abs_path) {
+            Ok(m) => {
+                let names: Vec<String> = m.connections.keys().cloned().collect();
+                let ir_conns: Vec<IrConnection> = m
+                    .connections
+                    .iter()
+                    .map(|(name, cfg)| IrConnection {
+                        name: name.clone(),
+                        config: cfg.to_ir_config(),
+                    })
+                    .collect();
+                let hosts = m.hosts.clone();
+                (names, ir_conns, hosts)
+            }
+            Err(manifest::ManifestError::NotFound(_)) => {
+                (Vec::new(), Vec::new(), std::collections::HashMap::new())
+            }
+            Err(e) => return Err(format!("error: {}", e)),
+        };
+
+    // Lex
+    let (tokens, lex_diags) = Lexer::new(&source, &file_name).tokenize();
+    if lex_diags.has_errors() {
+        let mut msg = String::new();
+        for diag in lex_diags.diagnostics() {
+            msg.push_str(&format_diagnostic(diag, &source, &file_name));
+        }
+        return Err(msg);
+    }
+
+    // Parse
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    if parse_diags.has_errors() {
+        let mut msg = String::new();
+        for diag in parse_diags.diagnostics() {
+            msg.push_str(&format_diagnostic(diag, &source, &file_name));
+        }
+        return Err(msg);
+    }
+    if !quiet {
+        for diag in parse_diags.diagnostics() {
+            if !diag.is_error() {
+                eprint!("{}", format_diagnostic(diag, &source, &file_name));
+            }
+        }
+    }
+
+    // Semantic analysis
+    let sem_diags =
+        concerto_compiler::semantic::analyze_with_connections(&program, &connection_names);
+    if sem_diags.has_errors() {
+        let mut msg = String::new();
+        for diag in sem_diags.diagnostics() {
+            msg.push_str(&format_diagnostic(diag, &source, &file_name));
+        }
+        return Err(msg);
+    }
+    if !quiet {
+        for diag in sem_diags.diagnostics() {
+            if !diag.is_error() {
+                eprint!("{}", format_diagnostic(diag, &source, &file_name));
+            }
+        }
+    }
+
+    // Codegen
+    let module_name = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let mut codegen = CodeGenerator::new(&module_name, &file_name);
+    codegen.add_manifest_connections(ir_connections);
+    let mut ir = codegen.generate(&program);
+
+    if !manifest_hosts.is_empty() {
+        CodeGenerator::embed_manifest_hosts(&mut ir, &manifest_hosts);
+    }
+
+    // Convert IR to LoadedModule in-memory (no file I/O)
+    let json = serde_json::to_string(&ir)
+        .map_err(|e| format!("error: failed to serialize IR: {}", e))?;
+    let ir_module: concerto_common::ir::IrModule = serde_json::from_str(&json)
+        .map_err(|e| format!("error: failed to deserialize IR: {}", e))?;
+    LoadedModule::from_ir(ir_module)
+        .map_err(|e| format!("error: failed to load IR module: {}", e))
+}
+
+/// Format a diagnostic as a simple text message (no ariadne colors in direct run).
+fn format_diagnostic(
+    diag: &concerto_common::Diagnostic,
+    _source: &str,
+    file_name: &str,
+) -> String {
+    let prefix = if diag.is_error() { "error" } else { "warning" };
+    if let Some(ref span) = diag.span {
+        let mut msg = format!(
+            "{}:{}:{}: {}: {}\n",
+            file_name, span.start.line, span.start.column, prefix, diag.message
+        );
+        if let Some(ref suggestion) = diag.suggestion {
+            msg.push_str(&format!("  = help: {}\n", suggestion));
+        }
+        msg
+    } else {
+        let mut msg = format!("{}: {}\n", prefix, diag.message);
+        if let Some(ref suggestion) = diag.suggestion {
+            msg.push_str(&format!("  = help: {}\n", suggestion));
+        }
+        msg
     }
 }
 
@@ -184,8 +341,7 @@ fn run_init(name: &str, provider: &str) -> Result<(), String> {
         _ => {}
     }
 
-    println!("  concertoc src/main.conc");
-    println!("  concerto run src/main.conc-ir");
+    println!("  concerto run src/main.conc");
 
     Ok(())
 }

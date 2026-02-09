@@ -631,6 +631,8 @@ impl VM {
                     }
                     self.push(Value::Array(results));
                 }
+                Opcode::ListenBegin => self.exec_listen_begin(&inst)?,
+
                 Opcode::SpawnAsync => {
                     // Create a deferred computation (Thunk).
                     // The callee (function ref) is on the stack top.
@@ -2327,6 +2329,199 @@ impl VM {
     }
 
     // ========================================================================
+    // Listen (bidirectional host streaming)
+    // ========================================================================
+
+    /// Execute a ListenBegin opcode: send prompt to host, then enter message loop.
+    fn exec_listen_begin(&mut self, inst: &IrInstruction) -> Result<()> {
+        let host_name = inst.name.as_deref().ok_or_else(|| {
+            RuntimeError::CallError("ListenBegin missing host name".into())
+        })?;
+        let listen_name = inst
+            .arg
+            .as_ref()
+            .and_then(|a| a.as_str())
+            .ok_or_else(|| {
+                RuntimeError::CallError("ListenBegin missing listen definition reference".into())
+            })?;
+        let argc = inst.argc.unwrap_or(0) as usize;
+
+        // Pop args (prompt, etc.) from stack
+        let mut args = Vec::with_capacity(argc);
+        for _ in 0..argc {
+            args.push(self.pop()?);
+        }
+        args.reverse();
+
+        let prompt = args
+            .into_iter()
+            .next()
+            .unwrap_or(Value::Nil)
+            .display_string();
+
+        // Look up listen definition
+        let listen = self
+            .module
+            .listens
+            .get(listen_name)
+            .ok_or_else(|| {
+                RuntimeError::CallError(format!(
+                    "Listen definition '{}' not found",
+                    listen_name
+                ))
+            })?
+            .clone();
+
+        // Send prompt to host
+        self.host_registry
+            .get_client_mut(host_name)?
+            .write_prompt_streaming(&prompt, None)?;
+
+        // Emit lifecycle event
+        (self.emit_handler)(
+            "listen:start",
+            &Value::Map(vec![
+                ("host".to_string(), Value::String(host_name.to_string())),
+                ("listen".to_string(), Value::String(listen_name.to_string())),
+            ]),
+        );
+
+        // Run the listen loop
+        let result = self.run_listen_loop(host_name, &listen);
+
+        // Emit completion event
+        match &result {
+            Ok(_) => {
+                (self.emit_handler)(
+                    "listen:complete",
+                    &Value::Map(vec![
+                        ("host".to_string(), Value::String(host_name.to_string())),
+                    ]),
+                );
+            }
+            Err(e) => {
+                (self.emit_handler)(
+                    "listen:error",
+                    &Value::Map(vec![
+                        ("host".to_string(), Value::String(host_name.to_string())),
+                        ("error".to_string(), Value::String(e.to_string())),
+                    ]),
+                );
+            }
+        }
+
+        let value = result?;
+        // Wrap in Result
+        self.push(Value::Result {
+            is_ok: true,
+            value: Box::new(value),
+        });
+        Ok(())
+    }
+
+    /// Run the listen loop: read NDJSON messages from host, dispatch to handlers.
+    fn run_listen_loop(
+        &mut self,
+        host_name: &str,
+        listen: &concerto_common::ir::IrListen,
+    ) -> Result<Value> {
+        use crate::schema::SchemaValidator;
+
+        loop {
+            // Read next message from host
+            let msg = self
+                .host_registry
+                .get_client_mut(host_name)?
+                .read_message()?;
+
+            let msg = match msg {
+                Some(m) => m,
+                None => {
+                    // Host exited without sending result/error
+                    return Err(RuntimeError::CallError(format!(
+                        "Host '{}' exited without sending a result",
+                        host_name
+                    )));
+                }
+            };
+
+            // Extract message type
+            let msg_type = msg
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("result")
+                .to_string();
+
+            match msg_type.as_str() {
+                "result" => {
+                    // Terminal: convert remaining fields to Value and return
+                    let mut result_obj = msg.clone();
+                    if let Some(obj) = result_obj.as_object_mut() {
+                        obj.remove("type");
+                    }
+                    return Ok(SchemaValidator::json_to_value(&result_obj));
+                }
+                "error" => {
+                    // Terminal: return as error
+                    let error_msg = msg
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("unknown host error")
+                        .to_string();
+                    return Err(RuntimeError::CallError(format!(
+                        "Host '{}' error: {}",
+                        host_name, error_msg
+                    )));
+                }
+                _ => {
+                    // Find matching handler
+                    let handler = listen.handlers.iter().find(|h| h.message_type == msg_type);
+
+                    if let Some(handler) = handler {
+                        // Build handler parameter value:
+                        // Remove "type" field, convert rest to Value
+                        let mut param_obj = msg.clone();
+                        if let Some(obj) = param_obj.as_object_mut() {
+                            obj.remove("type");
+                        }
+                        let param_value = SchemaValidator::json_to_value(&param_obj);
+
+                        // Execute handler via push_frame + run_loop_until (pipeline stage pattern)
+                        let stop_depth = self.call_stack.len();
+                        let handler_name =
+                            format!("$listen_handler_{}", handler.message_type);
+                        self.push_frame(
+                            handler_name,
+                            handler.instructions.clone(),
+                            vec![param_value],
+                            std::slice::from_ref(&handler.param),
+                        )?;
+                        let handler_result = self.run_loop_until(stop_depth)?;
+
+                        // If handler returned a non-Nil value, send response back to host
+                        if handler_result != Value::Nil {
+                            let response_json = serde_json::json!({
+                                "type": "response",
+                                "in_reply_to": msg_type,
+                                "value": handler_result.to_json()
+                            });
+                            self.host_registry
+                                .get_client_mut(host_name)?
+                                .write_response(&response_json)?;
+                        }
+                    } else {
+                        // No handler — emit unhandled and continue
+                        (self.emit_handler)(
+                            "listen:unhandled",
+                            &SchemaValidator::json_to_value(&msg),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // ========================================================================
     // AgentBuilder creation and dispatch
     // ========================================================================
 
@@ -2713,6 +2908,7 @@ mod tests {
             ledgers: vec![],
             memories: vec![],
             hosts: vec![],
+            listens: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {
@@ -2974,6 +3170,7 @@ mod tests {
             ledgers: vec![],
             memories: vec![],
             hosts: vec![],
+            listens: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {
@@ -3495,6 +3692,7 @@ mod tests {
             ledgers: vec![],
             memories: vec![],
             hosts: vec![],
+            listens: vec![],
             pipelines: vec![],
             source_map: None,
             metadata: IrMetadata {

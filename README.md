@@ -152,6 +152,8 @@ concerto run hello.conc-ir
 - `examples/multi_agent_pipeline` -- multi-stage orchestration
 - `examples/agent_memory_conversation` -- spec 24 memory patterns (`with_memory`, manual mode, message queries)
 - `examples/dynamic_tool_binding` -- spec 25 dynamic tool composition (`with_tools`, `without_tools`)
+- `examples/host_streaming` -- spec 27 listen syntax with external host streaming
+- `examples/bidirectional_host_middleware` -- self-contained bidirectional host middleware test (includes local host process)
 
 ## Standard Library
 
@@ -201,12 +203,13 @@ Language specifications are in the [spec/](spec/) directory:
 - [Agent Memory](spec/24-agent-memory.md)
 - [Dynamic Tool Binding](spec/25-dynamic-tool-binding.md)
 - [Hosts](spec/26-hosts.md)
+- [Host Streaming](spec/27-host-streaming.md)
 
 ## Project Status
 
 See [STATUS.md](STATUS.md) for detailed project tracking.
 
-**Current:** Phase 7 (Agent Memory, Dynamic Tool Binding, Hosts) in progress.
+**Current:** Phase 1-7e complete (latest: host streaming and bidirectional middleware examples).
 
 ## License
 

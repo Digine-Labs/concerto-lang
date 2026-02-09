@@ -261,7 +261,7 @@ impl Parser {
     }
 
     /// Parse a single parameter: `name: Type [= default]`
-    fn parse_param(&mut self) -> Option<Param> {
+    pub(crate) fn parse_param(&mut self) -> Option<Param> {
         let start = self.current_span();
         let name_token = self.expect(TokenKind::Identifier)?;
         let name = name_token.lexeme.clone();

@@ -374,6 +374,12 @@ pub trait Visitor {
                     self.visit_expr(val);
                 }
             }
+            ExprKind::Listen { call, handlers } => {
+                self.visit_expr(call);
+                for handler in handlers {
+                    self.visit_block(&handler.body);
+                }
+            }
         }
     }
 }

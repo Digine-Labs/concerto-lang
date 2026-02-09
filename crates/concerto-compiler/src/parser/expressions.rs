@@ -455,6 +455,9 @@ impl Parser {
                 Some(Expr::new(ExprKind::Return(value), span))
             }
 
+            // Listen expression: listen Host.execute("prompt") { "type" => |param| { ... }, ... }
+            TokenKind::Listen => self.parse_listen_expr(),
+
             // Closure: |params| expr
             TokenKind::Pipe => self.parse_closure(),
 
@@ -852,6 +855,71 @@ impl Parser {
 
         let span = start.merge(&self.previous_span());
         Some(Expr::new(ExprKind::TryCatch { body, catches }, span))
+    }
+
+    // ========================================================================
+    // Listen expression
+    // ========================================================================
+
+    /// Parse a listen expression:
+    /// `listen Host.execute("prompt") { "type" => |param| { body }, ... }`
+    fn parse_listen_expr(&mut self) -> Option<Expr> {
+        let start = self.current_span();
+        self.advance(); // consume 'listen'
+
+        // Parse the host call expression (e.g., ClaudeCode.execute("prompt"))
+        let call = self.parse_expression()?;
+
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut handlers = Vec::new();
+        while self.peek() != TokenKind::RightBrace && !self.is_at_end() {
+            let handler = self.parse_listen_handler()?;
+            handlers.push(handler);
+            self.eat(TokenKind::Comma); // optional trailing comma
+        }
+
+        self.expect(TokenKind::RightBrace)?;
+        let span = start.merge(&self.previous_span());
+        Some(Expr::new(
+            ExprKind::Listen {
+                call: Box::new(call),
+                handlers,
+            },
+            span,
+        ))
+    }
+
+    /// Parse a single listen handler: `"message_type" => |param: Type| { body }`
+    fn parse_listen_handler(&mut self) -> Option<ListenHandler> {
+        let start = self.current_span();
+
+        // Parse message type string literal: "progress", "question", etc.
+        let type_token = self.expect(TokenKind::StringLiteral)?;
+        let message_type = type_token
+            .lexeme
+            .trim_matches('"')
+            .to_string();
+
+        self.expect(TokenKind::FatArrow)?; // =>
+
+        // Parse closure-like parameter: |param: Type|
+        self.expect(TokenKind::Pipe)?; // opening |
+
+        let param = self.parse_param()?;
+
+        self.expect(TokenKind::Pipe)?; // closing |
+
+        // Parse handler body block
+        let body = self.parse_block()?;
+
+        let span = start.merge(&self.previous_span());
+        Some(ListenHandler {
+            message_type,
+            param,
+            body,
+            span,
+        })
     }
 
     // ========================================================================
@@ -1530,6 +1598,7 @@ fn can_start_expression(kind: TokenKind) -> bool {
             | TokenKind::Bang
             | TokenKind::Await
             | TokenKind::Return
+            | TokenKind::Listen
     )
 }
 
@@ -2796,6 +2865,140 @@ mod tests {
                 _ => panic!("expected match"),
             },
             _ => panic!("expected expr statement"),
+        }
+    }
+
+    // ========================================================================
+    // Listen expression tests
+    // ========================================================================
+
+    #[test]
+    fn parse_listen_single_handler() {
+        let prog = parse(
+            r#"
+            fn main() {
+                let result = listen MyHost.execute("prompt") {
+                    "progress" => |msg| {
+                        emit("log", msg);
+                    },
+                };
+            }
+            "#,
+        );
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Let(l) => match &l.initializer.as_ref().unwrap().kind {
+                ExprKind::Listen { call, handlers } => {
+                    // Verify it's a method call on the host
+                    match &call.kind {
+                        ExprKind::MethodCall { object, method, args, .. } => {
+                            assert!(matches!(&object.kind, ExprKind::Identifier(name) if name == "MyHost"));
+                            assert_eq!(method, "execute");
+                            assert_eq!(args.len(), 1);
+                        }
+                        _ => panic!("expected method call in listen"),
+                    }
+                    assert_eq!(handlers.len(), 1);
+                    assert_eq!(handlers[0].message_type, "progress");
+                    assert_eq!(handlers[0].param.name, "msg");
+                }
+                _ => panic!("expected Listen expression"),
+            },
+            _ => panic!("expected let statement"),
+        }
+    }
+
+    #[test]
+    fn parse_listen_multiple_handlers() {
+        let prog = parse(
+            r#"
+            fn main() {
+                let result = listen Host.execute("do work") {
+                    "progress" => |p| {
+                        emit("prog", p);
+                    },
+                    "question" => |q| {
+                        "answer"
+                    },
+                    "approval" => |req| {
+                        "yes"
+                    },
+                };
+            }
+            "#,
+        );
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Let(l) => match &l.initializer.as_ref().unwrap().kind {
+                ExprKind::Listen { handlers, .. } => {
+                    assert_eq!(handlers.len(), 3);
+                    assert_eq!(handlers[0].message_type, "progress");
+                    assert_eq!(handlers[0].param.name, "p");
+                    assert_eq!(handlers[1].message_type, "question");
+                    assert_eq!(handlers[1].param.name, "q");
+                    assert_eq!(handlers[2].message_type, "approval");
+                    assert_eq!(handlers[2].param.name, "req");
+                }
+                _ => panic!("expected Listen expression"),
+            },
+            _ => panic!("expected let statement"),
+        }
+    }
+
+    #[test]
+    fn parse_listen_typed_handler() {
+        let prog = parse(
+            r#"
+            fn main() {
+                let result = listen Host.execute("prompt") {
+                    "question" => |q: HostQuestion| {
+                        "answer"
+                    },
+                };
+            }
+            "#,
+        );
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Let(l) => match &l.initializer.as_ref().unwrap().kind {
+                ExprKind::Listen { handlers, .. } => {
+                    assert_eq!(handlers.len(), 1);
+                    assert_eq!(handlers[0].param.name, "q");
+                    // Verify type annotation is present
+                    assert!(handlers[0].param.type_ann.is_some());
+                }
+                _ => panic!("expected Listen expression"),
+            },
+            _ => panic!("expected let statement"),
+        }
+    }
+
+    #[test]
+    fn parse_listen_no_trailing_comma() {
+        let prog = parse(
+            r#"
+            fn main() {
+                let result = listen Host.execute("prompt") {
+                    "progress" => |msg| {
+                        emit("log", msg);
+                    }
+                };
+            }
+            "#,
+        );
+        let f = get_fn(&prog);
+        let b = body(f);
+        match &b.stmts[0] {
+            Stmt::Let(l) => match &l.initializer.as_ref().unwrap().kind {
+                ExprKind::Listen { handlers, .. } => {
+                    assert_eq!(handlers.len(), 1);
+                }
+                _ => panic!("expected Listen expression"),
+            },
+            _ => panic!("expected let statement"),
         }
     }
 }

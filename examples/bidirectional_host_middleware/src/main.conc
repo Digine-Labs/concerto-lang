@@ -1,0 +1,69 @@
+// bidirectional_host_middleware
+// Spec 27: self-contained listen() test with a local host middleware process.
+
+schema HostProgress {
+    message: String,
+    phase: String,
+    turn: Int,
+}
+
+schema HostQuestion {
+    id: String,
+    question: String,
+    kind: String,
+    options: Array<String>,
+}
+
+schema HostApproval {
+    id: String,
+    description: String,
+    risk_level: String,
+}
+
+host ExternalWorker {
+    connector: "mock_external_agent",
+    input_format: "text",
+    output_format: "json",
+    timeout: 120,
+}
+
+fn main() {
+    let first = listen ExternalWorker.execute("Implement /search endpoint with pagination.") {
+        "progress" => |msg: HostProgress| {
+            emit("host:progress", msg);
+        },
+        "question" => |q: HostQuestion| {
+            emit("host:question", q);
+            if q.kind == "design" {
+                "Use cursor pagination with stable sort keys."
+            } else {
+                "Use safe defaults."
+            }
+        },
+        "approval" => |request: HostApproval| {
+            emit("host:approval", request);
+            "yes"
+        },
+    };
+    emit("host:first_result", first);
+
+    // Run a second round to prove the same host process can handle multiple turns.
+    let second = listen ExternalWorker.execute("Add tracing and metrics for this endpoint.") {
+        "progress" => |msg: HostProgress| {
+            emit("host:progress", msg);
+        },
+        "question" => |q: HostQuestion| {
+            emit("host:question", q);
+            if q.kind == "design" {
+                "Add request ID propagation and latency histograms."
+            } else {
+                "Proceed with minimal safe changes."
+            }
+        },
+        "approval" => |request: HostApproval| {
+            emit("host:approval", request);
+            "yes"
+        },
+    };
+    emit("host:second_result", second);
+}

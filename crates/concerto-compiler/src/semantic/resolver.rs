@@ -1055,6 +1055,24 @@ impl Resolver {
                         .error("`return` outside of function", expr.span.clone());
                 }
             }
+
+            ExprKind::Listen { call, handlers } => {
+                self.resolve_expr(call);
+                for handler in handlers {
+                    self.scopes.push(ScopeKind::Function);
+                    self.define_symbol(
+                        &handler.param.name,
+                        SymbolKind::Parameter,
+                        Type::Unknown,
+                        false,
+                        false,
+                        handler.param.span.clone(),
+                    );
+                    self.resolve_block(&handler.body);
+                    let idx = self.scopes.pop();
+                    self.emit_unused_warnings(idx);
+                }
+            }
         }
     }
 

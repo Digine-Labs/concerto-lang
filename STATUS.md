@@ -1,15 +1,24 @@
 # STATUS.md - Concerto Language Project Ledger
 
-> **Last updated**: 2026-02-08
+> **Last updated**: 2026-02-09
 
 ## Current Focus
 
-**Phase 1–7**: COMPLETE. See sections below.
-**Phase 7: Agent Memory, Dynamic Tool Binding, and Hosts** - COMPLETE. Three interrelated features extending agent execution: conversation memory (`memory` keyword + `with_memory()` builder + sliding window), dynamic tool binding (`with_tools()`/`without_tools()` + compile-time tool schema generation), and external agent hosts (`host` keyword + stdio subprocess + HostRegistry). 490 tests total (10 manifest + 231 compiler + 230 runtime + 19 integration).
+**Phase 1–7e**: COMPLETE. See sections below.
+**Direct Run**: COMPLETE. `concerto run file.conc` compiles and executes in one step. 515 tests total (10 manifest + 240 compiler + 238 runtime + 27 integration).
 
 ---
 
 ## Recent Development Log
+
+### 2026-02-09 - Bidirectional Host Middleware Example
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add self-contained bidirectional host middleware example | Done | New project: `examples/bidirectional_host_middleware/` (`Concerto.toml`, `src/main.conc`, `README.md`) |
+| Add local mock host middleware process | Done | `examples/bidirectional_host_middleware/host/mock_external_agent.sh` implements NDJSON host→Concerto and response parsing Concerto→host |
+| Verify example compile and runtime execution | Done | Compiled with `concertoc` and ran with `concerto run`; observed progress/question/approval/result flow |
+| Fix host_streaming connector/manifest alignment | Done | Updated `examples/host_streaming/Concerto.toml` to `[hosts.claude_code]` with `transport` and timeout |
 
 ### 2026-02-08 - Advanced Example Projects
 
@@ -289,6 +298,46 @@ This phase adds three interrelated features that extend agent execution capabili
 | Update VS Code extension | Done | memory/host keywords in tmLanguage.json |
 | Update memory files | Done | Project memory updated with Phase 7 details |
 
+### Phase 7e: Host Streaming (COMPLETE)
+
+Bidirectional host streaming via `listen` expression with typed handlers and NDJSON wire protocol. Enables agent-supervises-agent pattern: a Concerto agent answers the host's questions autonomously. See [spec/27-host-streaming.md](spec/27-host-streaming.md).
+
+| Task | Status | Notes |
+|------|--------|-------|
+| spec/27-host-streaming.md | Done | Listen syntax, NDJSON wire protocol, handler semantics, schemas |
+| IR types: IrListenHandler, IrListen | Done | Following IrPipelineStage pattern. ListenBegin opcode (60) |
+| Compiler: `listen` keyword | Done | Lexer keyword, 43 keywords total |
+| Compiler: AST (ListenHandler, ExprKind::Listen) | Done | 31 ExprKind variants |
+| Compiler: parse_listen_expr | Done | Handler match-arm syntax with closure-style params |
+| Compiler: semantic analysis | Done | Schema validation for typed handler params, scoped resolution |
+| Compiler: codegen (generate_listen) | Done | Handler bodies as instruction blocks (not closures), ListenBegin emit |
+| Runtime: IR loader listens | Done | listens HashMap on LoadedModule |
+| Runtime: HostClient streaming | Done | Persistent BufReader, read_message(), write_response(), write_prompt_streaming() |
+| Runtime: VM listen loop | Done | exec_listen_begin(), run_listen_loop() with handler dispatch via run_loop_until |
+| Parser tests | Done | 4 tests: single/multiple handlers, typed/untyped params |
+| Codegen tests | Done | 4 tests: IR listen generation, ListenBegin opcode, handler instructions |
+| Host streaming tests | Done | 4 tests: NDJSON parsing, plain text fallback, response format, get_client_mut |
+| Integration tests | Done | 3 tests: compile+load, VM execution, bidirectional handler |
+| Example: host_streaming | Done | `examples/host_streaming/` with Concerto.toml + src/main.conc |
+| Example: bidirectional_host_middleware | Done | `examples/bidirectional_host_middleware/` with local host middleware script for full bidirectional testing |
+| Update CLAUDE.md | Done | Listen docs, keywords, design decision #27 |
+| Update STATUS.md | Done | This section |
+
+### Direct Run (COMPLETE)
+
+`concerto run file.conc` compiles in-memory and executes directly — no intermediate `.conc-ir` file needed. `.conc-ir` files still supported for pre-compiled programs.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add concerto-compiler dep to CLI | Done | concerto crate now depends on both compiler and runtime |
+| Implement compile_source() | Done | In-memory compile pipeline: lex → parse → semantic → codegen → LoadedModule |
+| Extension detection (is_source_file) | Done | `.conc` → direct run, `.conc-ir` → legacy IR load |
+| Manifest integration | Done | find_and_load_manifest() for connections/hosts in direct run path |
+| Error formatting | Done | Simple text diagnostics with file:line:col format |
+| Update help text | Done | CLI docs reflect `.conc` as primary input, init shows simpler workflow |
+| Integration tests | Done | 3 tests: basic program, stdlib calls, agent with MockProvider |
+| Update CLAUDE.md | Done | Design decision #28, CLI description updated |
+
 ### Future (deferred)
 
 | Task | Status | Notes |
@@ -326,6 +375,8 @@ This phase adds three interrelated features that extend agent execution capabili
 | 20 | Dynamic tool binding | 2026-02-08 | `with_tools()` ADDS to agent's static tools, `without_tools()` strips all. Compile-time tool schema generation from `@describe`/`@param` decorators. Tool call execution loop deferred |
 | 21 | Hosts as external agent connectors | 2026-02-08 | `host` keyword for external agent systems (Claude Code, Cursor). Stdio transport, stateful subprocess. TOML `[hosts.*]` config. Same builder interface as agents |
 | 22 | Shared AgentBuilder value type | 2026-02-08 | Transient `Value::AgentBuilder` accumulates config (memory, tools, context) via method chaining. Shared across Agent/Host `.with_*().execute()` pattern |
+| 23 | Bidirectional host streaming | 2026-02-09 | `listen` expression with typed handlers and NDJSON wire protocol. Handler bodies compiled as instruction blocks (pipeline stage pattern). `result`/`error` messages are terminal. Unhandled messages emitted to `listen:unhandled` |
+| 24 | Direct run | 2026-02-09 | `concerto run file.conc` compiles in-memory and executes directly. Extension detection chooses path. `.conc-ir` still supported. No intermediate file I/O |
 
 ## Open Questions
 

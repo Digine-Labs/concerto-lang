@@ -31,6 +31,8 @@ pub struct LoadedModule {
     pub memories: HashMap<String, IrMemory>,
     /// Host declarations by name.
     pub hosts: HashMap<String, IrHost>,
+    /// Listen definitions by name.
+    pub listens: HashMap<String, IrListen>,
     /// Pipeline definitions by name.
     pub pipelines: HashMap<String, IrPipeline>,
     /// Type definitions by name.
@@ -134,6 +136,13 @@ impl LoadedModule {
             .map(|h| (h.name.clone(), h))
             .collect();
 
+        // Build listen table
+        let listens: HashMap<String, IrListen> = module
+            .listens
+            .into_iter()
+            .map(|l| (l.name.clone(), l))
+            .collect();
+
         // Build pipeline table
         let pipelines: HashMap<String, IrPipeline> = module
             .pipelines
@@ -169,6 +178,7 @@ impl LoadedModule {
             ledgers,
             memories,
             hosts,
+            listens,
             pipelines,
             types,
             entry_point,

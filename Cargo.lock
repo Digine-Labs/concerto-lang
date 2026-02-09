@@ -231,6 +231,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "concerto-common",
+ "concerto-compiler",
  "concerto-runtime",
  "serde_json",
  "tokio",

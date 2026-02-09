@@ -48,7 +48,7 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 
 1. **Lexer**: Character scanning, tokenization, source position tracking
 2. **Parser**: Recursive descent with Pratt parsing for expressions
-3. **AST**: Abstract syntax tree with source spans -- 17 declaration types (connect removed, added MemoryDecl, HostDecl), decorators, config/typed fields, self params, memory/host declarations, 30 ExprKind variants (incl. Return expr), 11 PatternKind variants, 6 Stmt variants, union/string-literal type annotations
+3. **AST**: Abstract syntax tree with source spans -- 17 declaration types (connect removed, added MemoryDecl, HostDecl), decorators, config/typed fields, self params, memory/host declarations, 31 ExprKind variants (incl. Return expr, Listen), ListenHandler struct, 11 PatternKind variants, 6 Stmt variants, union/string-literal type annotations
 4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, HashMap, Ledger, Memory, Host, std). Manifest-sourced connection names registered as `SymbolKind::Connection`. `SymbolKind::Memory` and `SymbolKind::Host` for memory/host declarations. Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
 5. **IR Generation**: Full coverage lowering of all 17 declaration types (connect removed — connections come from Concerto.toml; added memory, host), all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/hashmap/ledger/mcp/memory/host lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum. Manifest connections embedded into IR via `add_manifest_connections()`
 
@@ -58,7 +58,7 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 ```
 
-1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, hashmaps, ledgers, pipelines, memories, hosts). Converts constant types, builds lookup HashMaps, registers qualified tool methods
+1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, hashmaps, ledgers, pipelines, memories, hosts, listens). Converts constant types, builds lookup HashMaps, registers qualified tool methods
 2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks). `call_stack_depth()` public API. Unknown functions return `NameError` (not Nil). `HashMapQuery` uses closure-based filtering. `memory_store: MemoryStore` for agent conversation memory. `host_registry: HostRegistry` for external agent system adapters. Tool and MCP refs are registered in globals so `with_tools([ToolName, McpServer])` identifier arrays resolve at runtime
 3. **Value System**: 20 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, HashMapRef, LedgerRef, PipelineRef, Thunk, MemoryRef, HostRef, AgentBuilder). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
 4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
@@ -82,6 +82,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 22. **AgentBuilder**: Transient builder pattern value (Value::AgentBuilder) for chaining with_memory/with_tools/with_context/execute. BuilderSourceKind (Agent | Host) enables shared builder interface for both agent and host execution. Agent builder `execute()` returns `Result<Response, String>` shape for consistency with direct agent calls
 23. **Dynamic Tool Binding**: Compile-time ToolSchemaEntry generation from @describe/@param decorators. with_tools()/without_tools() on AgentBuilder for runtime tool selection. Merged tool schema resolution at execution time
 24. **Hosts**: HostClient (stdio subprocess transport), HostRegistry (manages connections), HostFormat (Text|Json). Stateful long-running processes. execute/with_memory/with_context support via AgentBuilder. IrHost embeds TOML config from Concerto.toml
+25. **Host Streaming**: `listen` expression for bidirectional NDJSON message loops. ListenBegin opcode dispatches to `exec_listen_begin()` + `run_listen_loop()`. Persistent BufReader for multi-message reads. Handler instructions compiled as instruction blocks (pipeline stage pattern). Non-nil handler returns sent back to host as `{"type":"response","in_reply_to":"...","value":"..."}`. Terminal messages: `result` (returns value) and `error` (returns error). Lifecycle emits: listen:start, listen:complete, listen:error, listen:unhandled
 
 ## Directory Structure
 
@@ -116,12 +117,15 @@ concerto-lang/
     21-ledger.md             # Fault-tolerant knowledge store for AI agents
     22-project-manifest.md   # Concerto.toml manifest format
     23-project-scaffolding.md  # concerto init command
+    27-host-streaming.md     # Bidirectional host streaming (listen expression)
   examples/              # Example projects (each has Concerto.toml + src/main.conc)
     hello_agent/         # Minimal agent example
     tool_usage/          # Tool definition and usage
     multi_agent_pipeline/  # Multi-stage pipeline with multiple providers
     agent_memory_conversation/ # Spec 24 memory conversation patterns
     dynamic_tool_binding/ # Spec 25 with_tools/without_tools composition
+    host_streaming/      # Spec 27 bidirectional host streaming with listen
+    bidirectional_host_middleware/ # Spec 27 end-to-end middleware test with local host process
   Cargo.toml             # Workspace root
   crates/
     concerto-common/     # Shared types (Span, Diagnostic, IR types, Opcodes, Manifest)
@@ -155,8 +159,8 @@ concerto-lang/
     concerto-runtime/
       tests/
         integration.rs   # 15 end-to-end compile→run tests
-    concerto/            # Runtime CLI binary
-      src/main.rs        # `concerto run` + `concerto init` (#[tokio::main])
+    concerto/            # Runtime CLI binary (depends on both compiler + runtime)
+      src/main.rs        # `concerto run` (direct .conc or .conc-ir) + `concerto init` (#[tokio::main])
   tests/
     fixtures/            # Test .conc source files
       minimal.conc       # Milestone program for end-to-end testing
@@ -232,7 +236,7 @@ if     else   match  for     while   loop    break   continue
 return try    catch  throw   emit    await   async   pipeline
 stage  schema hashmap self   impl    trait   enum    struct
 as     in     with   true    false   nil     const   type
-mcp    ledger memory  host
+mcp    ledger memory  host   listen
 ```
 
 ## Built-in Functions
@@ -276,3 +280,5 @@ mcp    ledger memory  host
 | 24 | AgentBuilder pattern for chained configuration | Shared transient value for Agent/Host. with_memory/with_tools/without_tools/with_context chain to .execute() |
 | 25 | Compile-time tool schema generation | @describe/@param decorators → JSON Schema ToolSchemaEntry in IR. Dynamic binding at execution time |
 | 26 | Hosts as external agent adapters | Stdio subprocess transport. Stateful processes. IrHost embeds TOML config. Same builder interface as agents |
+| 27 | Bidirectional host streaming (`listen`) | `listen Host.execute("prompt") { "type" => \|param\| { body } }` for NDJSON message loops. Handler return values sent back to host. Persistent BufReader for multi-message streaming. `result`/`error` are terminal message types |
+| 28 | Direct run (`concerto run file.conc`) | CLI compiles `.conc` in-memory and executes directly — no intermediate `.conc-ir` file. Detects extension to choose path. `.conc-ir` still supported for pre-compiled files |
