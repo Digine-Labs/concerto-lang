@@ -1,0 +1,35 @@
+// modules_and_visibility
+// Focused syntax-coverage project for use/mod/pub constructs.
+
+use std::json::parse;
+use std::string::to_upper as upper;
+
+mod helpers;
+
+mod diagnostics {
+    pub fn label() -> String {
+        "inline-module"
+    }
+}
+
+pub fn entry_banner() -> String {
+    "modules-and-visibility"
+}
+
+fn main() {
+    let payload = std::json::parse("{\"ok\": true, \"name\": \"concerto\"}");
+
+    match payload {
+        Ok(obj) => {
+            emit("json_ok", obj.ok);
+            emit("json_name", obj.name);
+        },
+        Err(e) => emit("json_error", e),
+    }
+
+    emit("banner", entry_banner());
+    emit(
+        "note",
+        "Declared use/mod/pub syntax for module-system compilation coverage."
+    );
+}

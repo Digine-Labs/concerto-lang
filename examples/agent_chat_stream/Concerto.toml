@@ -1,0 +1,9 @@
+[project]
+name = "agent_chat_stream"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[connections.openai]
+provider = "openai"
+api_key_env = "OPENAI_API_KEY"
+default_model = "gpt-4o-mini"

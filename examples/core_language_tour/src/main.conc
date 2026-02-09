@@ -1,0 +1,105 @@
+// core_language_tour
+// Compile+runtime coverage for core syntax/semantics outside agent-specific flows.
+
+const BASE_SCORE: Int = 10;
+type Label = String;
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+enum RunMode {
+    Fast,
+    Safe,
+}
+
+trait ScoreMath {
+    fn bump(value: Int) -> Int;
+}
+
+struct MathOps {}
+
+impl ScoreMath for MathOps {
+    fn bump(value: Int) -> Int {
+        value + 1
+    }
+}
+
+impl MathOps {
+    fn double(value: Int) -> Int {
+        value * 2
+    }
+}
+
+fn safe_divide(a: Int, b: Int) -> Result<Float, String> {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    Ok((a as Float) / (b as Float))
+}
+
+hashmap store: HashMap<String, Int> = HashMap::new();
+
+fn main() {
+    let title: Label = "core_language_tour";
+
+    let origin = Point { x: 0, y: 0 };
+    emit("origin_x", origin.x);
+    emit("origin_y", origin.y);
+
+    let mut mode = RunMode::Fast;
+    let mode_label = match mode {
+        RunMode::Fast => "fast",
+        RunMode::Safe => "safe",
+        _ => "unknown",
+    };
+    emit("mode", mode_label);
+
+    mode = RunMode::Safe;
+    emit("mode_switched", match mode { RunMode::Safe => true, _ => false });
+
+    let doubled = 10 |> MathOps::double;
+    let bumped = MathOps::ScoreMath::bump(doubled);
+    emit("score", bumped);
+
+    let mut total = 0;
+    for n in [1, 2, 3, 4] {
+        total = total + n;
+    }
+    emit("for_total", total);
+
+    let mut idx = 0;
+    while idx < 3 {
+        idx = idx + 1;
+    }
+    emit("while_count", idx);
+
+    let mut ticks = 0;
+    let loop_result = loop {
+        ticks = ticks + 1;
+        if ticks < 3 {
+            continue;
+        }
+        break ticks * 10;
+    };
+    emit("loop_result", loop_result);
+
+    store.set("count", 5);
+    emit("count_option", store.get("count"));
+    emit("missing_option", store.get("missing"));
+
+    let maybe_nil = nil;
+    emit("coalesced", maybe_nil ?? 99);
+
+    match safe_divide(7, 2) {
+        Ok(v) => emit("ratio", v),
+        Err(e) => emit("ratio_error", e),
+    }
+    match safe_divide(7, 0) {
+        Ok(v) => emit("bad_ratio", v),
+        Err(e) => emit("bad_ratio_error", e),
+    }
+
+    emit("title_upper", std::string::to_upper(title));
+}

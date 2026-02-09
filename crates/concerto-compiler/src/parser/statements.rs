@@ -12,6 +12,7 @@ impl Parser {
             TokenKind::Break => self.parse_break_stmt(),
             TokenKind::Continue => self.parse_continue_stmt(),
             TokenKind::Throw => self.parse_throw_stmt(),
+            TokenKind::Mock => self.parse_mock_stmt(),
             _ => self.parse_expr_stmt(),
         }
     }
@@ -115,6 +116,24 @@ impl Parser {
         Some(Stmt::Throw(ThrowStmt { value, span }))
     }
 
+    /// Parse `mock AgentName { response: "...", }`.
+    fn parse_mock_stmt(&mut self) -> Option<Stmt> {
+        let start = self.current_span();
+        self.advance(); // consume 'mock'
+
+        let name_token = self.expect(TokenKind::Identifier)?;
+        let agent_name = name_token.lexeme.clone();
+
+        let fields = self.parse_config_fields()?;
+        let span = start.merge(&self.previous_span());
+
+        Some(Stmt::Mock(MockStmt {
+            agent_name,
+            fields,
+            span,
+        }))
+    }
+
     /// Parse an expression statement: `expr;`
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
         let start = self.current_span();
@@ -145,7 +164,8 @@ impl Parser {
                 | TokenKind::Return
                 | TokenKind::Break
                 | TokenKind::Continue
-                | TokenKind::Throw => {
+                | TokenKind::Throw
+                | TokenKind::Mock => {
                     if let Some(stmt) = self.parse_statement() {
                         stmts.push(stmt);
                     } else {

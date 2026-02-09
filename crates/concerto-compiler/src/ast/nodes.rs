@@ -546,6 +546,7 @@ pub enum Stmt {
     Break(BreakStmt),
     Continue(ContinueStmt),
     Throw(ThrowStmt),
+    Mock(MockStmt),
 }
 
 /// `let [mut] name [: Type] = expr;`
@@ -591,6 +592,15 @@ pub struct ContinueStmt {
 #[derive(Debug, Clone)]
 pub struct ThrowStmt {
     pub value: Expr,
+    pub span: Span,
+}
+
+/// A mock statement: `mock AgentName { response: "...", }`.
+/// Only valid inside test blocks.
+#[derive(Debug, Clone)]
+pub struct MockStmt {
+    pub agent_name: String,
+    pub fields: Vec<ConfigField>,
     pub span: Span,
 }
 

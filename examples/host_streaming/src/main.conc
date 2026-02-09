@@ -30,8 +30,14 @@ fn main() {
             emit("host:progress", msg);
         },
         "question" => |q: HostQuestion| {
-            let answer = Architect.execute("Answer: ${q.question}")?;
-            answer.text
+            let answer = Architect.execute("Answer: ${q.question}");
+            match answer {
+                Ok(response) => response.text,
+                Err(e) => {
+                    emit("host:question_error", e);
+                    "I could not produce an answer right now."
+                },
+            }
         },
         "approval" => |req| {
             emit("host:approval_request", req);

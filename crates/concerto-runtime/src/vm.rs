@@ -71,6 +71,19 @@ pub struct VM {
     /// Emit handler callback.
     #[allow(clippy::type_complexity)]
     emit_handler: Box<dyn Fn(&str, &Value)>,
+    /// Mock agent responses (agent_name -> mock response text).
+    mock_agents: HashMap<String, MockConfig>,
+    /// Captured emits during test execution.
+    test_emits: Vec<(String, Value)>,
+    /// Whether to capture emits for test_emits() built-in.
+    test_capture_emits: bool,
+}
+
+/// Mock configuration for an agent.
+#[derive(Clone)]
+struct MockConfig {
+    response: Option<String>,
+    error: Option<String>,
 }
 
 impl VM {
@@ -151,6 +164,24 @@ impl VM {
             Value::Function("$builtin_panic".to_string()),
         );
 
+        // Register assertion built-ins
+        globals.insert(
+            "assert".to_string(),
+            Value::Function("$builtin_assert".to_string()),
+        );
+        globals.insert(
+            "assert_eq".to_string(),
+            Value::Function("$builtin_assert_eq".to_string()),
+        );
+        globals.insert(
+            "assert_ne".to_string(),
+            Value::Function("$builtin_assert_ne".to_string()),
+        );
+        globals.insert(
+            "test_emits".to_string(),
+            Value::Function("$builtin_test_emits".to_string()),
+        );
+
         // Register path-based constructors (e.g., ToolError::new)
         globals.insert(
             "ToolError::new".to_string(),
@@ -212,6 +243,9 @@ impl VM {
             emit_handler: Box::new(|channel, payload| {
                 println!("[emit:{}] {}", channel, payload);
             }),
+            mock_agents: HashMap::new(),
+            test_emits: Vec::new(),
+            test_capture_emits: false,
         }
     }
 
@@ -249,6 +283,27 @@ impl VM {
             vec![],
             &func.params,
         )?;
+        self.run_loop()
+    }
+
+    /// Execute a single test in the current VM instance.
+    ///
+    /// Clears mock/emit state, enables emit capture, pushes a test frame,
+    /// and runs the test instructions.
+    pub fn run_test(&mut self, test: &concerto_common::ir::IrTest) -> Result<Value> {
+        // Clear per-test state
+        self.mock_agents.clear();
+        self.test_emits.clear();
+        self.test_capture_emits = true;
+
+        // Push a call frame for the test
+        self.push_frame(
+            format!("test:{}", test.description),
+            test.instructions.clone(),
+            vec![],
+            &[],
+        )?;
+
         self.run_loop()
     }
 
@@ -633,6 +688,28 @@ impl VM {
                 }
                 Opcode::ListenBegin => self.exec_listen_begin(&inst)?,
 
+                Opcode::MockAgent => {
+                    // Install mock response for an agent during test execution
+                    let agent_name = inst
+                        .name
+                        .as_ref()
+                        .ok_or_else(|| {
+                            RuntimeError::LoadError("MOCK_AGENT missing name".into())
+                        })?
+                        .clone();
+                    let config = inst.arg.as_ref().and_then(|v| v.as_object());
+                    let response = config
+                        .and_then(|c| c.get("response"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let error = config
+                        .and_then(|c| c.get("error"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    self.mock_agents
+                        .insert(agent_name, MockConfig { response, error });
+                }
+
                 Opcode::SpawnAsync => {
                     // Create a deferred computation (Thunk).
                     // The callee (function ref) is on the stack top.
@@ -837,7 +914,23 @@ impl VM {
 
         match callee {
             Value::Function(name) => {
-                if name.starts_with("$builtin_") {
+                if name == "$builtin_test_emits" {
+                    // test_emits() needs VM state — handle directly
+                    let emits: Vec<Value> = self
+                        .test_emits
+                        .iter()
+                        .map(|(ch, payload)| {
+                            let mut fields = HashMap::new();
+                            fields.insert("channel".to_string(), Value::String(ch.clone()));
+                            fields.insert("payload".to_string(), payload.clone());
+                            Value::Struct {
+                                type_name: "Emit".to_string(),
+                                fields,
+                            }
+                        })
+                        .collect();
+                    self.push(Value::Array(emits));
+                } else if name.starts_with("$builtin_") {
                     let result = builtins::call_builtin(&name, args)?;
                     self.push(result);
                 } else if let Some(func) = self.module.functions.get(&name).cloned() {
@@ -986,6 +1079,12 @@ impl VM {
             Value::String(s) => s.clone(),
             _ => channel.display_string(),
         };
+
+        // Capture emits during test execution
+        if self.test_capture_emits {
+            self.test_emits
+                .push((channel_str.clone(), payload.clone()));
+        }
 
         (self.emit_handler)(&channel_str, &payload);
         Ok(())
@@ -1346,6 +1445,11 @@ impl VM {
         args: Vec<Value>,
         schema_name: Option<&str>,
     ) -> Result<Value> {
+        // Check for mock override first
+        if let Some(mock) = self.mock_agents.get(agent_name) {
+            return self.call_mock_agent(agent_name, method, mock.clone(), schema_name);
+        }
+
         let agent = self
             .module
             .agents
@@ -1593,6 +1697,72 @@ impl VM {
             }
             _ => Err(RuntimeError::CallError(format!(
                 "unknown agent method: {}.{}",
+                agent_name, method
+            ))),
+        }
+    }
+
+    /// Handle a mocked agent call, returning a fixed response or error.
+    fn call_mock_agent(
+        &self,
+        agent_name: &str,
+        method: &str,
+        mock: MockConfig,
+        schema_name: Option<&str>,
+    ) -> Result<Value> {
+        match method {
+            "execute" | "execute_with_schema" => {
+                // Check for error mock
+                if let Some(err_msg) = &mock.error {
+                    return Ok(Value::Result {
+                        is_ok: false,
+                        value: Box::new(Value::String(err_msg.clone())),
+                    });
+                }
+
+                let response_text = mock.response.clone().unwrap_or_default();
+
+                // For execute_with_schema, parse the response as JSON and convert to struct
+                if method == "execute_with_schema" {
+                    if let Some(schema) = schema_name {
+                        if let Some(ir_schema) = self.module.schemas.get(schema) {
+                            match SchemaValidator::validate(&response_text, ir_schema) {
+                                Ok(validated) => {
+                                    return Ok(Value::Result {
+                                        is_ok: true,
+                                        value: Box::new(validated),
+                                    });
+                                }
+                                Err(e) => {
+                                    return Ok(Value::Result {
+                                        is_ok: false,
+                                        value: Box::new(Value::String(format!(
+                                            "mock schema validation failed: {}",
+                                            e
+                                        ))),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Build a Response struct matching the real agent response shape
+                let mut fields = HashMap::new();
+                fields.insert("text".to_string(), Value::String(response_text));
+                fields.insert("model".to_string(), Value::String("mock".to_string()));
+                fields.insert("tokens_in".to_string(), Value::Int(0));
+                fields.insert("tokens_out".to_string(), Value::Int(0));
+                Ok(Value::Result {
+                    is_ok: true,
+                    value: Box::new(Value::Struct {
+                        type_name: "Response".to_string(),
+                        fields,
+                    }),
+                })
+            }
+            _ => Err(RuntimeError::TypeError(format!(
+                "mock agent '{}' does not support method '{}'",
                 agent_name, method
             ))),
         }
@@ -2665,6 +2835,18 @@ impl VM {
             let prompt = args.into_iter().next().unwrap_or(Value::Nil);
             let prompt_str = prompt.display_string();
 
+            // Check for mock override on agent builders
+            if matches!(source_kind, crate::value::BuilderSourceKind::Agent) {
+                if let Some(mock) = self.mock_agents.get(&source_name).cloned() {
+                    let method = if schema_name.is_some() {
+                        "execute_with_schema"
+                    } else {
+                        "execute"
+                    };
+                    return self.call_mock_agent(&source_name, method, mock, schema_name);
+                }
+            }
+
             // Dispatch based on source kind
             let (result_text, response_meta) = match source_kind {
                 crate::value::BuilderSourceKind::Agent => {
@@ -2910,6 +3092,7 @@ mod tests {
             hosts: vec![],
             listens: vec![],
             pipelines: vec![],
+            tests: vec![],
             source_map: None,
             metadata: IrMetadata {
                 compiler_version: "0.1.0".to_string(),
@@ -3172,6 +3355,7 @@ mod tests {
             hosts: vec![],
             listens: vec![],
             pipelines: vec![],
+            tests: vec![],
             source_map: None,
             metadata: IrMetadata {
                 compiler_version: "0.1.0".to_string(),
@@ -3694,6 +3878,7 @@ mod tests {
             hosts: vec![],
             listens: vec![],
             pipelines: vec![],
+            tests: vec![],
             source_map: None,
             metadata: IrMetadata {
                 compiler_version: "0.1.0".to_string(),

@@ -8,12 +8,23 @@ Concerto provides a Rust-like syntax purpose-built for designing complex AI harn
 
 Prompt engineering is time-consuming. LangChain-style libraries are task-specific. Concerto gives you a **full programming language** to orchestrate agents -- with type safety, error handling, and composable pipelines.
 
-```rust
-connect openai {
-    api_key: env("OPENAI_API_KEY"),
-    default_model: "gpt-4o",
-}
+`Concerto.toml`
 
+```toml
+[project]
+name = "classifier"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[connections.openai]
+provider = "openai"
+api_key_env = "OPENAI_API_KEY"
+default_model = "gpt-4o"
+```
+
+`src/main.conc`
+
+```concerto
 schema Classification {
     label: String,
     confidence: Float,
@@ -35,7 +46,7 @@ fn main() {
 
     match result {
         Ok(classification) => emit("result", classification),
-        Err(e) => emit("error", e.message),
+        Err(e) => emit("error", e),
     }
 }
 ```
@@ -54,7 +65,7 @@ fn main() {
 - **Dual error handling** -- `Result<T,E>` with `?` propagation and `try`/`catch` for flexibility
 - **Async-native** -- All agent execution is async; parallel execution with `await (a, b, c)`
 - **Pipe operator** -- `prompt |> agent.execute() |> parse_schema(Output) |> emit("result")`
-- **LLM provider agnostic** -- `connect` blocks for OpenAI, Anthropic, Google, Ollama, or custom providers
+- **LLM provider agnostic** -- use manifest-based `[connections.*]` entries for OpenAI, Anthropic, Google, Ollama, or custom providers
 
 ## Architecture
 
@@ -80,7 +91,12 @@ fn main() {
 
 ## Example: Multi-Agent Pipeline
 
-```rust
+```concerto
+schema Classification {
+    label: String,
+    confidence: Float,
+}
+
 pipeline DocumentProcessor {
     stage extract(doc: String) {
         let text = Extractor.execute(doc)?;
@@ -120,7 +136,7 @@ cargo build --release
 
 Binaries will be in `target/release/`:
 - `concertoc` -- Compiler (`.conc` -> `.conc-ir`)
-- `concerto` -- Runtime (executes `.conc-ir`)
+- `concerto` -- Runtime (executes `.conc` directly or precompiled `.conc-ir`)
 
 ## Getting Started
 
@@ -142,6 +158,12 @@ concertoc hello.conc
 3. Run it:
 
 ```bash
+concerto run hello.conc
+```
+
+Optional: run the compiled IR artifact:
+
+```bash
 concerto run hello.conc-ir
 ```
 
@@ -154,6 +176,17 @@ concerto run hello.conc-ir
 - `examples/dynamic_tool_binding` -- spec 25 dynamic tool composition (`with_tools`, `without_tools`)
 - `examples/host_streaming` -- spec 27 listen syntax with external host streaming
 - `examples/bidirectional_host_middleware` -- self-contained bidirectional host middleware test (includes local host process)
+- `examples/core_language_tour` -- broad core syntax/semantics coverage (types, control flow, loops, traits/impls, hashmap, Result)
+- `examples/modules_and_visibility` -- module/import/visibility syntax coverage (`use`, `mod`, `pub`)
+- `examples/error_handling_matrix` -- Option/Result + `?` + `try/catch/throw` runtime behavior matrix
+- `examples/async_concurrency_patterns` -- async/await syntax coverage (prefix+postfix await, tuple await, await emit, pipeline interplay)
+- `examples/agent_chat_stream` -- memory-backed multi-turn chat + chunk streaming surrogate with emit channels
+- `examples/schema_validation_modes` -- strict schema + fallback/optional schema + manual coercion strategy patterns
+- `examples/testing` -- first-class `test`/`mock` examples with assertions and emit capture
+
+Host adapter reference projects:
+
+- `hosts/claude_code` -- reference middleware that bridges Concerto host protocol to Claude Code CLI (`oneshot` + `listen`/stream modes)
 
 ## Standard Library
 
@@ -204,12 +237,13 @@ Language specifications are in the [spec/](spec/) directory:
 - [Dynamic Tool Binding](spec/25-dynamic-tool-binding.md)
 - [Hosts](spec/26-hosts.md)
 - [Host Streaming](spec/27-host-streaming.md)
+- [Testing](spec/28-testing.md)
 
 ## Project Status
 
 See [STATUS.md](STATUS.md) for detailed project tracking.
 
-**Current:** Phase 1-7e complete (latest: host streaming and bidirectional middleware examples).
+**Current:** Phase 1-8 complete (latest: first-class `test`/`mock`, host streaming examples, and Claude Code host adapter reference project).
 
 ## License
 

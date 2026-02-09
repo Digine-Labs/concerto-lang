@@ -1,0 +1,26 @@
+host ClaudeCode {
+    connector: "claude_code",
+    output_format: "json",
+    timeout: 900,
+}
+
+fn main() {
+    let result = listen ClaudeCode.execute("Refactor auth module and update tests") {
+        "progress" => |msg| {
+            emit("host:progress", msg);
+        },
+        "partial" => |chunk| {
+            emit("host:partial", chunk);
+        },
+        "question" => |q| {
+            emit("host:question", q);
+            "Use safe incremental edits and keep tests green."
+        },
+        "approval" => |request| {
+            emit("host:approval", request);
+            "yes"
+        },
+    };
+
+    emit("host:result", result);
+}

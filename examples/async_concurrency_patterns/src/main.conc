@@ -1,0 +1,39 @@
+// async_concurrency_patterns
+// Syntax/runtime coverage for async fn, prefix+postfix await, await on tuple values,
+// await emit, and pipeline stage interaction.
+
+async fn plus_one(x: Int) -> Int {
+    x + 1
+}
+
+async fn combine_scores() -> Int {
+    let first = plus_one(1).await;
+    let second = await plus_one(2);
+    let combined = await (first, second, 5);
+    combined[0] + combined[1] + combined[2]
+}
+
+pipeline AsyncMathPipeline {
+    stage prepare(seed: Int) -> Int {
+        await plus_one(seed)
+    }
+
+    stage finalize(value: Int) -> Int {
+        value * 2
+    }
+}
+
+async fn main() {
+    let total = combine_scores().await;
+    emit("async:total", total);
+
+    // EmitAwait currently returns nil by default when no host-side responder is set.
+    let gate = await emit("approval:request", {
+        "task": "continue",
+        "proposal": "run async pipeline",
+    });
+    emit("approval:response", gate);
+
+    let pipeline_result = AsyncMathPipeline.run(10);
+    emit("async:pipeline_result", pipeline_result);
+}

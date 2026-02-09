@@ -1,0 +1,52 @@
+// error_handling_matrix
+// Runtime-focused tour of Option/Result + try/catch/throw + ? propagation.
+
+hashmap cache: HashMap<String, Int> = HashMap::new();
+
+fn lookup_required(key: String) -> Option<Int> {
+    cache.get(key)?
+}
+
+fn parse_port_with_q(text: String) -> Result<Int, String> {
+    let parsed = std::string::parse_int(text)?;
+    Ok(parsed)
+}
+
+fn dangerous(flag: Bool) -> Result<Int, String> {
+    if flag {
+        throw "danger signal";
+    }
+    Ok(42)
+}
+
+fn main() {
+    cache.set("answer", 42);
+
+    emit("lookup_hit", lookup_required("answer"));
+    emit("lookup_miss", lookup_required("missing"));
+
+    match parse_port_with_q("8080") {
+        Ok(v) => emit("port", v),
+        Err(e) => emit("port_err", e),
+    }
+
+    let parse_probe = try {
+        parse_port_with_q("oops");
+        "no error"
+    } catch {
+        "caught parse error from ?"
+    };
+    emit("parse_probe", parse_probe);
+
+    let throw_probe = try {
+        dangerous(true);
+        "no throw"
+    } catch {
+        emit("caught_throw", "handled");
+        "recovered from throw"
+    };
+    emit("throw_probe", throw_probe);
+
+    let ok_result = dangerous(false);
+    emit("danger_ok", ok_result.is_ok());
+}

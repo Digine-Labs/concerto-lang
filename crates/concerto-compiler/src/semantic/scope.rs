@@ -26,6 +26,7 @@ pub enum SymbolKind {
     Ledger,
     Memory,
     Mcp,
+    TestFunction,
 }
 
 /// A declared symbol in the program.

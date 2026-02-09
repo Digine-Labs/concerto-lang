@@ -48,9 +48,9 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 
 1. **Lexer**: Character scanning, tokenization, source position tracking
 2. **Parser**: Recursive descent with Pratt parsing for expressions
-3. **AST**: Abstract syntax tree with source spans -- 17 declaration types (connect removed, added MemoryDecl, HostDecl), decorators, config/typed fields, self params, memory/host declarations, 31 ExprKind variants (incl. Return expr, Listen), ListenHandler struct, 11 PatternKind variants, 6 Stmt variants, union/string-literal type annotations
-4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, HashMap, Ledger, Memory, Host, std). Manifest-sourced connection names registered as `SymbolKind::Connection`. `SymbolKind::Memory` and `SymbolKind::Host` for memory/host declarations. Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
-5. **IR Generation**: Full coverage lowering of all 17 declaration types (connect removed — connections come from Concerto.toml; added memory, host), all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/hashmap/ledger/mcp/memory/host lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum. Manifest connections embedded into IR via `add_manifest_connections()`
+3. **AST**: Abstract syntax tree with source spans -- 17 declaration types (connect removed, added MemoryDecl, HostDecl; TestDecl removed — @test decorator on fn), decorators, config/typed fields, self params, memory/host declarations, 31 ExprKind variants (incl. Return expr, Listen), ListenHandler struct, 11 PatternKind variants, 7 Stmt variants (incl. Mock), union/string-literal type annotations
+4. **Semantic Analysis**: Two-pass resolver (collect decls, then walk bodies) + declaration validator. Name resolution with forward references, basic type checking (operators, conditions), control flow validation (break/continue/return/?/throw/.await), mutability checking, unused variable warnings, built-in symbols (emit, print, env, Some/None/Ok/Err, ToolError, HashMap, Ledger, Memory, Host, std). Manifest-sourced connection names registered as `SymbolKind::Connection`. `SymbolKind::Memory` and `SymbolKind::Host` for memory/host declarations. `SymbolKind::TestFunction` for `@test` decorated functions (call restriction: cannot be called from non-test code). `@expect_fail` requires `@test`. `mock` restricted to `@test` function bodies. Tool methods implicitly async, pipeline stages implicitly async with Result return type, `self` not warned unused in tool methods
+5. **IR Generation**: Full coverage lowering of all 17 declaration types (connect removed — connections come from Concerto.toml; added memory, host), all 6 statement types, all 30 expression types. Includes loop control flow (break w/ value, continue via patches), match pattern compilation (check + bind phases, with explicit `Ok/Err/Some/None` variant checks), try/catch/throw, closures (compiled as separate functions), pipe rewrite, ? propagation, ?? nil coalesce, string interpolation concat, struct/enum/pipeline/agent/tool/schema/hashmap/ledger/mcp/memory/host lowering to IR sections, return expression in match arms, schema union types to JSON Schema enum. Manifest connections embedded into IR via `add_manifest_connections()`
 
 ### Runtime Pipeline
 
@@ -58,8 +58,8 @@ Source (.conc) -> Lexer -> Tokens -> Parser -> AST -> Semantic Analysis -> Typed
 IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 ```
 
-1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, hashmaps, ledgers, pipelines, memories, hosts, listens). Converts constant types, builds lookup HashMaps, registers qualified tool methods
-2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap). Max call depth 1000. All 59 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks). `call_stack_depth()` public API. Unknown functions return `NameError` (not Nil). `HashMapQuery` uses closure-based filtering. `memory_store: MemoryStore` for agent conversation memory. `host_registry: HostRegistry` for external agent system adapters. Tool and MCP refs are registered in globals so `with_tools([ToolName, McpServer])` identifier arrays resolve at runtime
+1. **IR Loader**: JSON deserialization → `LoadedModule` (constants, functions, agents, schemas, connections, hashmaps, ledgers, pipelines, memories, hosts, listens, tests). Converts constant types, builds lookup HashMaps, registers qualified tool methods. `from_ir_permissive()` for test-only files (no entry point required)
+2. **VM**: Stack-based execution with `CallFrame`s (function_name, instructions, pc, locals HashMap). Max call depth 1000. All 61 opcodes dispatched. `TryFrame` stack for exception handling. `run_loop_until(stop_depth)` for nested execution (pipeline stages, thunks). `call_stack_depth()` public API. Unknown functions return `NameError` (not Nil). `HashMapQuery` uses closure-based filtering. `memory_store: MemoryStore` for agent conversation memory. `host_registry: HostRegistry` for external agent system adapters. Tool and MCP refs are registered in globals so `with_tools([ToolName, McpServer])` identifier arrays resolve at runtime. `mock_agents` HashMap for test-time agent mocking. `test_emits` capture for `test_emits()` built-in. `run_test()` method for per-test isolated execution
 3. **Value System**: 20 variants (Int, Float, String, Bool, Nil, Array, Map, Struct, Result, Option, Function, AgentRef, SchemaRef, HashMapRef, LedgerRef, PipelineRef, Thunk, MemoryRef, HostRef, AgentBuilder). Arithmetic with Int/Float promotion, string coercion in add, comparisons, truthiness, field/index access
 4. **CALL convention**: Args pushed first, callee pushed last. VM pops callee, then N args
 5. **CALL_METHOD convention**: Object pushed first, then args. VM pops N args, then object. Method name from instruction `name` field, schema from `schema` field
@@ -72,7 +72,7 @@ IR (.conc-ir) -> IR Loader -> VM Execution Loop -> Output (emits, return value)
 12. **HashMap**: In-memory KV (HashMap<String, HashMap<String, Value>>). set/get/has/delete
 13. **Ledger**: LedgerStore (in-memory Vec<LedgerEntry> per ledger). Three-field document model (identifier, keys, value). Word-containment identifier queries (tokenize + case-insensitive ALL-match). Case-insensitive key queries (exact single, OR, AND). Mutations (insert/upsert, delete, update, update_keys). Scoping via `"name::prefix"` namespacing. Query builder: `query()` returns same `LedgerRef` for chaining. Returns `LedgerEntry` structs
 14. **Emit**: Pops channel + payload, invokes callback. Custom handler via `set_emit_handler()`
-15. **Built-ins**: Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new
+15. **Built-ins**: Ok, Err, Some, None, env, print, println, len, typeof, panic, ToolError::new, assert, assert_eq, assert_ne, test_emits
 16. **Decorators**: decorator.rs — @retry (max attempts, exponential/linear/none backoff), @timeout (seconds), @log (emit event). Applied to agents and pipeline stages
 17. **Pipeline Lifecycle**: Full lifecycle emits (pipeline:start/stage_start/stage_complete/error/complete). Stage @retry/@timeout decorators. Result unwrapping. Error short-circuit. Duration tracking
 18. **Async Foundations**: Thunk value (deferred computation). SpawnAsync creates thunk, Await resolves synchronously, AwaitAll collects results. True parallel execution deferred
@@ -118,6 +118,7 @@ concerto-lang/
     22-project-manifest.md   # Concerto.toml manifest format
     23-project-scaffolding.md  # concerto init command
     27-host-streaming.md     # Bidirectional host streaming (listen expression)
+    28-testing.md            # @test/@expect_fail decorators, mock keyword, assertions, emit capture
   examples/              # Example projects (each has Concerto.toml + src/main.conc)
     hello_agent/         # Minimal agent example
     tool_usage/          # Tool definition and usage
@@ -126,6 +127,15 @@ concerto-lang/
     dynamic_tool_binding/ # Spec 25 with_tools/without_tools composition
     host_streaming/      # Spec 27 bidirectional host streaming with listen
     bidirectional_host_middleware/ # Spec 27 end-to-end middleware test with local host process
+    core_language_tour/  # Core syntax/semantics coverage (types, control flow, loops, traits/impls)
+    modules_and_visibility/ # Module/import/visibility syntax coverage
+    error_handling_matrix/ # Option/Result, ?, try/catch/throw behavior coverage
+    async_concurrency_patterns/ # Async/await syntax and pipeline interaction coverage
+    agent_chat_stream/   # Multi-turn chat + chunked stream surrogate via memory and emits
+    schema_validation_modes/ # Strict schema + fallback/optional/coercion strategy patterns
+    testing/             # @test/@expect_fail decorators, mock keyword, assertions, emit capture
+  hosts/
+    claude_code/         # Reference Claude Code middleware adapter (Concerto NDJSON host protocol <-> Claude CLI)
   Cargo.toml             # Workspace root
   crates/
     concerto-common/     # Shared types (Span, Diagnostic, IR types, Opcodes, Manifest)
@@ -158,9 +168,9 @@ concerto-lang/
           log.rs, fs.rs, collections.rs, http.rs, crypto.rs, prompt.rs
     concerto-runtime/
       tests/
-        integration.rs   # 15 end-to-end compile→run tests
-    concerto/            # Runtime CLI binary (depends on both compiler + runtime)
-      src/main.rs        # `concerto run` (direct .conc or .conc-ir) + `concerto init` (#[tokio::main])
+        integration.rs   # 38 end-to-end compile→run tests
+    concerto/            # Runtime CLI binary (depends on both compiler + runtime) — `run`, `test`, `init`
+      src/main.rs        # `concerto run` (direct .conc or .conc-ir) + `concerto init` (sync CLI entrypoint)
   tests/
     fixtures/            # Test .conc source files
       minimal.conc       # Milestone program for end-to-end testing
@@ -236,7 +246,7 @@ if     else   match  for     while   loop    break   continue
 return try    catch  throw   emit    await   async   pipeline
 stage  schema hashmap self   impl    trait   enum    struct
 as     in     with   true    false   nil     const   type
-mcp    ledger memory  host   listen
+mcp    ledger memory  host   listen  mock
 ```
 
 ## Built-in Functions
@@ -249,6 +259,10 @@ mcp    ledger memory  host   listen
 | `panic(message)` | Unrecoverable error, halt execution |
 | `typeof(value)` | Returns type name as string |
 | `len(collection)` | Returns length of array, string, or map |
+| `assert(condition[, message])` | Fails if condition is falsy |
+| `assert_eq(left, right)` | Fails if left != right, shows both values |
+| `assert_ne(left, right)` | Fails if left == right, shows both values |
+| `test_emits()` | Returns array of emits captured during current test |
 
 ## Key Design Decisions
 
@@ -268,7 +282,7 @@ mcp    ledger memory  host   listen
 | 12 | Generic method call syntax | `method<Type>(args)` with lookahead disambiguation from comparison; type args as schema on CALL_METHOD |
 | 13 | Phase 3a mock-first approach | No tokio/async in Phase 3a; AWAIT is no-op; agents return mock responses; full end-to-end without HTTP |
 | 14 | First-class `ledger` keyword | Fault-tolerant knowledge store for AI agents. Separate from `hashmap` (exact-key state). Identifier + Keys + Value document model with word-containment similarity matching and case-insensitive tag queries |
-| 15 | Synchronous LlmProvider trait | Uses reqwest::blocking for simplicity. Async deferred to Phase 3c. tokio added for CLI + future async |
+| 15 | Synchronous LlmProvider trait | Uses reqwest::blocking for simplicity. Async deferred; CLI entrypoint is synchronous to avoid Tokio runtime drop issues in blocking provider execution paths |
 | 16 | Trait-based provider with MockProvider fallback | MockProvider auto-selected when no API key. Real providers need env vars (OPENAI_API_KEY etc.) |
 | 17 | Schema type normalization at runtime | Compiler emits Concerto types (String, Int, Array<T>). Runtime normalizes to JSON Schema types before jsonschema validation |
 | 18 | run_loop_until(stop_depth) for nested execution | Pipeline stages and thunks call run_loop_until to prevent executing caller's instructions after RETURN |
@@ -282,3 +296,4 @@ mcp    ledger memory  host   listen
 | 26 | Hosts as external agent adapters | Stdio subprocess transport. Stateful processes. IrHost embeds TOML config. Same builder interface as agents |
 | 27 | Bidirectional host streaming (`listen`) | `listen Host.execute("prompt") { "type" => \|param\| { body } }` for NDJSON message loops. Handler return values sent back to host. Persistent BufReader for multi-message streaming. `result`/`error` are terminal message types |
 | 28 | Direct run (`concerto run file.conc`) | CLI compiles `.conc` in-memory and executes directly — no intermediate `.conc-ir` file. Detects extension to choose path. `.conc-ir` still supported for pre-compiled files |
+| 29 | `@test`/`@expect_fail` decorators | `@test fn name() { body }` compiled to IrTest (not IrFunction). `@expect_fail` for expected-failure tests. `mock Agent { ... }` installs mock responses. `@test` functions cannot be called from non-test code (compile error + IR isolation). `concerto run` skips tests, `concerto test` runs only tests. Each test gets fresh VM. Assert builtins + emit capture for verification |

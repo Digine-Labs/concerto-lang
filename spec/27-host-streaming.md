@@ -13,7 +13,7 @@ In practice, a host should be implemented as **middleware**:
 - upstream: talks to an external agent system (Claude Code, Cursor, custom worker)
 - downstream: talks to Concerto over NDJSON stdio (`question`/`approval` requests and `response` replies)
 
-This keeps Concerto protocol handling isolated from vendor-specific APIs and lets teams swap external agent backends without changing Concerto orchestration code. A self-contained local middleware harness lives in `examples/bidirectional_host_middleware/`.
+This keeps Concerto protocol handling isolated from vendor-specific APIs and lets teams swap external agent backends without changing Concerto orchestration code. A self-contained local middleware harness lives in `examples/bidirectional_host_middleware/`. A Claude Code-oriented reference adapter lives in `hosts/claude_code/`.
 
 ```
 +------------------+         questions          +------------------+

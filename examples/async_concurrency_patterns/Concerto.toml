@@ -1,0 +1,4 @@
+[project]
+name = "async_concurrency_patterns"
+version = "0.1.0"
+entry = "src/main.conc"

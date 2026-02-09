@@ -99,6 +99,59 @@ pub fn call_builtin(name: &str, args: Vec<Value>) -> Result<Value> {
                 .unwrap_or_else(|| "panic!".to_string());
             Err(RuntimeError::UnhandledThrow(format!("panic: {}", msg)))
         }
+        "$builtin_assert" => {
+            let mut iter = args.into_iter();
+            let condition = iter.next().unwrap_or(Value::Nil);
+            let custom_msg = iter.next();
+            let is_truthy = match &condition {
+                Value::Bool(b) => *b,
+                Value::Nil => false,
+                Value::Int(0) => false,
+                Value::String(s) => !s.is_empty(),
+                _ => true,
+            };
+            if !is_truthy {
+                let msg = if let Some(m) = custom_msg {
+                    format!("assertion failed: {}", m.display_string())
+                } else {
+                    format!(
+                        "assertion failed: expected truthy value, got {}",
+                        condition.display_string()
+                    )
+                };
+                Err(RuntimeError::UnhandledThrow(msg))
+            } else {
+                Ok(Value::Nil)
+            }
+        }
+        "$builtin_assert_eq" => {
+            let mut iter = args.into_iter();
+            let left = iter.next().unwrap_or(Value::Nil);
+            let right = iter.next().unwrap_or(Value::Nil);
+            if left != right {
+                Err(RuntimeError::UnhandledThrow(format!(
+                    "assertion failed: {} != {}",
+                    left.display_string(),
+                    right.display_string()
+                )))
+            } else {
+                Ok(Value::Nil)
+            }
+        }
+        "$builtin_assert_ne" => {
+            let mut iter = args.into_iter();
+            let left = iter.next().unwrap_or(Value::Nil);
+            let right = iter.next().unwrap_or(Value::Nil);
+            if left == right {
+                Err(RuntimeError::UnhandledThrow(format!(
+                    "assertion failed: {} == {} (expected not equal)",
+                    left.display_string(),
+                    right.display_string()
+                )))
+            } else {
+                Ok(Value::Nil)
+            }
+        }
         _ => Err(RuntimeError::CallError(format!(
             "unknown builtin: {}",
             name

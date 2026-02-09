@@ -1,0 +1,99 @@
+// schema_validation_modes
+// Strategy-level schema testing:
+// 1) strict schema first
+// 2) fallback to optional-field schema
+// 3) manual coercion strategy for stringly typed fields
+//
+// Runtime note: current validator enforces strict JSON-schema checks; this example
+// demonstrates practical fallback/coercion patterns at the program level.
+
+schema StrictIncident {
+    severity: "low" | "medium" | "high" | "critical",
+    component: String,
+    summary: String,
+    confidence: Int,
+}
+
+schema PartialIncident {
+    severity?: "low" | "medium" | "high" | "critical",
+    component: String,
+    summary: String,
+    confidence?: Int,
+    action_items?: Array<String>,
+}
+
+schema CoerceIncident {
+    severity: String,
+    component: String,
+    summary: String,
+    confidence: String,
+}
+
+agent FastExtractor {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 1.1,
+    system_prompt: "Return incident summaries.",
+}
+
+agent ReliableExtractor {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.1,
+    system_prompt: "Return strict structured JSON.",
+}
+
+fn run_strict_then_partial(note: String) {
+    let strict = FastExtractor.execute_with_schema<StrictIncident>(
+        "Parse this note into StrictIncident JSON: ${note}"
+    );
+
+    match strict {
+        Ok(report) => emit("strict:ok", {
+            "severity": report.severity,
+            "component": report.component,
+            "confidence": report.confidence,
+        }),
+        Err(e) => {
+            emit("strict:error", e);
+
+            let partial = ReliableExtractor.execute_with_schema<PartialIncident>(
+                "Fallback parse into PartialIncident JSON: ${note}"
+            );
+
+            match partial {
+                Ok(report) => emit("partial:ok", report),
+                Err(fallback_error) => emit("partial:error", fallback_error),
+            }
+        },
+    }
+}
+
+fn run_manual_coerce(note: String) {
+    let result = ReliableExtractor.execute_with_schema<CoerceIncident>(
+        "Return all fields as strings: ${note}"
+    );
+
+    match result {
+        Ok(texty) => {
+            let parsed = std::string::parse_int(texty.confidence);
+            emit("coerce:parsed_ok", parsed.is_ok());
+
+            emit("coerce:raw", {
+                "severity": texty.severity,
+                "component": texty.component,
+                "summary": texty.summary,
+                "confidence": texty.confidence,
+            });
+        },
+        Err(e) => emit("coerce:error", e),
+    }
+}
+
+fn main() {
+    let note =
+        "API timeout spike in payments service; retries increased and users saw checkout failures.";
+
+    run_strict_then_partial(note);
+    run_manual_coerce(note);
+}

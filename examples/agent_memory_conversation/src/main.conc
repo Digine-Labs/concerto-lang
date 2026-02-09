@@ -24,11 +24,11 @@ fn main() {
 
     match first {
         Ok(response) => emit("turn_1", response.text),
-        Err(e) => emit("error", e.message),
+        Err(e) => emit("error", e),
     }
     match second {
         Ok(response) => emit("turn_2", response.text),
-        Err(e) => emit("error", e.message),
+        Err(e) => emit("error", e),
     }
 
     emit("chat_len_after_auto", chat.len());

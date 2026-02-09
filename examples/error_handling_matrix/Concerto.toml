@@ -1,0 +1,4 @@
+[project]
+name = "error_handling_matrix"
+version = "0.1.0"
+entry = "src/main.conc"

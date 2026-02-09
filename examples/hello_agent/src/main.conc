@@ -26,7 +26,7 @@ fn main() {
                 "output": response.tokens_out,
             });
         },
-        Err(e) => emit("error", e.message),
+        Err(e) => emit("error", e),
     }
 
     // Structured execution (typed, validated response)
@@ -38,6 +38,6 @@ fn main() {
                 "language": greeting.language,
             });
         },
-        Err(e) => emit("error", e.message),
+        Err(e) => emit("error", e),
     }
 }

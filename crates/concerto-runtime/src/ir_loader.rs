@@ -9,7 +9,7 @@ use crate::value::Value;
 ///
 /// Converts the deserialized IR types into lookup tables and a
 /// runtime-friendly constant pool.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoadedModule {
     /// Constant pool: IrConstant values converted to runtime Values.
     pub constants: Vec<Value>,
@@ -37,6 +37,8 @@ pub struct LoadedModule {
     pub pipelines: HashMap<String, IrPipeline>,
     /// Type definitions by name.
     pub types: HashMap<String, IrType>,
+    /// Test declarations.
+    pub tests: Vec<IrTest>,
     /// Entry point function name (usually "main").
     pub entry_point: String,
 }
@@ -157,6 +159,7 @@ impl LoadedModule {
             .map(|t| (t.name.clone(), t))
             .collect();
 
+        let tests = module.tests;
         let entry_point = module.metadata.entry_point.clone();
 
         // Validate entry point exists
@@ -181,6 +184,73 @@ impl LoadedModule {
             listens,
             pipelines,
             types,
+            tests,
+            entry_point,
+        })
+    }
+
+    /// Convert an IrModule into a LoadedModule, skipping entry point validation.
+    ///
+    /// Used for test-only files that may not have a `main` function.
+    pub fn from_ir_permissive(module: IrModule) -> Result<Self> {
+        // Convert constant pool
+        let constants: Vec<Value> = module
+            .constants
+            .iter()
+            .map(convert_constant)
+            .collect::<Result<Vec<_>>>()?;
+
+        // Build function table
+        let mut functions: HashMap<String, IrFunction> = HashMap::new();
+        for func in module.functions {
+            functions.insert(func.name.clone(), func);
+        }
+
+        // Register tool methods as qualified functions
+        for tool in &module.tools {
+            for method in &tool.methods {
+                let qualified = format!("{}::{}", tool.name, method.name);
+                functions.insert(qualified, method.clone());
+            }
+        }
+
+        // Register agent methods as qualified functions
+        for agent in &module.agents {
+            for method in &agent.methods {
+                let qualified = format!("{}::{}", agent.name, method.name);
+                functions.insert(qualified, method.clone());
+            }
+        }
+
+        let agents = module.agents.into_iter().map(|a| (a.name.clone(), a)).collect();
+        let tools = module.tools.into_iter().map(|t| (t.name.clone(), t)).collect();
+        let schemas = module.schemas.into_iter().map(|s| (s.name.clone(), s)).collect();
+        let connections = module.connections.into_iter().map(|c| (c.name.clone(), c)).collect();
+        let hashmaps = module.hashmaps.into_iter().map(|d| (d.name.clone(), d)).collect();
+        let ledgers = module.ledgers.into_iter().map(|l| (l.name.clone(), l)).collect();
+        let memories = module.memories.into_iter().map(|m| (m.name.clone(), m)).collect();
+        let hosts = module.hosts.into_iter().map(|h| (h.name.clone(), h)).collect();
+        let listens = module.listens.into_iter().map(|l| (l.name.clone(), l)).collect();
+        let pipelines = module.pipelines.into_iter().map(|p| (p.name.clone(), p)).collect();
+        let types = module.types.into_iter().map(|t| (t.name.clone(), t)).collect();
+        let tests = module.tests;
+        let entry_point = module.metadata.entry_point.clone();
+
+        Ok(LoadedModule {
+            constants,
+            functions,
+            agents,
+            tools,
+            schemas,
+            connections,
+            hashmaps,
+            ledgers,
+            memories,
+            hosts,
+            listens,
+            pipelines,
+            types,
+            tests,
             entry_point,
         })
     }

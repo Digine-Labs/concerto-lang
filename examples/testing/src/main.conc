@@ -1,0 +1,153 @@
+// Testing example — demonstrates Concerto's built-in testing system.
+// Run with: concerto test src/main.conc
+
+schema Greeting {
+    message: String,
+    language: String,
+}
+
+agent Greeter {
+    provider: openai,
+    model: "gpt-4o-mini",
+    system_prompt: "You are a friendly multilingual greeter. Always respond with valid JSON.",
+}
+
+tool Calculator {
+    description: "Basic math operations",
+
+    @describe("Add two numbers")
+    @param("a", "First number")
+    @param("b", "Second number")
+    pub fn add(self, a: Int, b: Int) -> Int {
+        return a + b;
+    }
+
+    @describe("Multiply two numbers")
+    @param("a", "First number")
+    @param("b", "Second number")
+    pub fn multiply(self, a: Int, b: Int) -> Int {
+        return a * b;
+    }
+}
+
+fn main() {
+    emit("info", "Run 'concerto test src/main.conc' to execute tests");
+}
+
+// ===== Basic assertions =====
+
+@test
+fn basic_arithmetic() {
+    let x = 2 + 3;
+    assert_eq(x, 5);
+    assert_ne(x, 4);
+}
+
+@test
+fn string_operations() {
+    let s = "hello world";
+    assert_eq(len(s), 11);
+    assert_ne(s, "goodbye");
+}
+
+@test
+fn boolean_logic() {
+    assert(true);
+    assert(!false);
+    assert(1 + 1 == 2, "math should work");
+}
+
+// ===== Error handling =====
+
+@test
+fn result_types() {
+    let ok_val = Ok(42);
+    assert(ok_val.is_ok());
+
+    let err_val = Err("something went wrong");
+    assert(err_val.is_err());
+}
+
+// ===== Emit capture =====
+
+@test
+fn emit_capture() {
+    emit("greeting", "hello");
+    emit("farewell", "goodbye");
+
+    let emits = test_emits();
+    assert_eq(len(emits), 2);
+    assert_eq(emits[0].channel, "greeting");
+    assert_eq(emits[0].payload, "hello");
+    assert_eq(emits[1].channel, "farewell");
+    assert_eq(emits[1].payload, "goodbye");
+}
+
+// ===== Agent mocking =====
+
+@test
+fn agent_returns_greeting() {
+    mock Greeter {
+        response: "Hello from mock!",
+    }
+
+    let result = Greeter.execute("Say hello in French");
+    assert(result.is_ok());
+}
+
+@test
+fn agent_with_schema_validation() {
+    mock Greeter {
+        response: "{\"message\": \"Hola!\", \"language\": \"Spanish\"}",
+    }
+
+    let result = Greeter.execute_with_schema<Greeting>(
+        "Say hello in Spanish"
+    );
+
+    match result {
+        Ok(greeting) => {
+            assert_eq(greeting.message, "Hola!");
+            assert_eq(greeting.language, "Spanish");
+        },
+        Err(e) => assert(false, "expected Ok"),
+    }
+}
+
+@test
+fn agent_error_simulation() {
+    mock Greeter {
+        error: "API rate limit exceeded",
+    }
+
+    let result = Greeter.execute("Hi");
+    assert(result.is_err());
+}
+
+// ===== Expected failures =====
+
+@test
+@expect_fail
+fn panicking_test() {
+    panic("this should panic");
+}
+
+@test
+@expect_fail("assertion failed")
+fn specific_failure_message() {
+    assert_eq(1, 2);
+}
+
+// ===== Test groups =====
+
+@test("auth :: login validation")
+fn auth_login() {
+    assert(len("admin") > 0, "username must not be empty");
+    assert(len("password123") >= 8, "password must be at least 8 chars");
+}
+
+@test("auth :: role checking")
+fn auth_role() {
+    let role = "admin";
+    assert_ne(role, "guest");
+}

@@ -332,6 +332,8 @@ fn main() {
 }
 ```
 
+Reference middleware project: `hosts/claude_code/` includes a practical adapter (`claude_code_host.py`) and sample manifest/source snippets for wiring Claude Code CLI into Concerto's host protocol.
+
 ### Multi-Host Orchestration
 
 ```concerto

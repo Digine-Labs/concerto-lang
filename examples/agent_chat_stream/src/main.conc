@@ -1,0 +1,52 @@
+// agent_chat_stream
+// Practical multi-turn chat + chunked-output test using current runtime capabilities.
+// Note: native agent.chat()/agent.stream() methods are spec-level targets; this project
+// exercises equivalent orchestration semantics with execute()+memory and chunk emits.
+
+memory transcript: Memory = Memory::new(12);
+
+agent Assistant {
+    provider: openai,
+    model: "gpt-4o-mini",
+    temperature: 0.3,
+    system_prompt: "Respond with short implementation guidance.",
+}
+
+fn emit_chunks(text: String) {
+    let chunks = std::string::split(text, " ");
+    let mut idx = 0;
+
+    for chunk in chunks {
+        if chunk != "" {
+            emit("assistant:chunk", {
+                "index": idx,
+                "token": chunk,
+            });
+            idx = idx + 1;
+        }
+    }
+}
+
+fn run_turn(prompt: String) {
+    let result = Assistant.with_memory(transcript).execute(prompt);
+    match result {
+        Ok(response) => {
+            emit("assistant:text", response.text);
+            emit_chunks(response.text);
+        },
+        Err(e) => emit("assistant:error", e),
+    }
+}
+
+fn main() {
+    emit(
+        "chat:api_status",
+        "Using execute()+memory surrogate for chat/stream behavior coverage."
+    );
+
+    run_turn("Draft a migration plan from SQLite to Postgres.");
+    run_turn("Add rollback safeguards and validation checks.");
+
+    emit("chat:message_count", transcript.len());
+    emit("chat:last_two", transcript.last(2));
+}

@@ -162,4 +162,9 @@ pub enum Opcode {
     /// Begin listen loop on host. Pops argc args from stack.
     /// name: host name, arg: listen definition reference.
     ListenBegin,
+
+    // === Testing ===
+    /// Install a mock response for an agent during test execution.
+    /// name: agent name, arg: mock config JSON (response/error fields).
+    MockAgent,
 }

@@ -1,0 +1,4 @@
+[project]
+name = "modules_and_visibility"
+version = "0.1.0"
+entry = "src/main.conc"

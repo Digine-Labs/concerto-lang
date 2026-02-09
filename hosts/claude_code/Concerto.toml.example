@@ -1,0 +1,15 @@
+[project]
+name = "claude_code_host_example"
+version = "0.1.0"
+entry = "src/main.conc"
+
+[hosts.claude_code]
+transport = "stdio"
+command = "python3"
+args = [
+  "hosts/claude_code/claude_code_host.py",
+  "--mode", "stream",
+  "--interactive",
+  "--mock"
+]
+timeout = 900

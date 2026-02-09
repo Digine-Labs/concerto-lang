@@ -51,6 +51,33 @@ impl Validator {
     }
 
     fn validate_function(&mut self, func: &FunctionDecl) {
+        let is_test = func.decorators.iter().any(|d| d.name == "test");
+        if is_test {
+            // @test functions must not have parameters
+            if !func.params.is_empty() {
+                self.diagnostics.error(
+                    format!("`@test` function `{}` must not have parameters", func.name),
+                    func.span.clone(),
+                );
+            }
+            // @test functions must not have self
+            if func.self_param != SelfParam::None {
+                self.diagnostics.error(
+                    format!("`@test` function `{}` must not have `self`", func.name),
+                    func.span.clone(),
+                );
+            }
+            // @test functions must not have return type
+            if func.return_type.is_some() {
+                self.diagnostics.error(
+                    format!(
+                        "`@test` function `{}` must not have a return type",
+                        func.name
+                    ),
+                    func.span.clone(),
+                );
+            }
+        }
         for param in &func.params {
             if param.type_ann.is_none() {
                 self.diagnostics.error(

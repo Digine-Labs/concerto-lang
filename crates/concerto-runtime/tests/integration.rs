@@ -259,6 +259,24 @@ fn e2e_result_propagation() {
 }
 
 #[test]
+fn e2e_match_result_err_selects_err_arm() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let result = Err("boom");
+            match result {
+                Ok(v) => emit("branch", "ok"),
+                Err(e) => emit("branch", "err"),
+            }
+        }
+        "#,
+    );
+    assert_eq!(emits.len(), 1);
+    assert_eq!(emits[0].0, "branch");
+    assert_eq!(emits[0].1, "err");
+}
+
+#[test]
 fn e2e_database() {
     let (_, emits) = run_program(
         r#"
@@ -870,4 +888,299 @@ fn e2e_direct_run_with_agent_mock() {
     assert_eq!(collected.len(), 1);
     // MockProvider returns a mock response, so we just check the channel
     assert_eq!(collected[0].0, "text");
+}
+
+// =========================================================================
+// Testing system integration tests
+// =========================================================================
+
+/// Compile source for test mode (permissive loading), return LoadedModule.
+fn compile_for_tests(source: &str) -> LoadedModule {
+    compile_for_tests_with_connections(source, &[])
+}
+
+/// Compile source for test mode with connection names registered.
+fn compile_for_tests_with_connections(source: &str, connections: &[&str]) -> LoadedModule {
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(
+        !lex_diags.has_errors(),
+        "lexer errors: {:?}",
+        lex_diags.diagnostics()
+    );
+
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(
+        !parse_diags.has_errors(),
+        "parse errors: {:?}",
+        parse_diags.diagnostics()
+    );
+
+    let conn_names: Vec<String> = connections.iter().map(|s| s.to_string()).collect();
+    let sem_diags =
+        concerto_compiler::semantic::analyze_with_connections(&program, &conn_names);
+    assert!(
+        !sem_diags.has_errors(),
+        "semantic errors: {:?}",
+        sem_diags.diagnostics()
+    );
+
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+    let ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    LoadedModule::from_ir_permissive(ir_module).expect("IR loading failed")
+}
+
+#[test]
+fn e2e_test_assert_passing() {
+    let module = compile_for_tests(
+        r#"
+        @test
+        fn basic_assertions() {
+            assert(true);
+            assert_eq(2 + 3, 5);
+            assert_ne(1, 2);
+            assert(true, "custom message");
+        }
+        "#,
+    );
+
+    assert_eq!(module.tests.len(), 1);
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    assert!(result.is_ok(), "test should pass: {:?}", result.err());
+}
+
+#[test]
+fn e2e_test_assert_failing() {
+    let module = compile_for_tests(
+        r#"
+        @test
+        fn failing_assertion() {
+            assert_eq(1, 2);
+        }
+        "#,
+    );
+
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("1 != 2"),
+        "error should show values: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn e2e_test_emit_capture() {
+    let module = compile_for_tests(
+        r#"
+        @test
+        fn emit_capture() {
+            emit("greeting", "hello");
+            emit("farewell", "goodbye");
+
+            let emits = test_emits();
+            assert_eq(len(emits), 2);
+            assert_eq(emits[0].channel, "greeting");
+            assert_eq(emits[0].payload, "hello");
+            assert_eq(emits[1].channel, "farewell");
+            assert_eq(emits[1].payload, "goodbye");
+        }
+        "#,
+    );
+
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    assert!(result.is_ok(), "test should pass: {:?}", result.err());
+}
+
+#[test]
+fn e2e_test_mock_agent() {
+    let module = compile_for_tests_with_connections(
+        r#"
+        agent Greeter {
+            provider: openai,
+            model: "gpt-4o",
+            system_prompt: "You greet people.",
+        }
+
+        @test
+        fn mock_agent_execute() {
+            mock Greeter {
+                response: "Hello from mock!",
+            }
+
+            let result = Greeter.execute("Hi");
+            assert(result.is_ok());
+        }
+        "#,
+        &["openai"],
+    );
+
+    assert_eq!(module.tests.len(), 1);
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    assert!(result.is_ok(), "test should pass: {:?}", result.err());
+}
+
+#[test]
+fn e2e_test_mock_agent_error() {
+    let module = compile_for_tests_with_connections(
+        r#"
+        agent MyAgent {
+            provider: openai,
+            model: "gpt-4o",
+            system_prompt: "test",
+        }
+
+        @test
+        fn mock_agent_error() {
+            mock MyAgent {
+                error: "API rate limit exceeded",
+            }
+
+            let result = MyAgent.execute("do something");
+            assert(result.is_err());
+        }
+        "#,
+        &["openai"],
+    );
+
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    assert!(result.is_ok(), "test should pass: {:?}", result.err());
+}
+
+#[test]
+fn e2e_test_isolation() {
+    // Each test gets fresh VM state — mocks and emits don't leak
+    let module = compile_for_tests(
+        r#"
+        @test
+        fn first_test_emits() {
+            emit("ch1", "val1");
+            let emits = test_emits();
+            assert_eq(len(emits), 1);
+        }
+
+        @test
+        fn second_test_sees_no_emits() {
+            let emits = test_emits();
+            assert_eq(len(emits), 0);
+        }
+        "#,
+    );
+
+    assert_eq!(module.tests.len(), 2);
+
+    for test in &module.tests {
+        let mut vm = VM::new(module.clone());
+        vm.set_emit_handler(|_, _| {});
+        let result = vm.run_test(test);
+        assert!(
+            result.is_ok(),
+            "test '{}' should pass: {:?}",
+            test.description,
+            result.err()
+        );
+    }
+}
+
+#[test]
+fn e2e_test_expect_fail() {
+    let module = compile_for_tests(
+        r#"
+        @test
+        @expect_fail
+        fn should_panic() {
+            panic("boom");
+        }
+        "#,
+    );
+
+    assert_eq!(module.tests.len(), 1);
+    assert!(module.tests[0].expect_fail);
+    assert!(module.tests[0].expect_fail_message.is_none());
+
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    // The test itself should fail (panic), but expect_fail means it's expected
+    assert!(result.is_err(), "test should fail with panic");
+}
+
+#[test]
+fn e2e_test_expect_fail_with_message() {
+    let module = compile_for_tests(
+        r#"
+        @test
+        @expect_fail("assertion failed")
+        fn expects_specific_error() {
+            assert_eq(1, 2);
+        }
+        "#,
+    );
+
+    assert_eq!(module.tests.len(), 1);
+    assert!(module.tests[0].expect_fail);
+    assert_eq!(
+        module.tests[0].expect_fail_message.as_deref(),
+        Some("assertion failed")
+    );
+
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    assert!(result.is_err(), "test should fail with assertion error");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("assertion failed"),
+        "error should contain expected message: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn e2e_test_expect_fail_unexpected_pass() {
+    let module = compile_for_tests(
+        r#"
+        @test
+        @expect_fail
+        fn should_fail_but_passes() {
+            assert(true);
+        }
+        "#,
+    );
+
+    assert_eq!(module.tests.len(), 1);
+    assert!(module.tests[0].expect_fail);
+
+    let mut vm = VM::new(module.clone());
+    vm.set_emit_handler(|_, _| {});
+    let result = vm.run_test(&module.tests[0]);
+    // This test passes but was expected to fail — we just verify the IR metadata
+    assert!(result.is_ok(), "test should pass (unexpectedly)");
+}
+
+#[test]
+fn e2e_test_description_from_decorator() {
+    let module = compile_for_tests(
+        r#"
+        @test("descriptive test name")
+        fn my_test_fn() {
+            assert(true);
+        }
+        "#,
+    );
+
+    assert_eq!(module.tests.len(), 1);
+    assert_eq!(module.tests[0].description, "descriptive test name");
 }

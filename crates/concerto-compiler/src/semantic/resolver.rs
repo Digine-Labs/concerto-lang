@@ -18,6 +18,8 @@ pub struct Resolver {
     current_function_return: Option<Type>,
     /// Whether we are inside an `async fn`.
     in_async: bool,
+    /// Whether we are inside a `@test` function.
+    in_test: bool,
 }
 
 impl Default for Resolver {
@@ -33,6 +35,7 @@ impl Resolver {
             diagnostics: DiagnosticBag::new(),
             current_function_return: None,
             in_async: false,
+            in_test: false,
         };
         r.register_builtins();
         r
@@ -177,6 +180,39 @@ impl Resolver {
                 Type::Named("Memory".to_string()),
             ),
             ("std", SymbolKind::Module, Type::Any),
+            // Assertion built-ins
+            (
+                "assert",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![Type::Any],
+                    return_type: Box::new(Type::Nil),
+                },
+            ),
+            (
+                "assert_eq",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![Type::Any, Type::Any],
+                    return_type: Box::new(Type::Nil),
+                },
+            ),
+            (
+                "assert_ne",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![Type::Any, Type::Any],
+                    return_type: Box::new(Type::Nil),
+                },
+            ),
+            (
+                "test_emits",
+                SymbolKind::Function,
+                Type::Function {
+                    params: vec![],
+                    return_type: Box::new(Type::Array(Box::new(Type::Any))),
+                },
+            ),
         ];
 
         for (name, kind, ty) in builtins {
@@ -199,7 +235,21 @@ impl Resolver {
     fn collect_declarations(&mut self, program: &Program) {
         for decl in &program.declarations {
             match decl {
-                Declaration::Function(f) => self.declare_function_symbol(f),
+                Declaration::Function(f) => {
+                    if f.decorators.iter().any(|d| d.name == "test") {
+                        // @test functions registered as TestFunction — cannot be called from non-test code
+                        self.define_symbol(
+                            &f.name,
+                            SymbolKind::TestFunction,
+                            Type::Nil,
+                            false,
+                            false,
+                            f.span.clone(),
+                        );
+                    } else {
+                        self.declare_function_symbol(f);
+                    }
+                }
                 Declaration::Agent(a) => {
                     self.define_symbol(
                         &a.name,
@@ -398,7 +448,23 @@ impl Resolver {
 
     fn resolve_declaration(&mut self, decl: &Declaration) {
         match decl {
-            Declaration::Function(f) => self.resolve_function(f),
+            Declaration::Function(f) => {
+                // Validate @expect_fail only with @test
+                let has_test = f.decorators.iter().any(|d| d.name == "test");
+                let has_expect_fail = f.decorators.iter().any(|d| d.name == "expect_fail");
+                if has_expect_fail && !has_test {
+                    let span = f
+                        .decorators
+                        .iter()
+                        .find(|d| d.name == "expect_fail")
+                        .unwrap()
+                        .span
+                        .clone();
+                    self.diagnostics
+                        .error("`@expect_fail` can only be used on `@test` functions", span);
+                }
+                self.resolve_function(f);
+            }
             Declaration::Agent(a) => self.resolve_config_fields(&a.fields),
             Declaration::Tool(t) => {
                 self.resolve_config_fields(&t.fields);
@@ -470,10 +536,14 @@ impl Resolver {
             .map(Type::from_annotation)
             .unwrap_or(Type::Nil);
 
+        let is_test = func.decorators.iter().any(|d| d.name == "test");
+
         let prev_return = self.current_function_return.take();
         let prev_async = self.in_async;
+        let prev_test = self.in_test;
         self.current_function_return = Some(return_type);
-        self.in_async = func.is_async;
+        self.in_async = func.is_async || is_test; // @test functions are implicitly async
+        self.in_test = is_test;
 
         self.scopes.push(ScopeKind::Function);
 
@@ -513,6 +583,7 @@ impl Resolver {
 
         self.current_function_return = prev_return;
         self.in_async = prev_async;
+        self.in_test = prev_test;
     }
 
     /// Resolve a tool method - implicitly async (may use `await emit`).
@@ -628,6 +699,36 @@ impl Resolver {
         }
     }
 
+    fn resolve_mock(&mut self, mock: &MockStmt) {
+        // mock can only be used inside @test functions
+        if !self.in_test {
+            self.diagnostics.error(
+                "`mock` can only be used inside `@test` functions",
+                mock.span.clone(),
+            );
+        }
+        // Verify the agent name refers to a known agent
+        if let Some(sym) = self.scopes.lookup_mut(&mock.agent_name) {
+            sym.used = true;
+            if sym.kind != SymbolKind::Agent {
+                self.diagnostics.error(
+                    format!(
+                        "`mock` can only be used with agents, but `{}` is a {:?}",
+                        mock.agent_name, sym.kind
+                    ),
+                    mock.span.clone(),
+                );
+            }
+        } else {
+            self.diagnostics.error(
+                format!("undefined agent `{}` in mock statement", mock.agent_name),
+                mock.span.clone(),
+            );
+        }
+        // Resolve config field expressions
+        self.resolve_config_fields(&mock.fields);
+    }
+
     // ====================================================================
     // Blocks and statements
     // ====================================================================
@@ -649,6 +750,7 @@ impl Resolver {
             Stmt::Break(s) => self.resolve_break(s),
             Stmt::Continue(s) => self.resolve_continue(s),
             Stmt::Throw(s) => self.resolve_throw(s),
+            Stmt::Mock(m) => self.resolve_mock(m),
         }
     }
 
@@ -770,6 +872,22 @@ impl Resolver {
                 self.resolve_expr(callee);
                 for arg in args {
                     self.resolve_expr(arg);
+                }
+                // Prevent calling @test functions from non-test code
+                if !self.in_test {
+                    if let ExprKind::Identifier(name) = &callee.kind {
+                        if let Some(sym) = self.scopes.lookup(name) {
+                            if sym.kind == SymbolKind::TestFunction {
+                                self.diagnostics.error(
+                                    format!(
+                                        "cannot call test function `{}` from non-test code",
+                                        name
+                                    ),
+                                    expr.span.clone(),
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1735,6 +1853,123 @@ mod tests {
                 .is_some_and(|s| s.contains("let mut")),
             "expected suggestion mentioning 'let mut', got: {:?}",
             diag.suggestion
+        );
+    }
+
+    // ===== @test decorator =====
+
+    #[test]
+    fn test_fn_body_resolves_variables() {
+        let errs = errors(
+            r#"
+            @test
+            fn variables_work() {
+                let x = 42;
+                let y = x + 1;
+                assert_eq(y, 43);
+            }
+        "#,
+        );
+        assert!(errs.is_empty(), "unexpected errors: {:?}", errs);
+    }
+
+    #[test]
+    fn test_fn_mock_undefined_agent_error() {
+        let errs = errors(
+            r#"
+            @test
+            fn mock_nonexistent() {
+                mock UnknownAgent {
+                    response: "hello",
+                }
+            }
+        "#,
+        );
+        assert!(
+            errs.iter().any(|e| e.contains("undefined agent")),
+            "expected 'undefined agent' error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn test_fn_assert_builtins_resolve() {
+        let errs = errors(
+            r#"
+            @test
+            fn assert_builtins() {
+                assert(true);
+                assert(true, "msg");
+                assert_eq(1, 1);
+                assert_ne(1, 2);
+                let emits = test_emits();
+            }
+        "#,
+        );
+        assert!(errs.is_empty(), "unexpected errors: {:?}", errs);
+    }
+
+    #[test]
+    fn test_fn_call_from_regular_code_error() {
+        let errs = errors(
+            r#"
+            @test
+            fn my_test() {
+                assert(true);
+            }
+
+            fn main() {
+                my_test();
+            }
+        "#,
+        );
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("cannot call test function")),
+            "expected 'cannot call test function' error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn expect_fail_without_test_error() {
+        let errs = errors(
+            r#"
+            @expect_fail
+            fn not_a_test() {
+                assert(true);
+            }
+        "#,
+        );
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("@expect_fail")),
+            "expected '@expect_fail' error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn mock_outside_test_error() {
+        let errs = errors(
+            r#"
+            agent MyAgent {
+                provider: "openai",
+                model: "gpt-4o",
+            }
+
+            fn main() {
+                mock MyAgent {
+                    response: "hello",
+                }
+            }
+        "#,
+        );
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("@test")),
+            "expected mock-outside-test error, got: {:?}",
+            errs
         );
     }
 }

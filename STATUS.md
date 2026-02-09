@@ -5,11 +5,74 @@
 ## Current Focus
 
 **Phase 1–7e**: COMPLETE. See sections below.
-**Direct Run**: COMPLETE. `concerto run file.conc` compiles and executes in one step. 515 tests total (10 manifest + 240 compiler + 238 runtime + 27 integration).
+**Direct Run**: COMPLETE. `concerto run file.conc` compiles and executes in one step.
+**Phase 8 (Testing)**: COMPLETE. `@test`/`@expect_fail` decorators, `mock` keyword, assert builtins, emit capture, `concerto test` CLI. 536 tests total (10 manifest + 250 compiler + 238 runtime + 38 integration).
+**Testing Refactor**: COMPLETE. Replaced `test "desc" { body }` keyword syntax with `@test fn name() { body }` decorator syntax. Added `@expect_fail`/`@expect_fail("msg")`. Dual enforcement: compile-time call restriction + IR-level isolation.
 
 ---
 
 ## Recent Development Log
+
+### 2026-02-09 - Testing Refactor: `test` keyword → `@test` decorator
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Replace `test "desc" { body }` with `@test fn name() { body }` | Done | Removed `Test` keyword, `TestDecl`, `Declaration::Test`, `parse_test_decl`, `resolve_test`, `validate_test`, `generate_test`. `@test` decorator on `fn` declarations now routes to `IrTest` |
+| Add `@expect_fail` decorator | Done | `@expect_fail` (any error passes) or `@expect_fail("msg")` (error must contain message). CLI handles all cases. Compile error if used without `@test` |
+| Enforce test function isolation | Done | Dual-layer: (1) `SymbolKind::TestFunction` + compile error on call from non-test code, (2) `@test fn` emitted to `IrModule.tests` only (not `IrModule.functions`) |
+| Restrict `mock` to `@test` functions | Done | Semantic error if `mock` used outside `@test` function body |
+| Update tests | Done | 536 total (10 manifest + 250 compiler + 238 runtime + 38 integration). Rewrote 3 semantic + 6 integration tests, added 7 new tests |
+| Update example and spec | Done | `examples/testing/src/main.conc` and `spec/28-testing.md` rewritten with `@test`/`@expect_fail` syntax |
+
+### 2026-02-09 - Claude Code Host Adapter Reference Project
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add standalone Claude Code host adapter project | Done | New project: `hosts/claude_code/` with Python middleware (`claude_code_host.py`) that translates Concerto host protocol to Claude CLI |
+| Support both single-response and streaming host flows | Done | Added `--mode oneshot` (safe for `execute`) and `--mode stream` (for `listen`) with optional `question`/`approval` interactive supervision |
+| Add deterministic local verification path | Done | Added `--mock` mode and smoke-test instructions in `hosts/claude_code/README.md` for local protocol validation without Claude CLI dependency |
+| Update docs/spec references for host middleware adapters | Done | Updated `README.md`, `spec/26-hosts.md`, `spec/27-host-streaming.md`, and `CLAUDE.md` directory map |
+| Propose protocol-level improvement discovered during adapter design | Done | Added `ideas/host_response_correlation_ids.md` for explicit request/response correlation IDs in host streaming |
+
+### 2026-02-09 - Example Error Branch Consistency Fix (String Errors)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix `modules_and_visibility` JSON error branch | Done | Replaced `Err(e) => emit("json_error", e.message)` with `Err(e) => emit("json_error", e)` |
+| Sweep other examples with same `.message` misuse | Done | Updated `examples/hello_agent/`, `examples/agent_memory_conversation/`, and `examples/agent_chat_stream/` to emit error strings directly |
+| Validate example compile checks | Done | `concertoc --check` passes for all touched example entry files |
+| Propose language/runtime improvement for error value consistency | Done | Added `ideas/unified_runtime_error_values.md` to standardize structured errors across agent/host/stdlib paths |
+
+### 2026-02-09 - Host Streaming Example Compile Fix
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix `?` usage in `host_streaming` example handler | Done | Replaced `Architect.execute(...)?` with explicit `match` in `examples/host_streaming/src/main.conc` because `main` does not return `Result`/`Option` |
+| Validate example compile path | Done | `concertoc --check examples/host_streaming/src/main.conc` passes |
+
+### 2026-02-09 - Match Enum Variant Check Fix (Result/Option)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix `match` arm selection for enum-style patterns | Done | `PatternKind::Enum` codegen now emits real checks for `Ok`/`Err` and `Some`/`None` instead of unconditional true |
+| Add regression test for `Err` arm selection | Done | Added `e2e_match_result_err_selects_err_arm` in `crates/concerto-runtime/tests/integration.rs` |
+| Validate `schema_validation_modes` runtime behavior | Done | `cargo run -p concerto -- run src/main.conc` no longer hits `cannot access field 'severity' on String` |
+
+### 2026-02-09 - Phase 8: Testing Suite
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Implement first-class test/mock system | Done | Full compiler+runtime implementation: spec, IR types, lexer, parser, AST, semantic, codegen, builtins, VM mock registry, emit capture, `concerto test` CLI. Later refactored to `@test`/`@expect_fail` decorator syntax |
+| Test count | Done | 536 total (10 manifest + 250 compiler + 238 runtime + 38 integration), clippy clean |
+| Example project | Done | `examples/testing/` with `@test`/`@expect_fail` decorated tests covering assertions, mocks, schema validation, emit capture |
+
+### 2026-02-09 - Schema Validation Env Key + CLI Runtime Drop Fix
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix schema validation example API key env wiring | Done | Updated `examples/schema_validation_modes/Concerto.toml` to use `api_key_env = "OPENAI_API_KEY"` (env var name, not literal secret value) |
+| Fix direct-run Tokio runtime drop panic | Done | Updated `crates/concerto/src/main.rs` to use sync `fn main()` instead of `#[tokio::main] async fn main()` because provider path is blocking |
+| Verify runtime behavior after fixes | Done | `target/debug/concerto run examples/schema_validation_modes/src/main.conc` runs without panic; with no key it falls back to mock provider |
 
 ### 2026-02-09 - Bidirectional Host Middleware Example
 
@@ -19,6 +82,24 @@
 | Add local mock host middleware process | Done | `examples/bidirectional_host_middleware/host/mock_external_agent.sh` implements NDJSON host→Concerto and response parsing Concerto→host |
 | Verify example compile and runtime execution | Done | Compiled with `concertoc` and ran with `concerto run`; observed progress/question/approval/result flow |
 | Fix host_streaming connector/manifest alignment | Done | Updated `examples/host_streaming/Concerto.toml` to `[hosts.claude_code]` with `transport` and timeout |
+
+### 2026-02-09 - Core Syntax/Semantics Example Coverage
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add `core_language_tour` example project | Done | New project: `examples/core_language_tour/` with control flow, loops, trait/impl, enum, struct, type alias, hashmap, nil coalescing |
+| Add `modules_and_visibility` example project | Done | New project: `examples/modules_and_visibility/` with `use`, `mod`, `pub` syntax coverage and external module file scaffold |
+| Add `error_handling_matrix` example project | Done | New project: `examples/error_handling_matrix/` covering `Option`, `Result`, `?`, `try/catch`, `throw` behavior |
+| Verify compile/run for all three new examples | Done | Each project compiled with `concertoc` and executed with `concerto run` |
+
+### 2026-02-09 - Async/Chat/Schema Example Coverage
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Add `async_concurrency_patterns` example project | Done | New project: `examples/async_concurrency_patterns/` covering async fn, prefix/postfix await, await tuple, await emit, and pipeline interplay |
+| Add `agent_chat_stream` example project | Done | New project: `examples/agent_chat_stream/` using execute+memory as practical multi-turn chat and chunk-stream surrogate |
+| Add `schema_validation_modes` example project | Done | New project: `examples/schema_validation_modes/` with strict-first schema parse, partial fallback pattern, and manual coercion strategy |
+| Verify compile/run for all three new examples | Done | Each project compiled with `concertoc` and executed with `concerto run` (mock provider fallback observed without API key) |
 
 ### 2026-02-08 - Advanced Example Projects
 
@@ -320,6 +401,7 @@ Bidirectional host streaming via `listen` expression with typed handlers and NDJ
 | Integration tests | Done | 3 tests: compile+load, VM execution, bidirectional handler |
 | Example: host_streaming | Done | `examples/host_streaming/` with Concerto.toml + src/main.conc |
 | Example: bidirectional_host_middleware | Done | `examples/bidirectional_host_middleware/` with local host middleware script for full bidirectional testing |
+| Reference adapter: claude_code host project | Done | `hosts/claude_code/` Python middleware for Concerto host protocol -> Claude Code CLI bridging |
 | Update CLAUDE.md | Done | Listen docs, keywords, design decision #27 |
 | Update STATUS.md | Done | This section |
 
@@ -337,6 +419,31 @@ Bidirectional host streaming via `listen` expression with typed handlers and NDJ
 | Update help text | Done | CLI docs reflect `.conc` as primary input, init shows simpler workflow |
 | Integration tests | Done | 3 tests: basic program, stdlib calls, agent with MockProvider |
 | Update CLAUDE.md | Done | Design decision #28, CLI description updated |
+
+## Phase 8: Testing Suite (COMPLETE)
+
+First-class `test` and `mock` keywords for writing tests within `.conc` source files. Tests are skipped during `concerto run` and only executed via `concerto test`. Mock keyword enables deterministic agent testing without API keys. See [spec/28-testing.md](spec/28-testing.md).
+
+| Task | Status | Notes |
+|------|--------|-------|
+| spec/28-testing.md | Done | Test declarations, assertions, mock statements, emit capture, CLI |
+| IR: IrTest struct + MockAgent opcode | Done | IrTest (description + instructions), tests on IrModule, MockAgent opcode (61st) |
+| Compiler: `test`/`mock` keywords | Done | Lexer keywords (45 total), TestDecl + MockStmt AST nodes |
+| Compiler: parser | Done | parse_test_decl(), parse_mock_stmt() (reuses parse_config_fields) |
+| Compiler: semantic analysis | Done | resolve_test(), resolve_mock() (validates agent exists), assert/test_emits builtins |
+| Compiler: codegen | Done | generate_test() → IrTest, generate_mock() → MockAgent opcode with config JSON |
+| Runtime: IR loader | Done | LoadedModule.tests, from_ir_permissive() (no entry point required), Clone derive |
+| Runtime: assert builtins | Done | $builtin_assert (truthiness), $builtin_assert_eq (==), $builtin_assert_ne (!=) |
+| Runtime: VM mock system | Done | mock_agents HashMap, MockConfig, call_mock_agent(), intercepts agent + builder calls |
+| Runtime: emit capture | Done | test_capture_emits flag, test_emits Vec, $builtin_test_emits (returns Array of Structs) |
+| Runtime: run_test() | Done | Per-test VM method: clears mock/emit state, pushes test frame, runs loop |
+| CLI: `concerto test` | Done | Test subcommand with --filter, --debug, --quiet. Per-test VM isolation. PASS/FAIL output |
+| Parser tests | Done | 4 tests: basic decl, mock stmt, multiple tests, missing description |
+| Semantic tests | Done | 3 tests: variable resolution, undefined agent error, assert builtins |
+| Integration tests | Done | 6 tests: passing asserts, failing asserts, emit capture, mock agent, mock error, isolation |
+| Example: testing/ | Done | `examples/testing/` with assertions, mocks, schema validation, emit capture, test groups |
+| Update CLAUDE.md | Done | Keywords (47), opcodes (61), builtins, design decision #29 |
+| Update STATUS.md | Done | This section |
 
 ### Future (deferred)
 
@@ -366,7 +473,7 @@ Bidirectional host streaming via `listen` expression with typed handlers and NDJ
 | 11 | Generic method call syntax | 2026-02-08 | `method<Type>(args)` parsed with lookahead disambiguation from comparison operators; type args passed as schema on CALL_METHOD |
 | 12 | Phase 3a mock-first | 2026-02-08 | No async runtime (tokio) in Phase 3a; AWAIT is no-op; agents return mock responses; enables full end-to-end testing without HTTP |
 | 13 | First-class `ledger` keyword | 2026-02-08 | Fault-tolerant knowledge store for AI agents. Separate from `hashmap` (exact-key state). Identifier + Keys + Value model with word-containment similarity and case-insensitive key matching. First-class keyword for compiler integration |
-| 14 | Synchronous LlmProvider trait | 2026-02-08 | Uses reqwest::blocking for Phase 3b simplicity. Async deferred to Phase 3c. tokio added now for CLI + future async needs |
+| 14 | Synchronous LlmProvider trait | 2026-02-08 | Uses reqwest::blocking for Phase 3b simplicity. Async deferred; CLI entrypoint remains synchronous to avoid Tokio runtime drop issues around blocking provider flows |
 | 15 | Trait-based provider with MockProvider fallback | 2026-02-08 | MockProvider auto-selected when no API key. Existing tests unchanged. Real providers require env API keys |
 | 16 | Schema type normalization at runtime | 2026-02-08 | Compiler emits Concerto types (String, Int, Array<T>). Runtime normalizes to JSON Schema types (string, integer, array) before validation |
 | 17 | `Concerto.toml` project manifest | 2026-02-08 | Connections defined in TOML (like Cargo.toml), not in source code. Compiler embeds connection config into IR at compile time. `connect` keyword removed |
@@ -377,6 +484,7 @@ Bidirectional host streaming via `listen` expression with typed handlers and NDJ
 | 22 | Shared AgentBuilder value type | 2026-02-08 | Transient `Value::AgentBuilder` accumulates config (memory, tools, context) via method chaining. Shared across Agent/Host `.with_*().execute()` pattern |
 | 23 | Bidirectional host streaming | 2026-02-09 | `listen` expression with typed handlers and NDJSON wire protocol. Handler bodies compiled as instruction blocks (pipeline stage pattern). `result`/`error` messages are terminal. Unhandled messages emitted to `listen:unhandled` |
 | 24 | Direct run | 2026-02-09 | `concerto run file.conc` compiles in-memory and executes directly. Extension detection chooses path. `.conc-ir` still supported. No intermediate file I/O |
+| 25 | First-class test/mock keywords | 2026-02-09 | `test "desc" { body }` + `mock Agent { response: "..." }`. Tests compiled to IrTest, skipped during run, executed via `concerto test`. Per-test VM isolation. Assert builtins + emit capture for verification |
 
 ## Open Questions
 

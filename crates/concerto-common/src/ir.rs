@@ -35,6 +35,8 @@ pub struct IrModule {
     pub hosts: Vec<IrHost>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub listens: Vec<IrListen>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tests: Vec<IrTest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_map: Option<IrSourceMap>,
     pub metadata: IrMetadata,
@@ -299,6 +301,17 @@ pub struct IrListenHandler {
     pub message_type: String,
     pub param: IrParam,
     pub instructions: Vec<IrInstruction>,
+}
+
+/// A test declaration in the IR.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrTest {
+    pub description: String,
+    pub instructions: Vec<IrInstruction>,
+    #[serde(default)]
+    pub expect_fail: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect_fail_message: Option<String>,
 }
 
 /// Source map for instruction-to-source mapping.

@@ -25,6 +25,7 @@ pub struct CodeGenerator {
     memories: Vec<IrMemory>,
     pipelines: Vec<IrPipeline>,
     listens: Vec<IrListen>,
+    tests: Vec<IrTest>,
     types: Vec<IrType>,
     closure_counter: usize,
     listen_counter: usize,
@@ -47,6 +48,7 @@ impl CodeGenerator {
             memories: Vec::new(),
             pipelines: Vec::new(),
             listens: Vec::new(),
+            tests: Vec::new(),
             types: Vec::new(),
             closure_counter: 0,
             listen_counter: 0,
@@ -102,6 +104,7 @@ impl CodeGenerator {
             hosts: self.hosts,
             pipelines: self.pipelines,
             listens: self.listens,
+            tests: self.tests,
             source_map: None,
             metadata: IrMetadata {
                 compiler_version: "0.1.0".to_string(),
@@ -119,7 +122,13 @@ impl CodeGenerator {
 
     fn generate_declaration(&mut self, decl: &Declaration) {
         match decl {
-            Declaration::Function(f) => self.generate_function(f),
+            Declaration::Function(f) => {
+                if f.decorators.iter().any(|d| d.name == "test") {
+                    self.generate_test_from_fn(f);
+                } else {
+                    self.generate_function(f);
+                }
+            }
             Declaration::Agent(a) => self.generate_agent(a),
             Declaration::Tool(t) => self.generate_tool(t),
             Declaration::Schema(s) => self.generate_schema(s),
@@ -259,6 +268,7 @@ impl CodeGenerator {
             Stmt::Break(s) => self.generate_break(s, ctx),
             Stmt::Continue(s) => self.generate_continue(s, ctx),
             Stmt::Throw(s) => self.generate_throw(s, ctx),
+            Stmt::Mock(m) => self.generate_mock(m, ctx),
         }
     }
 
@@ -1509,13 +1519,93 @@ impl CodeGenerator {
                 self.emit_pattern_check(pattern, ctx, span);
             }
 
-            // For complex patterns (tuple, struct, enum, array), emit a
+            PatternKind::Enum { path, .. } => {
+                // Handle core tagged unions used pervasively in Concerto.
+                // This prevents `Ok(...)` from matching `Err(...)` (and vice-versa).
+                let variant = path.last().map(|s| s.as_str()).unwrap_or("");
+                let check = match variant {
+                    "Ok" => Some(("Result", "is_ok")),
+                    "Err" => Some(("Result", "is_err")),
+                    "Some" => Some(("Option", "is_some")),
+                    "None" => Some(("Option", "is_none")),
+                    _ => None,
+                };
+
+                if let Some((type_name, method)) = check {
+                    let tmp = ctx.fresh_local("$enum_check");
+                    let false_idx = self.pool.add_bool(false);
+
+                    // Save scrutinee for repeated checks.
+                    ctx.emit(IrInstruction {
+                        op: Opcode::StoreLocal,
+                        name: Some(tmp.clone()),
+                        span,
+                        ..default_instruction()
+                    });
+
+                    // Fast type guard to avoid method-call type errors.
+                    ctx.emit(IrInstruction {
+                        op: Opcode::LoadLocal,
+                        name: Some(tmp.clone()),
+                        span,
+                        ..default_instruction()
+                    });
+                    ctx.emit(IrInstruction {
+                        op: Opcode::CheckType,
+                        type_name: Some(type_name.to_string()),
+                        span,
+                        ..default_instruction()
+                    });
+                    let type_mismatch = ctx.emit_placeholder(Opcode::JumpIfFalse, span);
+
+                    // Variant predicate check (`is_ok`/`is_err`/`is_some`/`is_none`).
+                    ctx.emit(IrInstruction {
+                        op: Opcode::LoadLocal,
+                        name: Some(tmp),
+                        span,
+                        ..default_instruction()
+                    });
+                    ctx.emit(IrInstruction {
+                        op: Opcode::CallMethod,
+                        name: Some(method.to_string()),
+                        argc: Some(0),
+                        span,
+                        ..default_instruction()
+                    });
+                    let done = ctx.emit_placeholder(Opcode::Jump, span);
+
+                    // Type mismatch => no match.
+                    let mismatch_ip = ctx.current_ip();
+                    ctx.instructions[type_mismatch].offset = Some(mismatch_ip as i32);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::LoadConst,
+                        arg: Some(serde_json::Value::Number(false_idx.into())),
+                        span,
+                        ..default_instruction()
+                    });
+
+                    ctx.patch_jump(done);
+                } else {
+                    // Fallback behavior for non-core enum patterns.
+                    ctx.emit(IrInstruction {
+                        op: Opcode::Pop,
+                        span,
+                        ..default_instruction()
+                    });
+                    let idx = self.pool.add_bool(true);
+                    ctx.emit(IrInstruction {
+                        op: Opcode::LoadConst,
+                        arg: Some(serde_json::Value::Number(idx.into())),
+                        span,
+                        ..default_instruction()
+                    });
+                }
+            }
+
+            // For other complex patterns (tuple, struct, array), emit a
             // simplified check. Full structural matching is deferred to
             // the runtime.
-            PatternKind::Tuple(_)
-            | PatternKind::Struct { .. }
-            | PatternKind::Enum { .. }
-            | PatternKind::Array { .. } => {
+            PatternKind::Tuple(_) | PatternKind::Struct { .. } | PatternKind::Array { .. } => {
                 ctx.emit(IrInstruction {
                     op: Opcode::Pop,
                     span,
@@ -2713,6 +2803,89 @@ impl CodeGenerator {
             args: None,
             env: None,
             working_dir: None,
+        });
+    }
+
+    fn generate_test_from_fn(&mut self, func: &FunctionDecl) {
+        let Some(ref body) = func.body else {
+            return;
+        };
+
+        // Extract description from @test("description") or use function name
+        let description = func
+            .decorators
+            .iter()
+            .find(|d| d.name == "test")
+            .and_then(|d| d.args.first())
+            .and_then(|arg| match arg {
+                DecoratorArg::Positional(expr) => {
+                    if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| func.name.clone());
+
+        // Check for @expect_fail decorator
+        let expect_fail_decorator = func.decorators.iter().find(|d| d.name == "expect_fail");
+        let expect_fail = expect_fail_decorator.is_some();
+        let expect_fail_message = expect_fail_decorator.and_then(|d| {
+            d.args.first().and_then(|arg| match arg {
+                DecoratorArg::Positional(expr) => {
+                    if let ExprKind::Literal(Literal::String(s)) = &expr.kind {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+        });
+
+        let mut ctx = FunctionCtx::new();
+
+        self.generate_block(body, &mut ctx);
+
+        // Ensure trailing return
+        if body.tail_expr.is_none() {
+            let nil_idx = self.pool.add_nil();
+            ctx.emit(IrInstruction {
+                op: Opcode::LoadConst,
+                arg: Some(serde_json::Value::Number(nil_idx.into())),
+                span: Some([func.span.end.line, func.span.end.column]),
+                ..default_instruction()
+            });
+        }
+        ctx.emit(IrInstruction {
+            op: Opcode::Return,
+            span: Some([func.span.end.line, func.span.end.column]),
+            ..default_instruction()
+        });
+
+        self.tests.push(IrTest {
+            description,
+            instructions: ctx.instructions,
+            expect_fail,
+            expect_fail_message,
+        });
+    }
+
+    fn generate_mock(&mut self, mock: &MockStmt, ctx: &mut FunctionCtx) {
+        // Build mock config from fields
+        let mut config = serde_json::Map::new();
+        for field in &mock.fields {
+            config.insert(field.name.clone(), expr_to_json(&field.value));
+        }
+
+        ctx.emit(IrInstruction {
+            op: Opcode::MockAgent,
+            name: Some(mock.agent_name.clone()),
+            arg: Some(serde_json::Value::Object(config)),
+            span: Some([mock.span.start.line, mock.span.start.column]),
+            ..default_instruction()
         });
     }
 }

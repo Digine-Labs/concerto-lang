@@ -156,6 +156,7 @@ pub trait Visitor {
             Stmt::Break(s) => self.visit_break_stmt(s),
             Stmt::Continue(s) => self.visit_continue_stmt(s),
             Stmt::Throw(s) => self.visit_throw_stmt(s),
+            Stmt::Mock(s) => self.visit_mock_stmt(s),
         }
     }
 
@@ -185,6 +186,12 @@ pub trait Visitor {
 
     fn visit_throw_stmt(&mut self, stmt: &ThrowStmt) {
         self.visit_expr(&stmt.value);
+    }
+
+    fn visit_mock_stmt(&mut self, stmt: &MockStmt) {
+        for field in &stmt.fields {
+            self.visit_expr(&field.value);
+        }
     }
 
     fn visit_pattern(&mut self, pattern: &Pattern) {

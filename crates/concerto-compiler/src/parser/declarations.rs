@@ -363,7 +363,7 @@ impl Parser {
     // ========================================================================
 
     /// Parse a config block body: `{ name: expr, ... }`.
-    fn parse_config_fields(&mut self) -> Option<Vec<ConfigField>> {
+    pub(super) fn parse_config_fields(&mut self) -> Option<Vec<ConfigField>> {
         self.expect(TokenKind::LeftBrace)?;
         let mut fields = Vec::new();
 
@@ -1036,6 +1036,7 @@ impl Parser {
             span,
         }))
     }
+
 }
 
 #[cfg(test)]
@@ -1831,6 +1832,119 @@ mod tests {
                 _ => panic!("expected union type"),
             },
             other => panic!("expected Schema, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    // ===== test declarations =====
+
+    #[test]
+    fn parse_test_fn_basic() {
+        let prog = parse(
+            r#"
+            @test
+            fn basic_arithmetic() {
+                let x = 2 + 3;
+                assert_eq(x, 5);
+            }
+        "#,
+        );
+        match &prog.declarations[0] {
+            Declaration::Function(f) => {
+                assert_eq!(f.name, "basic_arithmetic");
+                assert!(f.decorators.iter().any(|d| d.name == "test"));
+                assert!(f.body.is_some());
+            }
+            other => panic!("expected Function, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn parse_test_fn_with_mock() {
+        let prog = parse(
+            r#"
+            agent Greeter {
+                provider: openai,
+                model: "gpt-4o",
+                system_prompt: "greet",
+            }
+
+            @test
+            fn agent_returns_greeting() {
+                mock Greeter {
+                    response: "hello",
+                }
+
+                let result = Greeter.execute("Hi");
+                assert(result.is_ok());
+            }
+        "#,
+        );
+        assert_eq!(prog.declarations.len(), 2);
+        match &prog.declarations[1] {
+            Declaration::Function(f) => {
+                assert!(f.decorators.iter().any(|d| d.name == "test"));
+                match &f.body.as_ref().unwrap().stmts[0] {
+                    Stmt::Mock(m) => {
+                        assert_eq!(m.agent_name, "Greeter");
+                        assert_eq!(m.fields.len(), 1);
+                        assert_eq!(m.fields[0].name, "response");
+                    }
+                    other => panic!("expected Mock stmt, got {:?}", std::mem::discriminant(other)),
+                }
+            }
+            other => panic!("expected Function, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn parse_multiple_test_fns() {
+        let prog = parse(
+            r#"
+            @test
+            fn test_one() {
+                assert(true);
+            }
+
+            @test
+            fn test_two() {
+                assert_ne(1, 2);
+            }
+
+            @test("test three")
+            fn test_three() {
+                let x = 42;
+                assert_eq(x, 42);
+            }
+        "#,
+        );
+        assert_eq!(prog.declarations.len(), 3);
+        for decl in &prog.declarations {
+            match decl {
+                Declaration::Function(f) => {
+                    assert!(f.decorators.iter().any(|d| d.name == "test"));
+                }
+                other => panic!("expected Function, got {:?}", std::mem::discriminant(other)),
+            }
+        }
+    }
+
+    #[test]
+    fn parse_test_fn_with_expect_fail() {
+        let prog = parse(
+            r#"
+            @test
+            @expect_fail
+            fn should_panic() {
+                panic("boom");
+            }
+        "#,
+        );
+        match &prog.declarations[0] {
+            Declaration::Function(f) => {
+                assert!(f.decorators.iter().any(|d| d.name == "test"));
+                assert!(f.decorators.iter().any(|d| d.name == "expect_fail"));
+            }
+            other => panic!("expected Function, got {:?}", std::mem::discriminant(other)),
         }
     }
 }

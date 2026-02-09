@@ -11,7 +11,7 @@ use concerto_runtime::{LoadedModule, VM};
     name = "concerto",
     version,
     about,
-    long_about = "Concerto language runtime.\n\nRuns Concerto programs from source (.conc) or compiled IR (.conc-ir) files.\nWhen given a .conc file, it compiles in-memory and executes directly.\n\nExamples:\n  concerto run src/main.conc            Compile and run in one step\n  concerto run hello.conc-ir            Run a pre-compiled program\n  concerto run src/main.conc --debug    Run with debug output\n  concerto run src/main.conc --quiet    Run without emit output\n  concerto init my-project              Create a new Concerto project"
+    long_about = "Concerto language runtime.\n\nRuns Concerto programs from source (.conc) or compiled IR (.conc-ir) files.\nWhen given a .conc file, it compiles in-memory and executes directly.\n\nExamples:\n  concerto run src/main.conc            Compile and run in one step\n  concerto run hello.conc-ir            Run a pre-compiled program\n  concerto run src/main.conc --debug    Run with debug output\n  concerto run src/main.conc --quiet    Run without emit output\n  concerto test src/main.conc           Run tests in a source file\n  concerto test src/main.conc --filter \"auth\"  Run matching tests\n  concerto init my-project              Create a new Concerto project"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -34,6 +34,24 @@ enum Command {
         quiet: bool,
     },
 
+    /// Run tests in a .conc source file
+    Test {
+        /// Path to the .conc file containing tests
+        input: PathBuf,
+
+        /// Only run tests matching this pattern
+        #[arg(short, long)]
+        filter: Option<String>,
+
+        /// Show error details on failure
+        #[arg(long)]
+        debug: bool,
+
+        /// Show only summary
+        #[arg(short, long)]
+        quiet: bool,
+    },
+
     /// Create a new Concerto project
     Init {
         /// Project name or '.' for current directory
@@ -45,8 +63,7 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
 
     match cli.command {
@@ -92,6 +109,17 @@ async fn main() {
                     }
                     process::exit(1);
                 }
+            }
+        }
+
+        Command::Test {
+            input,
+            filter,
+            debug,
+            quiet,
+        } => {
+            if let Err(code) = run_tests(&input, filter.as_deref(), debug, quiet) {
+                process::exit(code);
             }
         }
 
@@ -247,6 +275,250 @@ fn format_diagnostic(
         }
         msg
     }
+}
+
+// ============================================================================
+// concerto test
+// ============================================================================
+
+fn run_tests(input: &Path, filter: Option<&str>, debug: bool, quiet: bool) -> Result<(), i32> {
+    // Compile source for tests (permissive — no entry point required)
+    let module = match compile_source_for_tests(input, quiet) {
+        Ok(m) => m,
+        Err(msg) => {
+            eprintln!("{}", msg);
+            return Err(1);
+        }
+    };
+
+    // Filter tests by description
+    let tests: Vec<_> = module
+        .tests
+        .iter()
+        .filter(|t| {
+            if let Some(f) = filter {
+                t.description.contains(f)
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    if tests.is_empty() {
+        if filter.is_some() {
+            eprintln!("no tests matching filter");
+        } else {
+            eprintln!("no tests found");
+        }
+        return Err(1);
+    }
+
+    if !quiet {
+        println!("running {} tests\n", tests.len());
+    }
+
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut failures: Vec<(String, String)> = Vec::new();
+
+    for test in &tests {
+        // Each test gets a fresh VM instance
+        let mut vm = VM::new(module.clone());
+
+        // Suppress emit output during tests unless debug mode
+        if !debug {
+            vm.set_emit_handler(|_channel, _payload| {});
+        }
+
+        let result = vm.run_test(test);
+
+        if test.expect_fail {
+            match result {
+                Ok(_) => {
+                    // Expected failure but test passed
+                    failed += 1;
+                    if !quiet {
+                        println!("  \x1b[31mFAIL\x1b[0m  {}", test.description);
+                    }
+                    failures.push((
+                        test.description.clone(),
+                        "expected failure but test passed".to_string(),
+                    ));
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if let Some(ref expected_msg) = test.expect_fail_message {
+                        if err_msg.contains(expected_msg.as_str()) {
+                            passed += 1;
+                            if !quiet {
+                                println!("  \x1b[32mPASS\x1b[0m  {} (expected failure)", test.description);
+                            }
+                        } else {
+                            failed += 1;
+                            if !quiet {
+                                println!("  \x1b[31mFAIL\x1b[0m  {}", test.description);
+                            }
+                            failures.push((
+                                test.description.clone(),
+                                format!(
+                                    "expected error containing '{}', got: {}",
+                                    expected_msg, err_msg
+                                ),
+                            ));
+                        }
+                    } else {
+                        // Any failure is acceptable
+                        passed += 1;
+                        if !quiet {
+                            println!("  \x1b[32mPASS\x1b[0m  {} (expected failure)", test.description);
+                        }
+                    }
+                }
+            }
+        } else {
+            match result {
+                Ok(_) => {
+                    passed += 1;
+                    if !quiet {
+                        println!("  \x1b[32mPASS\x1b[0m  {}", test.description);
+                    }
+                }
+                Err(e) => {
+                    failed += 1;
+                    let err_msg = e.to_string();
+                    if !quiet {
+                        println!("  \x1b[31mFAIL\x1b[0m  {}", test.description);
+                    }
+                    failures.push((test.description.clone(), err_msg));
+                }
+            }
+        }
+    }
+
+    // Print summary
+    println!();
+    if failed == 0 {
+        println!(
+            "test result: \x1b[32mok\x1b[0m. {} passed, 0 failed",
+            passed
+        );
+        Ok(())
+    } else {
+        println!(
+            "test result: \x1b[31mFAILED\x1b[0m. {} passed, {} failed",
+            passed, failed
+        );
+        println!("\nfailures:");
+        for (desc, err) in &failures {
+            println!("  {} -- {}", desc, err);
+        }
+        Err(1)
+    }
+}
+
+/// Compile a .conc source file for test execution (permissive loading).
+fn compile_source_for_tests(path: &Path, quiet: bool) -> Result<LoadedModule, String> {
+    use concerto_common::ir::IrConnection;
+    use concerto_common::manifest;
+    use concerto_compiler::codegen::CodeGenerator;
+    use concerto_compiler::lexer::Lexer;
+    use concerto_compiler::parser;
+
+    let source = fs::read_to_string(path)
+        .map_err(|e| format!("error: could not read '{}': {}", path.display(), e))?;
+
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let (connection_names, ir_connections, manifest_hosts) =
+        match manifest::find_and_load_manifest(&abs_path) {
+            Ok(m) => {
+                let names: Vec<String> = m.connections.keys().cloned().collect();
+                let ir_conns: Vec<IrConnection> = m
+                    .connections
+                    .iter()
+                    .map(|(name, cfg)| IrConnection {
+                        name: name.clone(),
+                        config: cfg.to_ir_config(),
+                    })
+                    .collect();
+                let hosts = m.hosts.clone();
+                (names, ir_conns, hosts)
+            }
+            Err(manifest::ManifestError::NotFound(_)) => {
+                (Vec::new(), Vec::new(), std::collections::HashMap::new())
+            }
+            Err(e) => return Err(format!("error: {}", e)),
+        };
+
+    let (tokens, lex_diags) = Lexer::new(&source, &file_name).tokenize();
+    if lex_diags.has_errors() {
+        let mut msg = String::new();
+        for diag in lex_diags.diagnostics() {
+            msg.push_str(&format_diagnostic(diag, &source, &file_name));
+        }
+        return Err(msg);
+    }
+
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    if parse_diags.has_errors() {
+        let mut msg = String::new();
+        for diag in parse_diags.diagnostics() {
+            msg.push_str(&format_diagnostic(diag, &source, &file_name));
+        }
+        return Err(msg);
+    }
+    if !quiet {
+        for diag in parse_diags.diagnostics() {
+            if !diag.is_error() {
+                eprint!("{}", format_diagnostic(diag, &source, &file_name));
+            }
+        }
+    }
+
+    let sem_diags =
+        concerto_compiler::semantic::analyze_with_connections(&program, &connection_names);
+    if sem_diags.has_errors() {
+        let mut msg = String::new();
+        for diag in sem_diags.diagnostics() {
+            msg.push_str(&format_diagnostic(diag, &source, &file_name));
+        }
+        return Err(msg);
+    }
+    if !quiet {
+        for diag in sem_diags.diagnostics() {
+            if !diag.is_error() {
+                eprint!("{}", format_diagnostic(diag, &source, &file_name));
+            }
+        }
+    }
+
+    let module_name = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let mut codegen = CodeGenerator::new(&module_name, &file_name);
+    codegen.add_manifest_connections(ir_connections);
+    let mut ir = codegen.generate(&program);
+
+    if !manifest_hosts.is_empty() {
+        CodeGenerator::embed_manifest_hosts(&mut ir, &manifest_hosts);
+    }
+
+    let json = serde_json::to_string(&ir)
+        .map_err(|e| format!("error: failed to serialize IR: {}", e))?;
+    let ir_module: concerto_common::ir::IrModule = serde_json::from_str(&json)
+        .map_err(|e| format!("error: failed to deserialize IR: {}", e))?;
+
+    // Use permissive loading — test-only files may not have main()
+    LoadedModule::from_ir_permissive(ir_module)
+        .map_err(|e| format!("error: failed to load IR module: {}", e))
 }
 
 // ============================================================================

@@ -1,0 +1,5 @@
+// External module file for `mod helpers;` syntax coverage.
+
+pub fn helper_banner() -> String {
+    "helpers-module-file"
+}
