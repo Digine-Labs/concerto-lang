@@ -16,6 +16,28 @@
 
 ## Recent Development Log
 
+### 2026-02-09 - Example Audit + Language Bug Triage
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Full example compile audit | Done | `concertoc --check` run across all `examples/*/src/main.conc` (18/18 compile) |
+| Full example runtime audit | Done | `concerto run` sweep with per-example timeout; 17/18 pass, `examples/host_streaming/src/main.conc` times out in `listen` path |
+| Example hardening (error branch consistency) | Done | Replaced `Err(e) => ... e.message` with string-safe `Err(e) => ... e` in `ledger_trial_error_harness`, `multi_agent_pipeline`, `pipeline_refinement_with_ledger`, `schema_retry_fallback`, `tool_usage`, and `multi_agent_quality_loop` |
+| Example hardening (Option fallback safety) | Done | Updated `multi_agent_quality_loop` to avoid `??` on `rounds.get(...)` Option values; added helper accessors using explicit `match` |
+| Bug report: `??` Option runtime mismatch | Done | Added `bugs/2026-02-09-nil-coalesce-option-runtime-mismatch.md` with resolver/codegen root-cause mapping |
+| Bug report: agent timeout not enforced | Done | Added `bugs/2026-02-09-agent-timeout-not-enforced.md` with execute/listen repros and elapsed timings |
+| Bug report: missing static type enforcement | Done | Added `bugs/2026-02-09-missing-static-type-enforcement.md` (let/call/return/assignment type violations compile) |
+| Bug report: untyped `Err(e)` binding field access | Done | Added `bugs/2026-02-09-match-error-binding-allows-invalid-field-access.md` |
+| Bug report: bare `None` parsed as identifier binding | Done | Added `bugs/2026-02-09-none-pattern-parsed-as-identifier.md` |
+| Deep-dive bug report: `?` propagation unsound | Done | Added `bugs/2026-02-09-propagate-operator-option-and-operand-check-broken.md` (`Option` no-op + non-Result operands accepted) |
+| Deep-dive bug report: logical short-circuit missing | Done | Added `bugs/2026-02-09-logical-short-circuit-not-implemented.md` |
+| Deep-dive bug report: range iteration/slicing broken | Done | Added `bugs/2026-02-09-range-values-break-for-loop-and-slicing.md` |
+| Deep-dive bug report: structural pattern matching stubbed | Done | Added `bugs/2026-02-09-structural-pattern-matching-is-not-implemented.md` (tuple/struct/array/user enum arms degenerate to first-match) |
+| Deep-dive bug report: typed listen handlers not enforced | Done | Added `bugs/2026-02-09-listen-typed-handler-schema-not-enforced.md` |
+| Deep-dive bug report: cast semantics diverge from spec | Done | Added `bugs/2026-02-09-cast-operator-allows-invalid-and-silent-conversions.md` |
+| Deep-dive bug report: match exhaustiveness not enforced | Done | Added `bugs/2026-02-09-match-exhaustiveness-not-enforced.md` (`nil` fallback) |
+| Deep-dive bug report: `for` iterable type not validated | Done | Added `bugs/2026-02-09-for-loop-iterable-type-not-validated.md` |
+
 ### 2026-02-09 - Implement Specs 29 & 30
 
 | Task | Status | Notes |
