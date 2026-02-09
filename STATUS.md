@@ -13,6 +13,18 @@
 
 ## Recent Development Log
 
+### 2026-02-09 - Ideas Folder Cleanup (Implemented Proposals)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Remove implemented idea docs from `ideas/` | Done | Removed `ideas/bidirectional_host_streaming.md` because feature is implemented and promoted into `spec/27-host-streaming.md` + runtime/compiler support |
+
+### 2026-02-09 - Pipeline Stage Type Contract Idea
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Propose strict compile-time pipeline stage contract checks | Done | Added `ideas/pipeline_stage_type_contracts.md` (adjacent stage output/input compatibility checks, stricter return type enforcement, future pipeline-level signature syntax) |
+
 ### 2026-02-09 - Testing Refactor: `test` keyword → `@test` decorator
 
 | Task | Status | Notes |
