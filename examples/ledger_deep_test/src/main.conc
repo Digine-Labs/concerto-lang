@@ -1,0 +1,352 @@
+// ledger_deep_test
+// A knowledge-powered support triage system that demonstrates all Ledger features:
+//   - Building a knowledge base from structured entries
+//   - Querying with identifier search, key matching (single/OR/AND)
+//   - Scoped ledgers for team-specific contexts
+//   - Mutation lifecycle (insert, update, update_keys, delete)
+//   - Feeding ledger context into model calls for grounded responses
+//   - Storing model outputs back into the ledger
+
+schema TriageResult {
+    category: String,
+    priority: "low" | "medium" | "high" | "critical",
+    suggested_action: String,
+}
+
+schema KnowledgeEntry {
+    topic: String,
+    content: String,
+    tags: Array<String>,
+}
+
+model Triage {
+    provider: openai,
+    base: "gpt-4o-mini",
+    temperature: 0.2,
+    max_tokens: 500,
+    system_prompt: "You are a support triage assistant. Classify and prioritize incoming tickets based on the knowledge base context provided. Return strict JSON.",
+}
+
+model KnowledgeExtractor {
+    provider: openai,
+    base: "gpt-4o",
+    temperature: 0.3,
+    max_tokens: 800,
+    system_prompt: "You extract structured knowledge entries from documentation. Return strict JSON.",
+}
+
+// === Primary knowledge base ===
+ledger knowledge: Ledger = Ledger::new();
+
+// === Triage results archive ===
+ledger triage_log: Ledger = Ledger::new();
+
+// === Shared ledger for scoped team contexts ===
+ledger teams: Ledger = Ledger::new();
+
+// === Transient state ===
+hashmap state: HashMap<String, Any> = HashMap::new();
+
+// ------------------------------------------------------------------
+// Phase 1: Seed the knowledge base
+// ------------------------------------------------------------------
+
+fn seed_knowledge_base() {
+    // Product documentation
+    knowledge.insert(
+        "Authentication system uses OAuth2 with PKCE flow for all clients.",
+        ["auth", "oauth", "security", "login"],
+        "All client apps must use Authorization Code + PKCE. Legacy password grants were deprecated in v3.2. Tokens expire after 1 hour with 30-day refresh."
+    );
+    knowledge.insert(
+        "Rate limiting is enforced at 1000 requests per minute per API key.",
+        ["rate-limit", "api", "throttling", "performance"],
+        "Burst allowance of 50 requests. 429 responses include Retry-After header. Enterprise plans have configurable limits."
+    );
+    knowledge.insert(
+        "Database migrations run automatically on deploy via Flyway.",
+        ["database", "migration", "deploy", "flyway"],
+        "Migrations are versioned in db/migrations/. Rollback requires manual SQL. Never edit existing migration files."
+    );
+    knowledge.insert(
+        "The billing system uses Stripe for payment processing.",
+        ["billing", "stripe", "payments", "subscription"],
+        "Webhook endpoint at /api/webhooks/stripe. Subscription lifecycle managed via Stripe Billing. Invoices auto-generated monthly."
+    );
+    knowledge.insert(
+        "File uploads are stored in S3 with presigned URLs for direct client upload.",
+        ["storage", "s3", "upload", "files"],
+        "Max file size 100MB. Presigned URLs expire in 15 minutes. Virus scanning via Lambda trigger before public access."
+    );
+    knowledge.insert(
+        "The search service uses Elasticsearch with custom analyzers for multi-language support.",
+        ["search", "elasticsearch", "indexing", "performance"],
+        "Index rebuild takes ~2 hours for full catalog. Incremental sync every 5 minutes. Custom analyzers for EN, ES, FR, DE."
+    );
+
+    emit("knowledge_seeded", knowledge.len());
+}
+
+// ------------------------------------------------------------------
+// Phase 2: Demonstrate all query methods
+// ------------------------------------------------------------------
+
+fn demonstrate_queries() {
+    // 2a. from_identifier — word-level containment search
+    //     Every word in the query must appear in the identifier (case-insensitive).
+    //     Note: "OAuth2" won't match "OAuth" — tokens must fully match.
+    let auth_hits = knowledge.query().from_identifier("authentication OAuth2");
+    emit("query_identifier_auth", len(auth_hits));
+    if len(auth_hits) > 0 {
+        emit("auth_entry", auth_hits[0].value);
+    }
+
+    // 2b. from_key — exact case-insensitive single key match
+    let api_hits = knowledge.query().from_key("api");
+    emit("query_key_api", len(api_hits));
+
+    // 2c. from_any_keys — OR semantics (match ANY of the keys)
+    let infra_hits = knowledge.query().from_any_keys(["database", "storage", "search"]);
+    emit("query_any_keys_infra", len(infra_hits));
+
+    // 2d. from_exact_keys — AND semantics (must have ALL keys)
+    let perf_api = knowledge.query().from_exact_keys(["api", "performance"]);
+    emit("query_exact_keys_perf_api", len(perf_api));
+    if len(perf_api) > 0 {
+        emit("perf_api_entry", perf_api[0].identifier);
+    }
+}
+
+// ------------------------------------------------------------------
+// Phase 3: Scoped ledgers for team-specific contexts
+// ------------------------------------------------------------------
+
+fn setup_team_scopes() {
+    let backend_scope = teams.scope("backend");
+    let frontend_scope = teams.scope("frontend");
+
+    // Backend team knowledge
+    backend_scope.insert(
+        "API versioning follows semver in URL path: /api/v{major}/",
+        ["api", "versioning"],
+        "Breaking changes require major version bump. Deprecated versions supported for 6 months."
+    );
+    backend_scope.insert(
+        "Background jobs use Sidekiq with Redis-backed queues.",
+        ["jobs", "sidekiq", "redis"],
+        "Critical jobs in 'urgent' queue. Default retry: 25 attempts with exponential backoff."
+    );
+
+    // Frontend team knowledge
+    frontend_scope.insert(
+        "Component library is based on Radix UI with Tailwind CSS.",
+        ["ui", "components", "radix"],
+        "All new components must follow the Radix primitive pattern. Theme tokens in design-system/tokens.ts."
+    );
+
+    emit("backend_scope_size", backend_scope.len());
+    emit("frontend_scope_size", frontend_scope.len());
+
+    // Demonstrate scope isolation
+    let backend_ui = backend_scope.query().from_key("ui");
+    emit("backend_sees_ui", len(backend_ui));  // 0 — scopes are isolated
+
+    let frontend_api = frontend_scope.query().from_key("api");
+    emit("frontend_sees_api", len(frontend_api));  // 0
+
+    // Parent scope is empty (independent)
+    emit("parent_scope_empty", teams.is_empty());
+}
+
+// ------------------------------------------------------------------
+// Phase 4: Mutation lifecycle — update and evolve entries
+// ------------------------------------------------------------------
+
+fn demonstrate_mutations() {
+    // Track a known issue
+    knowledge.insert(
+        "Known bug: search indexing fails for documents with emoji in titles.",
+        ["bug", "search", "indexing", "known-issue"],
+        "Workaround: strip emoji before indexing. Fix planned for v4.1."
+    );
+    emit("after_bug_insert", knowledge.len());
+
+    // Bug gets fixed — update the value
+    knowledge.update(
+        "Known bug: search indexing fails for documents with emoji in titles.",
+        "RESOLVED in v4.1: Elasticsearch analyzer updated to handle Unicode emoji. No workaround needed."
+    );
+
+    // Update tags to reflect resolution
+    knowledge.update_keys(
+        "Known bug: search indexing fails for documents with emoji in titles.",
+        ["bug", "search", "indexing", "resolved"]
+    );
+
+    // Verify the update
+    let resolved = knowledge.query().from_key("resolved");
+    emit("resolved_bugs", len(resolved));
+
+    // Old "known-issue" tag should be gone
+    let known_issues = knowledge.query().from_key("known-issue");
+    emit("remaining_known_issues", len(known_issues));
+
+    // Delete an obsolete entry (deprecated feature docs)
+    knowledge.insert(
+        "Legacy XML API endpoint at /api/xml/ (deprecated).",
+        ["api", "xml", "deprecated", "legacy"],
+        "Scheduled for removal in v5.0. No new integrations allowed."
+    );
+    emit("before_delete", knowledge.len());
+
+    let deleted = knowledge.delete("Legacy XML API endpoint at /api/xml/ (deprecated).");
+    emit("delete_success", deleted);
+    emit("after_delete", knowledge.len());
+}
+
+// ------------------------------------------------------------------
+// Phase 5: Model integration — context-aware triage
+// ------------------------------------------------------------------
+
+fn triage_ticket(ticket: String) -> String {
+    // Search knowledge base for relevant context
+    let context_hits = knowledge.query().from_identifier(ticket);
+
+    let mut context = "";
+    for entry in context_hits {
+        context = context + "- " + entry.identifier + "\n  " + entry.value + "\n";
+    }
+
+    if context == "" {
+        // Fallback: try broad key search
+        let broad = knowledge.query().from_any_keys(["auth", "api", "billing", "database"]);
+        for entry in broad {
+            context = context + "- " + entry.identifier + "\n  " + entry.value + "\n";
+        }
+    }
+
+    let prompt = """
+        Triage this support ticket using the knowledge base context.
+
+        Ticket: ${ticket}
+
+        Knowledge base context:
+        ${context}
+
+        Return JSON matching TriageResult.
+        """;
+
+    let result = Triage.execute_with_schema<TriageResult>(prompt);
+    match result {
+        Ok(triage) => {
+            // Store triage result in the log ledger
+            triage_log.insert(
+                ticket,
+                [triage.category, triage.priority],
+                triage.suggested_action
+            );
+            emit("triage_result", {
+                "ticket": ticket,
+                "category": triage.category,
+                "priority": triage.priority,
+                "action": triage.suggested_action,
+            });
+            triage.suggested_action
+        },
+        Err(e) => {
+            emit("triage_error", { "ticket": ticket, "error": e });
+            "Triage failed: " + e
+        },
+    }
+}
+
+fn run_triage_pipeline() {
+    let tickets = [
+        "User cannot log in after password reset — OAuth token refresh failing",
+        "API returning 429 errors during peak hours for enterprise customer",
+        "Search results not showing recently uploaded PDF documents",
+    ];
+
+    for ticket in tickets {
+        triage_ticket(ticket);
+    }
+
+    emit("triage_log_size", triage_log.len());
+
+    // Query the triage log
+    let all_triaged = triage_log.entries();
+    emit("total_triaged", len(all_triaged));
+
+    let triage_ids = triage_log.identifiers();
+    emit("triaged_ticket_count", len(triage_ids));
+}
+
+// ------------------------------------------------------------------
+// Phase 6: Knowledge extraction — model outputs back to ledger
+// ------------------------------------------------------------------
+
+fn extract_and_store_knowledge() {
+    let doc = """
+        Release Notes v4.2:
+        - Added WebSocket support for real-time notifications
+        - Improved cache invalidation for the CDN layer
+        - Fixed memory leak in the connection pool manager
+        """;
+
+    let result = KnowledgeExtractor.execute_with_schema<KnowledgeEntry>(
+        "Extract the most important knowledge entry from these release notes:\n" + doc
+    );
+
+    match result {
+        Ok(entry) => {
+            knowledge.insert(
+                entry.topic,
+                entry.tags,
+                entry.content
+            );
+            emit("extracted_knowledge", entry.topic);
+        },
+        Err(e) => {
+            emit("extraction_error", e);
+        },
+    }
+
+    emit("final_knowledge_size", knowledge.len());
+}
+
+// ------------------------------------------------------------------
+// Phase 7: Final summary — utilities showcase
+// ------------------------------------------------------------------
+
+fn print_summary() {
+    emit("summary", {
+        "knowledge_entries": knowledge.len(),
+        "knowledge_empty": knowledge.is_empty(),
+        "triage_log_entries": triage_log.len(),
+        "total_identifiers": len(knowledge.identifiers()),
+    });
+
+    // List all identifiers
+    let ids = knowledge.identifiers();
+    for id in ids {
+        emit("kb_identifier", id);
+    }
+
+    // Clear the triage log (fresh for next run)
+    triage_log.clear();
+    emit("triage_log_cleared", triage_log.is_empty());
+}
+
+// ------------------------------------------------------------------
+// Main
+// ------------------------------------------------------------------
+
+fn main() {
+    seed_knowledge_base();
+    demonstrate_queries();
+    setup_team_scopes();
+    demonstrate_mutations();
+    run_triage_pipeline();
+    extract_and_store_knowledge();
+    print_summary();
+}
