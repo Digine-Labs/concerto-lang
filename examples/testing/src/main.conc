@@ -110,7 +110,7 @@ fn agent_with_schema_validation() {
             assert_eq(greeting.message, "Hola!");
             assert_eq(greeting.language, "Spanish");
         },
-        Err(e) => assert(false, "expected Ok"),
+        Err(_) => assert(false, "expected Ok"),
     }
 }
 

@@ -1,6 +1,8 @@
 // core_language_tour
 // Compile+runtime coverage for core syntax/semantics outside agent-specific flows.
 
+use std::string::to_upper as upper;
+
 const BASE_SCORE: Int = 10;
 type Label = String;
 
@@ -92,6 +94,14 @@ fn main() {
     let maybe_nil = nil;
     emit("coalesced", maybe_nil ?? 99);
 
+    // String indexing and Array.get
+    let greeting = "hello";
+    emit("char_at_1", greeting[1]);
+
+    let nums = [10, 20, 30];
+    emit("array_get_1", nums.get(1));
+    emit("array_get_oob", nums.get(99));
+
     match safe_divide(7, 2) {
         Ok(v) => emit("ratio", v),
         Err(e) => emit("ratio_error", e),
@@ -101,5 +111,6 @@ fn main() {
         Err(e) => emit("bad_ratio_error", e),
     }
 
-    emit("title_upper", std::string::to_upper(title));
+    // Use import alias instead of full path
+    emit("title_upper", upper(title));
 }

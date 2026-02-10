@@ -10,12 +10,29 @@
 **Testing Refactor**: COMPLETE. Replaced `test "desc" { body }` keyword syntax with `@test fn name() { body }` decorator syntax. Added `@expect_fail`/`@expect_fail("msg")`. Dual enforcement: compile-time call restriction + IR-level isolation.
 **Spec 29 (Agent Initialization)**: COMPLETE. `[agents.<name>.params]` TOML table, `init`/`init_ack` wire protocol, compiler embedding, runtime AgentClient init handshake.
 **Spec 30 (Pipeline Type Contracts)**: COMPLETE. Stage adjacency type checking with Result unwrapping, required stage return types (warning→error), `pipeline Name(input: T) -> U` signature syntax, IR pipeline signature.
-**Bug Sweep**: COMPLETE. 13 bugs fixed (compiler + runtime). 5 remaining open bugs deferred.
-**Total: 578 tests** (12 manifest + 268 compiler + 242 runtime + 56 integration), clippy clean.
+**Bug Sweep**: COMPLETE. 13 bugs fixed (compiler + runtime). 5 deferred bugs now also fixed (see below).
+**Bug Sweep Round 2**: COMPLETE. 5 deferred bugs fixed + 2 regression fixes.
+**Total: 590 tests** (12 manifest + 272 compiler + 242 runtime + 64 integration), clippy clean.
 
 ---
 
 ## Recent Development Log
+
+### 2026-02-10 - Bug Sweep Round 2: 5 Deferred Bugs Fixed + Regressions
+
+All 5 deferred bugs from the original sweep have been fixed, tested, and bug report files removed. Also fixed 2 regressions introduced by the first sweep.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Regression: Type alias mismatch | Done | Semantic: `resolve_type()` looks up `Type::Named` aliases in scope before comparison |
+| Regression: Match exhaustiveness false positives | Done | Semantic: Ok+Err and Some+None arm coverage recognized as exhaustive |
+| Fix 1: try/catch control flow corruption | Done | Codegen: jump-to-end after each catch body. Runtime: `skip_catch_body()` rethrows on no more catches |
+| Fix 2: String indexing & Array.get | Done | Runtime: `Value::String` index_get via `chars().nth()`. Array.get returns Option |
+| Fix 3: Function call arity enforcement | Done | Semantic: arg count vs param count check for user-defined functions |
+| Fix 4: ModelBuilder argument contracts | Done | Runtime: `with_tools()` rejects non-String/Function elements, `without_tools()` rejects args |
+| Fix 5: use/mod import aliases | Done | Resolver: register use-alias symbols. Codegen: substitute full qualified path. `use std::json::parse; parse("{}")` works |
+| Remove 5 bug report files | Done | All deferred bugs removed from `bugs/` |
+| Test count | Done | 590 total (12 manifest + 272 compiler + 242 runtime + 64 integration) |
 
 ### 2026-02-09 - Bug Sweep: 13 Bugs Fixed
 
@@ -37,7 +54,7 @@ All 13 open bugs from the triage sweep below have been fixed, tested, and bug re
 | Fix 12: Match error binding type narrowing | Done | Semantic: `resolve_pattern_with_type()` propagates scrutinee type to Ok/Err/Some bindings |
 | Fix 13: Listen handler type annotation | Done | Semantic: handler param type resolved from annotation instead of hardcoded Unknown |
 | Remove 14 bug report files | Done | All original triage bugs removed (13 fixed + 1 previously fixed `len-builtin-unresolved`) |
-| Remaining open bugs | Deferred | 5 new bugs: `use-and-mod-declarations-not-functional`, `try-catch-control-flow-corruption`, `index-access-spec-mismatch-string-and-array-get`, `call-arity-not-enforced`, `model-builder-argument-contracts-not-enforced` |
+| Remaining open bugs | Fixed (Round 2) | 5 bugs fixed in Bug Sweep Round 2 (2026-02-10) |
 | Test count | Done | 578 total (12 manifest + 268 compiler + 242 runtime + 56 integration) |
 
 ### 2026-02-09 - Example Audit + Language Bug Triage

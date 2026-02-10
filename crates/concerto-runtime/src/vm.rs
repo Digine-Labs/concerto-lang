@@ -626,9 +626,12 @@ impl VM {
                         let actual_type = error_val.type_name().to_string();
                         if actual_type != expected_type {
                             // Type doesn't match — skip this catch body.
-                            // Scan forward to find the next CATCH or the JUMP
-                            // that exits all catch blocks.
-                            self.skip_catch_body()?;
+                            let has_more_catches = self.skip_catch_body()?;
+                            if !has_more_catches {
+                                // No catch matched — rethrow the error
+                                let error_val = self.pop()?;
+                                self.exec_throw(error_val)?;
+                            }
                             continue;
                         }
                     }
@@ -1199,20 +1202,21 @@ impl VM {
 
     /// Skip past the current catch body to find the next CATCH or exit JUMP.
     /// Called when a typed catch doesn't match the error type.
-    fn skip_catch_body(&mut self) -> Result<()> {
+    /// Returns true if another CATCH was found, false if no more catches remain.
+    fn skip_catch_body(&mut self) -> Result<bool> {
         let frame = self
             .call_stack
             .last_mut()
             .ok_or_else(|| RuntimeError::CallError("no call frame".into()))?;
 
         // Scan forward looking for the next CATCH or JUMP instruction.
-        // The codegen emits: CATCH -> StoreLocal/Pop -> body -> [next CATCH | end]
+        // The codegen emits: CATCH -> StoreLocal/Pop -> body -> JUMP(end) -> [next CATCH | end]
         // We need to skip to the next CATCH at the same nesting level, or
         // to the JUMP that exits all catch blocks.
         let mut depth = 0;
         loop {
             if frame.pc >= frame.instructions.len() {
-                break;
+                return Ok(false);
             }
             let next_op = frame.instructions[frame.pc].op;
             match next_op {
@@ -1220,19 +1224,18 @@ impl VM {
                 Opcode::Catch if depth == 0 => {
                     // Found the next catch block at the same level — stop here.
                     // The main loop will process this CATCH instruction.
-                    break;
+                    return Ok(true);
                 }
                 Opcode::TryEnd if depth > 0 => depth -= 1,
                 Opcode::Jump if depth == 0 => {
                     // This is the exit jump past all catch blocks.
-                    // Execute it (the main loop will handle it on next iteration).
-                    break;
+                    // No more catch blocks remain.
+                    return Ok(false);
                 }
                 _ => {}
             }
             frame.pc += 1;
         }
-        Ok(())
     }
 
     fn exec_field_get(&mut self, inst: &IrInstruction) -> Result<()> {
@@ -2828,7 +2831,12 @@ impl VM {
                             match tool {
                                 Value::String(name) => extra_tools.push(name.clone()),
                                 Value::Function(name) => extra_tools.push(name.clone()),
-                                other => extra_tools.push(other.display_string()),
+                                other => {
+                                    return Err(RuntimeError::TypeError(format!(
+                                        "with_tools() array elements must be tool or MCP references, got {}",
+                                        other.type_name()
+                                    )));
+                                }
                             }
                         }
                     }
@@ -2839,6 +2847,11 @@ impl VM {
                     }
                 },
                 "without_tools" => {
+                    if !args.is_empty() {
+                        return Err(RuntimeError::TypeError(
+                            "without_tools() takes no arguments".into(),
+                        ));
+                    }
                     *exclude_default_tools = true;
                 }
                 "with_context" => {
@@ -3092,10 +3105,23 @@ impl VM {
         }
     }
 
-    fn call_array_method(arr: &[Value], method: &str, _args: Vec<Value>) -> Result<Value> {
+    fn call_array_method(arr: &[Value], method: &str, args: Vec<Value>) -> Result<Value> {
         match method {
             "len" => Ok(Value::Int(arr.len() as i64)),
             "is_empty" => Ok(Value::Bool(arr.is_empty())),
+            "get" => {
+                let idx = match args.first() {
+                    Some(Value::Int(i)) => *i as usize,
+                    _ => {
+                        return Err(RuntimeError::TypeError(
+                            "Array.get() requires an Int argument".into(),
+                        ))
+                    }
+                };
+                Ok(arr.get(idx).cloned().map_or(Value::Option(None), |v| {
+                    Value::Option(Some(Box::new(v)))
+                }))
+            }
             _ => Err(RuntimeError::TypeError(format!(
                 "no method '{}' on Array",
                 method

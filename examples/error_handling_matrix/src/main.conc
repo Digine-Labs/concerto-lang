@@ -4,7 +4,9 @@
 hashmap cache: HashMap<String, Int> = HashMap::new();
 
 fn lookup_required(key: String) -> Option<Int> {
-    cache.get(key)?
+    // ? on Option: None propagates early, Some(v) unwraps to v
+    let value = cache.get(key)?;
+    Some(value)
 }
 
 fn parse_port_with_q(text: String) -> Result<Int, String> {
@@ -19,6 +21,16 @@ fn dangerous(flag: Bool) -> Result<Int, String> {
     Ok(42)
 }
 
+fn risky_typed(kind: String) -> Result<Int, String> {
+    if kind == "type" {
+        throw "TypeError: invalid cast";
+    }
+    if kind == "io" {
+        throw "IOError: file not found";
+    }
+    Ok(100)
+}
+
 fn main() {
     cache.set("answer", 42);
 
@@ -30,6 +42,7 @@ fn main() {
         Err(e) => emit("port_err", e),
     }
 
+    // Untyped catch — catches any thrown value
     let parse_probe = try {
         parse_port_with_q("oops");
         "no error"
@@ -46,6 +59,16 @@ fn main() {
         "recovered from throw"
     };
     emit("throw_probe", throw_probe);
+
+    // Typed catch — matches specific error types
+    let typed_probe = try {
+        risky_typed("type");
+        "no error"
+    } catch String(e) {
+        emit("typed_catch", e);
+        "caught: ${e}"
+    };
+    emit("typed_probe", typed_probe);
 
     let ok_result = dangerous(false);
     emit("danger_ok", ok_result.is_ok());

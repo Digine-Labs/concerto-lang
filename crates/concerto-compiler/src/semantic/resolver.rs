@@ -401,7 +401,25 @@ impl Resolver {
                         m.span.clone(),
                     );
                 }
-                Declaration::Impl(_) | Declaration::Use(_) => {}
+                Declaration::Impl(_) => {}
+                Declaration::Use(u) => {
+                    // Register the alias (or last path segment) so the short name resolves.
+                    let local_name = u
+                        .alias
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or_else(|| u.path.last().cloned().unwrap_or_default());
+                    if !local_name.is_empty() {
+                        self.define_symbol(
+                            &local_name,
+                            SymbolKind::Function,
+                            Type::Unknown,
+                            false,
+                            false,
+                            u.span.clone(),
+                        );
+                    }
+                }
             }
         }
     }
@@ -924,6 +942,29 @@ impl Resolver {
                                     ),
                                     expr.span.clone(),
                                 );
+                            }
+                        }
+                    }
+                }
+                // Check call arity for user-defined functions
+                if let ExprKind::Identifier(name) = &callee.kind {
+                    if let Some(sym) = self.scopes.lookup(name) {
+                        // Only check user-defined functions (non-builtin: non-dummy span)
+                        let is_user_defined = !sym.defined_at.file.is_empty();
+                        if is_user_defined {
+                            if let Type::Function { ref params, .. } = sym.ty {
+                                if args.len() != params.len() {
+                                    self.diagnostics.error(
+                                        format!(
+                                            "function `{}` expects {} argument{}, got {}",
+                                            name,
+                                            params.len(),
+                                            if params.len() == 1 { "" } else { "s" },
+                                            args.len()
+                                        ),
+                                        expr.span.clone(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -2184,6 +2225,48 @@ mod tests {
         assert!(
             errs.iter().any(|e| e.contains("type mismatch")),
             "expected type narrowing mismatch, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn call_arity_too_few_args() {
+        let errs = errors("fn add(a: Int, b: Int) -> Int { a + b } fn main() { add(1); }");
+        assert!(
+            errs.iter().any(|e| e.contains("expects 2 arguments, got 1")),
+            "expected arity error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn call_arity_too_many_args() {
+        let errs = errors("fn add(a: Int, b: Int) -> Int { a + b } fn main() { add(1, 2, 3); }");
+        assert!(
+            errs.iter().any(|e| e.contains("expects 2 arguments, got 3")),
+            "expected arity error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn use_import_alias_resolves() {
+        // `use std::json::parse` should make `parse` a valid identifier (no error)
+        let errs = errors("use std::json::parse; fn main() { let x = parse(\"{}\"); }");
+        assert!(
+            errs.is_empty(),
+            "expected no errors for use-import alias, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn use_import_with_explicit_alias() {
+        // `use std::json::parse as p` should make `p` a valid identifier
+        let errs = errors("use std::json::parse as p; fn main() { let x = p(\"{}\"); }");
+        assert!(
+            errs.is_empty(),
+            "expected no errors for aliased use-import, got: {:?}",
             errs
         );
     }

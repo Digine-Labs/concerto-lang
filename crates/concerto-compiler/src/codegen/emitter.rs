@@ -29,6 +29,8 @@ pub struct CodeGenerator {
     types: Vec<IrType>,
     closure_counter: usize,
     listen_counter: usize,
+    /// `use` import aliases: short name → full qualified path (e.g. "parse" → "std::json::parse")
+    use_aliases: std::collections::HashMap<String, String>,
 }
 
 impl CodeGenerator {
@@ -52,6 +54,7 @@ impl CodeGenerator {
             types: Vec::new(),
             closure_counter: 0,
             listen_counter: 0,
+            use_aliases: std::collections::HashMap::new(),
         }
     }
 
@@ -144,8 +147,20 @@ impl CodeGenerator {
             Declaration::Memory(m) => self.generate_memory(m),
             Declaration::Mcp(m) => self.generate_mcp(m),
             Declaration::Agent(h) => self.generate_agent(h),
-            // Use, Module, TypeAlias are compile-time only; no IR emitted.
-            Declaration::Use(_) | Declaration::Module(_) | Declaration::TypeAlias(_) => {}
+            // Use: record alias mapping for identifier substitution; no IR emitted.
+            Declaration::Use(u) => {
+                let full_path = u.path.join("::");
+                let local_name = u
+                    .alias
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| u.path.last().cloned().unwrap_or_default());
+                if !local_name.is_empty() {
+                    self.use_aliases.insert(local_name, full_path);
+                }
+            }
+            // Module, TypeAlias are compile-time only; no IR emitted.
+            Declaration::Module(_) | Declaration::TypeAlias(_) => {}
         }
     }
 
@@ -384,9 +399,11 @@ impl CodeGenerator {
             }
 
             ExprKind::Identifier(name) => {
+                // Substitute use-alias with full qualified path if present
+                let resolved = self.use_aliases.get(name).cloned().unwrap_or_else(|| name.clone());
                 ctx.emit(IrInstruction {
                     op: Opcode::LoadLocal,
-                    name: Some(name.clone()),
+                    name: Some(resolved),
                     span,
                     ..default_instruction()
                 });
@@ -2096,6 +2113,7 @@ impl CodeGenerator {
         ctx.patch_jump(try_begin);
 
         // Catch blocks
+        let mut catch_exits = Vec::new();
         for catch in catches {
             ctx.emit(IrInstruction {
                 op: Opcode::Catch,
@@ -2131,8 +2149,16 @@ impl CodeGenerator {
                     ..default_instruction()
                 });
             }
+
+            // Jump past all remaining catches after this body completes
+            let catch_exit = ctx.emit_placeholder(Opcode::Jump, span);
+            catch_exits.push(catch_exit);
         }
 
+        // Patch all exit jumps (catch body exits + try-success exit) to here
+        for exit in catch_exits {
+            ctx.patch_jump(exit);
+        }
         ctx.patch_jump(jump_past_catch);
     }
 

@@ -60,6 +60,26 @@ fn run_program(source: &str) -> (Value, Vec<(String, String)>) {
     (result, collected)
 }
 
+/// Like run_program but returns the VM error string instead of panicking.
+fn run_program_err(source: &str) -> String {
+    let (tokens, lex_diags) = Lexer::new(source, "test.conc").tokenize();
+    assert!(!lex_diags.has_errors(), "lexer errors: {:?}", lex_diags.diagnostics());
+    let (program, parse_diags) = parser::Parser::new(tokens).parse();
+    assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.diagnostics());
+    let sem_diags = concerto_compiler::semantic::analyze(&program);
+    assert!(!sem_diags.has_errors(), "semantic errors: {:?}", sem_diags.diagnostics());
+    let ir = CodeGenerator::new("test", "test.conc").generate(&program);
+    let json = serde_json::to_string(&ir).expect("IR serialization failed");
+    let ir_module: concerto_common::ir::IrModule =
+        serde_json::from_str(&json).expect("IR deserialization failed");
+    let module = LoadedModule::from_ir(ir_module).expect("IR loading failed");
+    let mut vm = VM::new(module);
+    match vm.execute() {
+        Ok(_) => panic!("expected VM error but execution succeeded"),
+        Err(e) => format!("{e}"),
+    }
+}
+
 // =========================================================================
 // Tests
 // =========================================================================
@@ -1585,4 +1605,179 @@ fn bugfix_user_enum_pattern_check() {
         "#,
     );
     assert_eq!(emits[0], ("out".into(), "correct".into()));
+}
+
+#[test]
+fn bugfix_try_catch_multi_catch_first_wins() {
+    // Bug: multi-catch falls through — last catch body wins instead of first match.
+    let (_, emits) = run_program(
+        r#"
+        fn do_it() -> Result<String, String> {
+            let out = try {
+                throw "boom";
+                "after"
+            } catch String(e) {
+                "first"
+            } catch {
+                "second"
+            };
+            Ok(out)
+        }
+        fn main() {
+            match do_it() {
+                Ok(v) => emit("out", v),
+                Err(e) => emit("err", e),
+            }
+        }
+        "#,
+    );
+    assert_eq!(
+        emits[0],
+        ("out".into(), "first".into()),
+        "first matching catch should win, not last"
+    );
+}
+
+#[test]
+fn bugfix_try_catch_typed_mismatch_rethrows() {
+    // Bug: typed catch mismatch with no fallback swallows error and corrupts stack.
+    // When no catch matches, the error should propagate to the outer try/catch.
+    let (_, emits) = run_program(
+        r#"
+        fn do_it() -> Result<Int, String> {
+            let out = try {
+                let inner = try {
+                    throw "boom";
+                    1
+                } catch Int(e) {
+                    2
+                };
+                inner
+            } catch String(e) {
+                -1
+            };
+            Ok(out)
+        }
+        fn main() {
+            match do_it() {
+                Ok(v) => emit("out", v),
+                Err(e) => emit("err", e),
+            }
+        }
+        "#,
+    );
+    assert_eq!(
+        emits[0],
+        ("out".into(), "-1".into()),
+        "unmatched inner catch should rethrow to outer catch"
+    );
+}
+
+#[test]
+fn bugfix_string_indexing() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let s = "hello";
+            emit("ch", s[1]);
+            emit("first", s[0]);
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("ch".into(), "e".into()));
+    assert_eq!(emits[1], ("first".into(), "h".into()));
+}
+
+#[test]
+fn bugfix_array_get_method() {
+    let (_, emits) = run_program(
+        r#"
+        fn main() {
+            let arr = [10, 20, 30];
+            emit("found", arr.get(1));
+            emit("missing", arr.get(5));
+        }
+        "#,
+    );
+    assert_eq!(emits[0], ("found".into(), "Some(20)".into()));
+    assert_eq!(emits[1], ("missing".into(), "None".into()));
+}
+
+#[test]
+fn bugfix_builder_with_tools_rejects_non_refs() {
+    // with_tools([123]) should error — elements must be tool/MCP refs (String/Function)
+    let err = run_program_err(
+        r#"
+        model M {
+            provider: "openai",
+            base: "gpt-4o-mini",
+        }
+        fn main() {
+            let r = M.with_tools([123]).execute("hi");
+        }
+        "#,
+    );
+    assert!(
+        err.contains("tool or MCP references"),
+        "expected type error about tool refs, got: {err}",
+    );
+}
+
+#[test]
+fn bugfix_builder_without_tools_rejects_args() {
+    // without_tools(123) should error — takes no arguments
+    let err = run_program_err(
+        r#"
+        model M {
+            provider: "openai",
+            base: "gpt-4o-mini",
+        }
+        fn main() {
+            let r = M.without_tools(123).execute("hi");
+        }
+        "#,
+    );
+    assert!(
+        err.contains("no arguments"),
+        "expected arity error, got: {err}",
+    );
+}
+
+// =========================================================================
+// Fix 5: use/mod import aliases
+// =========================================================================
+
+#[test]
+fn bugfix_use_import_alias() {
+    // `use std::json::parse` should allow calling `parse()` directly
+    let (_, emits) = run_program(
+        r#"
+        use std::json::parse;
+
+        fn main() {
+            let result = parse("{\"key\": 42}");
+            match result {
+                Ok(v) => emit("parsed", v),
+                Err(e) => emit("error", e),
+            }
+        }
+        "#,
+    );
+    assert_eq!(emits[0].0, "parsed");
+}
+
+#[test]
+fn bugfix_use_import_with_alias() {
+    // `use std::string::to_upper as upper` should allow calling `upper()` directly
+    let (_, emits) = run_program(
+        r#"
+        use std::string::to_upper as upper;
+
+        fn main() {
+            emit("result", upper("hello"));
+        }
+        "#,
+    );
+    assert_eq!(emits[0].0, "result");
+    assert_eq!(emits[0].1, "HELLO");
 }

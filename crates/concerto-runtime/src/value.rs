@@ -356,6 +356,13 @@ impl Value {
                     Ok(Value::Array(arr[s..e].to_vec()))
                 }
             }
+            // String[Int] => character at index
+            (Value::String(s), Value::Int(i)) => {
+                let idx = *i as usize;
+                s.chars().nth(idx).map(|c| Value::String(c.to_string())).ok_or(
+                    RuntimeError::IndexError { index: *i, len: s.chars().count() },
+                )
+            }
             // Struct[String] => field access
             (Value::Struct { .. }, Value::String(key)) => self.field_get(key),
             _ => Err(RuntimeError::TypeError(format!(

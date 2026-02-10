@@ -1,10 +1,9 @@
 // modules_and_visibility
 // Focused syntax-coverage project for use/mod/pub constructs.
+// Demonstrates `use` import aliases for stdlib functions.
 
 use std::json::parse;
 use std::string::to_upper as upper;
-
-mod helpers;
 
 mod diagnostics {
     pub fn label() -> String {
@@ -17,19 +16,21 @@ pub fn entry_banner() -> String {
 }
 
 fn main() {
-    let payload = std::json::parse("{\"ok\": true, \"name\": \"concerto\"}");
+    // Use the imported `parse` alias instead of the full path
+    let payload = parse("{\"ok\": true, \"name\": \"concerto\"}");
 
     match payload {
         Ok(obj) => {
             emit("json_ok", obj.ok);
-            emit("json_name", obj.name);
+            // Use the imported `upper` alias instead of std::string::to_upper
+            emit("json_name", upper(obj.name));
         },
         Err(e) => emit("json_error", e),
     }
 
-    emit("banner", entry_banner());
+    emit("banner", upper(entry_banner()));
     emit(
         "note",
-        "Declared use/mod/pub syntax for module-system compilation coverage."
+        "use/mod/pub syntax with working import aliases."
     );
 }
